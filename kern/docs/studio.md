@@ -156,6 +156,53 @@ Befehle (`{"cmd": …}`):
 - `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave, Packaging, Player-Modus
 - `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Modul-Version und schmales Fenster
 
+## Logic: Blueprints, die C++ sind
+
+Jeder Actor und das Level können einen Logic-Graphen tragen: Events, Flow, Variablen,
+State Machines, Mathe und rund 60 Gameplay-Knoten. Geöffnet wird er über **Logic** in der Toolbar
+oder in Details.
+
+Der Editor funktioniert wie in Unreal:
+- Ein Draht ins Leere öffnet die gefilterte Knotensuche, der neue Knoten wird dabei gleich verdrahtet.
+- Alt+Klick trennt Drähte.
+- Vorlagen: Tür, Punktezone, Spawner, Ampel.
+- Beim Spielen zeigt der Editor live, welche Knoten laufen.
+
+Ausgeführt wird in drei Stufen, die dasselbe Ergebnis liefern (`kern/tests/logic_cases.h`):
+1. **Interpreter**, zum Bearbeiten.
+2. **JIT**: Beim Start von Play/Simulate kompiliert Kern jeden Graphen zu WebAssembly-Maschinencode
+   (`src/logic/codegen.cpp`). Das ist etwa 55-mal schneller als der Interpreter. Die Statuszeile zeigt
+   „compiled“.
+3. **Export als C++**: **Export C++** schreibt einen lesbaren Quelltext, der sich über einen Hash am
+   Graphen registriert. Mit `kern/build.sh --studio out.wasm datei.cpp` läuft der Graph dann als
+   nativer Code.
+
+Logic läuft nur auf der Autorität (Standalone oder Server). Geänderte Eigenschaften und erzeugte
+Actors werden repliziert, auch an Spieler, die später dazukommen.
+
+## Spieler, Soldat, Touch und Gamepad
+
+- **Spieler setzen:** Ein Element aus der Gruppe **Players** in die Welt ziehen; es wird sofort der
+  Spieler (Badge PLAYER im Outliner). Alternativ Rechtsklick → *Make Player* oder World Settings →
+  *Player*.
+- **Soldat:** Ego-Shooter nach SpawnCity.
+  - Bewegung: Gehen, Sprinten, Ducken, Springen.
+  - Waffen: Volt-SMG, Glock, Sniper oder 40-mm-Werfer mit Magazinen, Nachladen, Zielen über Kimme
+    und Korn sowie Kopftreffern.
+  - Spiel: Respawn und Lag-Kompensation im Online-Spiel.
+  - Optik: Andere Spieler sehen die animierte Gelenkfigur mit Waffe, dazu Mündungsfeuer, Tracer,
+    Einschusslöcher und Splitter.
+- **Geräteerkennung:** Die Engine erkennt Touch, Maus+Tastatur und Gamepad selbst und schaltet auf
+  das zuletzt benutzte um (`src/game/touch.cpp`).
+  - Auf Touch erscheinen 168-px-Sticks in den Ecken: links bewegen, rechts schauen mit Edge-Turn.
+    Ein Tippen auf den Bildschirm feuert, die Buttons passen sich dem Controller an.
+  - Play läuft im Vollbild mit EXIT; Pointer-Lock gibt es nur mit Maus.
+  - Gamepad: Xbox-Belegung mit Dead-Zones und Kurven wie in SpawnCity.
+- **Viewport:** Actors bewegt nur der Gizmo (W / E / R) wie in Unreal. Linkes Ziehen zeichnet ein
+  Auswahlrechteck.
+
+Physik-Regeln für eigene Presets: [`physics.md`](physics.md).
+
 ## Als App installieren (Android, iOS, Desktop)
 
 Kern Studio unter `/editor/` ist eine installierbare Web-App:
