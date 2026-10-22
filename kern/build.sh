@@ -2,16 +2,17 @@
 # Builds a Kern WebAssembly module: the engine plus the optional components and
 # game sources given.
 #
-#   kern/build.sh [--app] [--physics] [--world] [--editor] <out.wasm> [compiler flags / game sources...]
+#   kern/build.sh [--app] [--physics] [--game] [--studio] <out.wasm> [compiler flags / game sources...]
 #
 # Components (the core renderer, geometry and JSON are always linked):
 #   --app      application runtime (kern/src/app) for games written entirely in
 #              C++ against kern::App; the host is kern/web/app.mjs.
 #   --physics  Box3D (kern/third_party/box3d, compiled as C17) and the C++ layer
 #              kern/src/physics.
-#   --world    scene documents (.e3d), the scene runtime and game components
-#              (kern/src/world); implies --physics.
-#   --editor   the Kern editor (kern/src/editor) and its C ABI; implies --world.
+#   --game     levels, actors and components, the game runtime and the
+#              procedural city (kern/src/game); implies --physics.
+#   --studio   Kern Studio, the engine editor (kern/src/studio) and its C ABI;
+#              implies --game.
 #
 # Toolchain: wasi-sdk (clang + wasm-ld + wasi-libc + libc++). Set WASI_SDK to
 # its install directory; the CI workflow downloads release 25 from GitHub.
@@ -23,18 +24,18 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-with_app=0 with_physics=0 with_world=0 with_editor=0
+with_app=0 with_physics=0 with_game=0 with_studio=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --app) with_app=1 ;;
     --physics) with_physics=1 ;;
-    --world) with_world=1; with_physics=1 ;;
-    --editor) with_editor=1; with_world=1; with_physics=1 ;;
+    --game) with_game=1; with_physics=1 ;;
+    --studio) with_studio=1; with_game=1; with_physics=1 ;;
     *) break ;;
   esac
   shift
 done
-out="${1:?usage: kern/build.sh [--app] [--physics] [--world] [--editor] <out.wasm> [game sources...]}"
+out="${1:?usage: kern/build.sh [--app] [--physics] [--game] [--studio] <out.wasm> [game sources...]}"
 shift || true
 WASI_SDK="${WASI_SDK:-/opt/wasi-sdk}"
 CXX="$WASI_SDK/bin/clang++"
@@ -48,7 +49,7 @@ if [ "$mode" = debug ]; then opt=(-O1 -g); else opt=(-O3 -flto -DNDEBUG); fi
 features=(-mcpu=mvp -msign-ext -mbulk-memory -mnontrapping-fptoint -mmutable-globals)
 target=(--target=wasm32-wasip1 --sysroot="$WASI_SDK/share/wasi-sysroot")
 
-component_dirs=(app physics world editor)
+component_dirs=(app physics game studio)
 sources=()
 exclude=()
 for dir in "${component_dirs[@]}"; do exclude+=(-not -path "$here/src/$dir/*"); done
@@ -56,8 +57,8 @@ while IFS= read -r f; do sources+=("$f"); done < <(find "$here/src" -name '*.cpp
 add_component() { while IFS= read -r f; do sources+=("$f"); done < <(find "$here/src/$1" -name '*.cpp' | sort); }
 [ "$with_app" = 1 ] && add_component app
 [ "$with_physics" = 1 ] && add_component physics
-[ "$with_world" = 1 ] && add_component world
-[ "$with_editor" = 1 ] && add_component editor
+[ "$with_game" = 1 ] && add_component game
+[ "$with_studio" = 1 ] && add_component studio
 
 objects=()
 if [ "$with_physics" = 1 ]; then

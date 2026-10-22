@@ -1,6 +1,7 @@
 #include "kern/physics/physics.h"
 
 #include <algorithm>
+#include <cfloat>
 
 #include "box3d/box3d.h"
 #include "box3d/collision.h"
@@ -357,6 +358,7 @@ void World::step(f32 dt, i32 substeps) {
   sensor_begin_.clear();
   sensor_end_.clear();
   hits_.clear();
+  joint_events_.clear();
   if (!valid() || !(dt > 0) || !std::isfinite(dt)) return;
   b3World_Step(world_id(world_), dt, std::clamp(substeps, 1, 64));
   ++steps_;
@@ -374,6 +376,8 @@ void World::step(f32 dt, i32 substeps) {
     hits_.push_back({shape_of(e.shapeIdA), shape_of(e.shapeIdB), shape_body_checked(e.shapeIdA), shape_body_checked(e.shapeIdB),
                      kv(e.point), kv(e.normal), e.approachSpeed});
   }
+  const b3JointEvents je = b3World_GetJointEvents(world_id(world_));
+  for (int i = 0; i < je.count; ++i) joint_events_.push_back(joint_of(je.jointEvents[i].jointId));
   const b3SensorEvents se = b3World_GetSensorEvents(world_id(world_));
   for (int i = 0; i < se.beginCount; ++i) {
     const b3SensorBeginTouchEvent& e = se.beginEvents[i];
@@ -433,6 +437,62 @@ u64 World::shape_user(Shape shape) const {
   return it == shape_users_.end() ? 0 : it->second;
 }
 Body World::shape_body(Shape shape) const { return valid() && shape.valid() ? shape_body_checked(shape_id(shape)) : Body{}; }
+
+void World::set_motion_locks(Body body, const MotionLocks& l) {
+  if (!body_valid(body)) return;
+  b3MotionLocks m{};
+  m.linearX = l.linear[0];
+  m.linearY = l.linear[1];
+  m.linearZ = l.linear[2];
+  m.angularX = l.angular[0];
+  m.angularY = l.angular[1];
+  m.angularZ = l.angular[2];
+  b3Body_SetMotionLocks(body_id(body), m);
+}
+
+void World::set_mass(Body body, f32 mass) {
+  if (!body_valid(body) || !(mass > 0) || !std::isfinite(mass)) return;
+  b3MassData d = b3Body_GetMassData(body_id(body));
+  if (!(d.mass > 0)) return;
+  const f32 k = mass / d.mass;
+  d.mass = mass;
+  d.inertia.cx = b3MulSV(k, d.inertia.cx);
+  d.inertia.cy = b3MulSV(k, d.inertia.cy);
+  d.inertia.cz = b3MulSV(k, d.inertia.cz);
+  b3Body_SetMassData(body_id(body), d);
+}
+
+void World::set_joint_thresholds(Joint joint, f32 force, f32 torque) {
+  if (!joint_valid(joint)) return;
+  // Box3D reports a joint when it exceeds the threshold; FLT_MAX disables it.
+  b3Joint_SetForceThreshold(joint_id(joint), force > 0 && std::isfinite(force) ? force : FLT_MAX);
+  b3Joint_SetTorqueThreshold(joint_id(joint), torque > 0 && std::isfinite(torque) ? torque : FLT_MAX);
+}
+
+Vec3 World::joint_force(Joint joint) const { return joint_valid(joint) ? kv(b3Joint_GetConstraintForce(joint_id(joint))) : Vec3{}; }
+Vec3 World::joint_torque(Joint joint) const { return joint_valid(joint) ? kv(b3Joint_GetConstraintTorque(joint_id(joint))) : Vec3{}; }
+
+void World::contact_points(Body body, std::vector<ContactPoint>& out) const {
+  if (!body_valid(body)) return;
+  const b3BodyId id = body_id(body);
+  const int capacity = b3Body_GetContactCapacity(id);
+  if (capacity <= 0) return;
+  std::vector<b3ContactData> data(static_cast<std::size_t>(capacity));
+  const int n = b3Body_GetContactData(id, data.data(), capacity);
+  for (int i = 0; i < n; ++i) {
+    const b3ContactData& c = data[static_cast<std::size_t>(i)];
+    if (!b3Shape_IsValid(c.shapeIdA)) continue;
+    const b3Pos center = b3Body_GetWorldCenter(b3Shape_GetBody(c.shapeIdA));
+    for (int m = 0; m < c.manifoldCount; ++m) {
+      const b3Manifold& man = c.manifolds[m];
+      for (int p = 0; p < man.pointCount; ++p) {
+        const b3ManifoldPoint& mp = man.points[p];
+        out.push_back({{static_cast<f32>(center.x) + mp.anchorA.x, static_cast<f32>(center.y) + mp.anchorA.y, static_cast<f32>(center.z) + mp.anchorA.z},
+                       kv(man.normal), mp.separation, mp.normalImpulse});
+      }
+    }
+  }
+}
 
 RayHit World::cast_ray(Vec3 origin, Vec3 translation, u64 mask_bits, Body ignore) const {
   RayHit hit;

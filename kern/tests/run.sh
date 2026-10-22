@@ -27,4 +27,4 @@ while IFS= read -r f; do sources+=("$f"); done < <(find "$root/src" -name '*.cpp
   -Wall -Wextra -Wno-unused-parameter -Werror \
   -I"$root/include" -I"$root/third_party/box3d/include" -I"$here" "${sources[@]}" "$here/gl_stub.cpp" "$here/test_main.cpp" \
   "${objects[@]}" -lm -o "$out/kern_tests"
-(cd "$here" && "$out/kern_tests")
+(cd "$here" && "$out/kern_tests" "$@")

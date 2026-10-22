@@ -4,11 +4,11 @@ namespace kern {
 
 bool screen_ray(const Camera& camera, f32 x, f32 y, f32 width, f32 height, Ray& out) {
   if (!(width > 0 && height > 0) || !std::isfinite(x) || !std::isfinite(y)) return fail("invalid viewport coordinates");
-  if (!(camera.fov > 0 && camera.fov < kPi) || !(camera.far > camera.near) || !(camera.near > 0)) return fail("invalid camera");
+  if (!camera_valid(camera)) return fail("invalid camera");
   bool ok = false;
   const Mat4 view = Mat4::look_at(camera.eye, camera.target, camera.up, &ok);
   if (!ok) return fail("degenerate camera direction/up");
-  const Mat4 vp = Mat4::perspective(camera.fov, width / height, camera.near, camera.far) * view;
+  const Mat4 vp = projection_matrix(camera, width / height) * view;
   f64 inv[16];
   if (!invert(vp, inv)) return fail("singular view projection");
   const f64 nx = x / width * 2 - 1, ny = 1 - y / height * 2;
@@ -25,10 +25,17 @@ bool screen_ray(const Camera& camera, f32 x, f32 y, f32 width, f32 height, Ray& 
   const f64 dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
   const f64 len = std::sqrt(dx * dx + dy * dy + dz * dz);
   if (!(len > 1e-12) || !std::isfinite(len)) return fail("invalid ray direction");
-  out.origin = camera.eye;
   out.direction = Vec3{static_cast<f32>(dx / len), static_cast<f32>(dy / len), static_cast<f32>(dz / len)};
-  out.near = camera.near;
-  out.far = camera.far;
+  if (camera.orthographic) {
+    // Parallel rays start on the near plane under the cursor.
+    out.origin = Vec3{static_cast<f32>(a[0]), static_cast<f32>(a[1]), static_cast<f32>(a[2])};
+    out.near = 0;
+    out.far = static_cast<f32>(len);
+  } else {
+    out.origin = camera.eye;
+    out.near = camera.near;
+    out.far = camera.far;
+  }
   return true;
 }
 

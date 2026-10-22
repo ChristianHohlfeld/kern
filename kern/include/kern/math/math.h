@@ -253,6 +253,21 @@ struct Aabb {
 struct Camera {
   Vec3 eye{0, -18, 8}, target{0, 0, 2}, up{0, 0, 1};
   f32 fov = kPi / 3, near = 0.05f, far = 1800;
+  bool orthographic = false;  // parallel projection (editor top/front/side views)
+  f32 ortho_height = 20;      // orthographic: visible height in metres
 };
+
+/// True when the camera's projection parameters are usable.
+inline bool camera_valid(const Camera& c) {
+  if (!(c.far > c.near)) return false;
+  if (c.orthographic) return c.ortho_height > 0 && std::isfinite(c.ortho_height) && c.near >= 0;
+  return c.near > 0 && c.fov > 0 && c.fov < kPi;
+}
+/// Projection matrix of the camera for a viewport aspect ratio (width / height).
+inline Mat4 projection_matrix(const Camera& c, f32 aspect) {
+  if (!c.orthographic) return Mat4::perspective(c.fov, aspect, c.near, c.far);
+  const f32 h = c.ortho_height * 0.5f, w = h * aspect;
+  return Mat4::ortho(-w, w, -h, h, c.near, c.far);
+}
 
 }  // namespace kern

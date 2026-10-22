@@ -125,6 +125,17 @@ struct HitEvent {
   f32 approach_speed = 0;
 };
 
+struct ContactPoint {
+  Vec3 point, normal;     // world space; normal points from shape A to shape B
+  f32 separation = 0;     // negative when penetrating
+  f32 impulse = 0;        // normal impulse of the last sub-step
+};
+
+struct MotionLocks {
+  bool linear[3] = {false, false, false};
+  bool angular[3] = {false, false, false};
+};
+
 struct Version { i32 major = 0, minor = 0, revision = 0; };
 Version version();
 
@@ -175,6 +186,17 @@ class World {
   u64 body_user(Body body) const;
   u64 shape_user(Shape shape) const;
   Body shape_body(Shape shape) const;
+  /// Restricts translation / rotation per world axis (a body that must stay upright, a 2D plane).
+  void set_motion_locks(Body body, const MotionLocks& locks);
+  /// Overrides the mass, scaling the inertia of the shapes' mass data to match.
+  void set_mass(Body body, f32 mass);
+  /// Joints whose constraint force (N) or torque (N*m) exceeds these values
+  /// are reported in joint_events() after a step (0 = never).
+  void set_joint_thresholds(Joint joint, f32 force, f32 torque);
+  Vec3 joint_force(Joint joint) const;
+  Vec3 joint_torque(Joint joint) const;
+  /// Touching contact points of a body (for debug views).
+  void contact_points(Body body, std::vector<ContactPoint>& out) const;
 
   /// Closest hit along origin + translation (non-sensor shapes whose category matches
   /// mask_bits; shapes of `ignore` are skipped, e.g. the body the ray starts in).
@@ -186,6 +208,8 @@ class World {
   const std::vector<TouchEvent>& sensor_begin() const { return sensor_begin_; }
   const std::vector<TouchEvent>& sensor_end() const { return sensor_end_; }
   const std::vector<HitEvent>& hits() const { return hits_; }
+  /// Joints over their force/torque threshold in the last step (see set_joint_thresholds).
+  const std::vector<Joint>& joint_events() const { return joint_events_; }
 
   u32 body_count() const { return static_cast<u32>(body_users_.size()); }
   i32 awake_body_count() const;
@@ -198,6 +222,7 @@ class World {
   std::unordered_map<u64, u64> body_users_, shape_users_;
   std::vector<TouchEvent> contact_begin_, contact_end_, sensor_begin_, sensor_end_;
   std::vector<HitEvent> hits_;
+  std::vector<Joint> joint_events_;
   u64 steps_ = 0;
 };
 

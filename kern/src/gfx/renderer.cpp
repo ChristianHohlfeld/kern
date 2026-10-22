@@ -648,12 +648,12 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
     if (rect.width < 1 || rect.height < 1 || rect.x < 0 || rect.y < 0 || rect.x + rect.width > width_ || rect.y + rect.height > height_)
       return fail("viewport must fit inside the drawing buffer");
   }
-  if (!(camera.fov > 0 && camera.fov < kPi) || !(camera.near > 0) || !(camera.far > camera.near)) return fail("invalid perspective camera");
+  if (!camera_valid(camera)) return fail("invalid camera projection");
   bool ok = false;
   const Mat4 view = Mat4::look_at(camera.eye, camera.target, camera.up, &ok);
   if (!ok) return fail("degenerate camera direction/up");
   const f32 aspect = static_cast<f32>(rect.width) / static_cast<f32>(rect.height);
-  const Mat4 vp = Mat4::perspective(camera.fov, aspect, camera.near, camera.far) * view;
+  const Mat4 vp = projection_matrix(camera, aspect) * view;
   const Frustum frustum = Frustum::from_matrix(vp);
 
   // GPU timer results arrive asynchronously, a few frames late.
@@ -720,7 +720,7 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   set_frame_uniforms(vp);
   for (Mesh* m : opaque_) draw_mesh(*m, stats);
 
-  if (params.sky) sky_pass_.draw(camera, aspect, sky, lighting.exposure, start / 1000.0);
+  if (params.sky && !camera.orthographic) sky_pass_.draw(camera, aspect, sky, lighting.exposure, start / 1000.0);
   program_.use();
   cull_state_ = -1;
 
