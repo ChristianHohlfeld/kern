@@ -352,6 +352,34 @@ const vpCenter = async (page, i = 0) => {
   await page.waitForTimeout(300);
   if ((await state(page)).play?.state !== "editing") await cmd(page, {cmd: "stop"});
 
+  // Logic (Blueprint-style graph): start node, drag a wire into empty space, search, type a value, play.
+  {
+    await cmd(page, {cmd: "new", template: "basic"});
+    await page.click("#logicBtn");
+    check(await until(async () => await page.locator("#logicEditor:not([hidden]) .lg-canvas").count() === 1, 30000), "the Logic button opens the graph editor");
+    await page.click(".lg-starts [data-t='event.begin']");
+    check(await until(async () => await page.locator(".lg-node").count() === 1, 30000), "a start button adds Begin Play");
+    const pin = await page.locator(".lg-node .lg-row.out[data-pin='then'] .lg-pin").first().boundingBox();
+    await page.mouse.move(pin.x + 5, pin.y + 5);
+    await page.mouse.down();
+    await page.mouse.move(pin.x + 220, pin.y + 60, {steps: 5});
+    await page.mouse.up();
+    check(await until(async () => await page.locator(".lg-palette").count() === 1, 20000), "dropping a wire on empty space opens the node search");
+    await page.keyboard.type("show message");
+    check(await until(async () => (await page.locator(".lg-pal-it.active").textContent())?.startsWith("Show Message"), 20000), "the search finds Show Message");
+    await page.keyboard.press("Enter");
+    check(await until(async () => (await state(page)).logic?.links?.length === 1, 20000), "the new node is wired to the pin it came from");
+    const txt = page.locator(".lg-node input.lg-lit.txt").first();
+    await txt.fill("Hello from Logic");
+    await txt.press("Enter");
+    check(await until(async () => (await state(page)).logic?.issues?.filter(i => i.error).length === 0, 20000), "the graph compiles");
+    await page.click(".lg-back");
+    await cmd(page, {cmd: "spawn", item: "rolling_ball"});
+    await cmd(page, {cmd: "play", mode: "play"});
+    check(await until(async () => (await status(page)).hud?.message === "Hello from Logic", 60000), "Play runs the graph");
+    await cmd(page, {cmd: "stop"});
+  }
+
   // Help.
   await page.keyboard.press("F1");
   check(await until(async () => (await page.locator(".dialog .keys tr").count()) > 10), "F1 shows the controls");

@@ -3525,6 +3525,132 @@ TEST(studio_shortcuts_follow_the_keyboard_layout) {
   CHECK(f.s->state()["tool"].as_string() == "rotate");
 }
 
+TEST(studio_logic_editor_commands) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"new","template":"shootingRange"})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"logicOpen","owner":0})")["ok"].as_bool());
+  json::Value st = f.s->state();
+  CHECK(st["logic"]["open"].as_bool() && st["logic"]["ownerName"].as_string() == "Level");
+  // Search the palette.
+  json::Value pal = f.cmd(R"({"cmd":"logicPalette","query":"begin play"})");
+  CHECK(pal["items"].size() >= 1 && pal["items"][0]["type"].as_string() == "event.begin");
+  // Begin Play, then drop a Show Message off its exec pin: wired automatically.
+  const u32 begin = static_cast<u32>(f.cmd(R"({"cmd":"logicAdd","type":"event.begin","x":0,"y":0})")["id"].as_number());
+  json::Value add = json::Value::object();
+  add.set("cmd", "logicAdd");
+  add.set("type", "game.message");
+  add.set("x", 300);
+  add.set("y", 0);
+  json::Value from = json::Value::object();
+  from.set("node", begin);
+  from.set("pin", "then");
+  from.set("output", true);
+  add.set("from", from);
+  const u32 msg = static_cast<u32>(f.s->command(add)["id"].as_number());
+  st = f.s->state();
+  CHECK(st["logic"]["links"].size() == 1);
+  // Context palette from a data pin: only nodes that can take a text.
+  json::Value pq = json::Value::object();
+  pq.set("cmd", "logicPalette");
+  pq.set("query", "");
+  json::Value fp = json::Value::object();
+  fp.set("node", msg);
+  fp.set("pin", "text");
+  fp.set("output", false);
+  pq.set("from", fp);
+  json::Value ctx = f.s->command(pq);
+  bool has_append = false, has_branch = false;
+  for (const json::Value& it : ctx["items"].items()) {
+    has_append |= it["type"].as_string() == "text.append";
+    has_branch |= it["type"].as_string() == "flow.branch";
+  }
+  CHECK(has_append && !has_branch);
+  // Literal text and a variable printed into it.
+  json::Value val = json::Value::object();
+  val.set("cmd", "logicValue");
+  val.set("node", msg);
+  val.set("pin", "text");
+  val.set("value", "Hello from Logic");
+  CHECK(f.s->command(val)["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"logicVariable","op":"add","name":"Lives","type":"int"})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"logicVariable","op":"value","name":"Lives","value":3})")["ok"].as_bool());
+  pal = f.cmd(R"({"cmd":"logicPalette","query":"lives"})");
+  CHECK(pal["items"].size() >= 2);
+  CHECK(f.cmd(R"({"cmd":"logicVariable","op":"rename","name":"Lives","to":"Hearts"})")["ok"].as_bool());
+  st = f.s->state();
+  CHECK(st["logic"]["variables"][0]["name"].as_string() == "Hearts");
+  // A bad wire is refused with a reason.
+  json::Value bad = json::Value::object();
+  bad.set("cmd", "logicConnect");
+  bad.set("from", begin);
+  bad.set("out", "then");
+  bad.set("to", msg);
+  bad.set("in", "text");
+  json::Value r = f.s->command(bad);
+  CHECK(!r["ok"].as_bool() && r["error"].is_string());
+  // Templates, undo, play.
+  CHECK(f.cmd(R"({"cmd":"logicTemplate","template":"traffic_light"})")["ok"].as_bool());
+  CHECK(f.s->level().logic.machines.size() == 1);
+  CHECK(f.cmd(R"({"cmd":"undo"})")["ok"].as_bool());
+  CHECK(f.s->level().logic.machines.empty());
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  f.frames(3);
+  CHECK(f.s->world().hud().message == "Hello from Logic");
+  json::Value status = f.s->status();
+  CHECK(status["logicTrace"].is_object());
+  CHECK(status["logicTrace"]["variables"]["Hearts"].as_number() == 3);
+  f.cmd(R"({"cmd":"stop"})");
+  // An actor's own graph: opening it with the actor selected; copy / paste / delete.
+  const game::ActorId dummy = f.s->level().find(static_cast<game::ActorId>(0)) ? 0 : [&] { for (const game::Actor& a : f.s->level().actors) if (a.name == "Target Dummy 1") return a.id; return game::ActorId(0); }();
+  json::Value open = json::Value::object();
+  open.set("cmd", "logicOpen");
+  open.set("owner", dummy);
+  CHECK(f.s->command(open)["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"logicTemplate","template":"score_zone"})")["ok"].as_bool());
+  CHECK(f.s->level().find(dummy)->logic && f.s->level().find(dummy)->logic->nodes.size() == 4);
+  json::Value copy = f.cmd(R"({"cmd":"logicCopy","ids":[1,2]})");
+  CHECK(copy["ok"].as_bool());
+  json::Value paste = json::Value::object();
+  paste.set("cmd", "logicPaste");
+  paste.set("text", copy["text"]);
+  paste.set("x", 0);
+  paste.set("y", 600);
+  CHECK(f.s->command(paste)["ok"].as_bool());
+  CHECK(f.s->level().find(dummy)->logic->nodes.size() == 6);
+  CHECK(f.s->level().find(dummy)->logic->links.size() == 4);
+  CHECK(f.cmd(R"({"cmd":"logicDelete","ids":[1]})")["ok"].as_bool());
+  CHECK(f.s->level().find(dummy)->logic->nodes.size() == 5);
+  // State machine editing.
+  const u32 m = static_cast<u32>(f.cmd(R"({"cmd":"logicMachine","op":"add","name":"AI"})")["id"].as_number());
+  json::Value addst = json::Value::object();
+  addst.set("cmd", "logicMachine");
+  addst.set("op", "addState");
+  addst.set("machine", m);
+  addst.set("name", "Chase");
+  addst.set("x", 300);
+  const u32 chase = static_cast<u32>(f.s->command(addst)["id"].as_number());
+  const logic::StateMachine& sm = f.s->level().find(dummy)->logic->machines.back();
+  json::Value tr = json::Value::object();
+  tr.set("cmd", "logicMachine");
+  tr.set("op", "addTransition");
+  tr.set("machine", m);
+  tr.set("from", sm.states.front().id);
+  tr.set("to", chase);
+  CHECK(f.s->command(tr)["ok"].as_bool());
+  const u32 tid = f.s->level().find(dummy)->logic->machines.back().transitions.back().id;
+  json::Value ed = json::Value::object();
+  ed.set("cmd", "logicMachine");
+  ed.set("op", "editTransition");
+  ed.set("machine", m);
+  ed.set("transition", tid);
+  ed.set("trigger", "condition");
+  CHECK(f.s->command(ed)["ok"].as_bool());
+  const logic::Graph& dg = *f.s->level().find(dummy)->logic;
+  CHECK(dg.machines.back().transitions.back().trigger == logic::TriggerKind::condition);
+  CHECK(dg.variable(dg.machines.back().transitions.back().variable) != nullptr);
+  CHECK(logic::check(dg).empty() || std::none_of(logic::check(dg).begin(), logic::check(dg).end(), [](const logic::Issue& i) { return i.error; }));
+}
+
 TEST(studio_multiplayer_play) {
   StudioFixture f;
   CHECK(f.cmd(R"({"cmd":"netPlayers","players":3})")["ok"].as_bool());

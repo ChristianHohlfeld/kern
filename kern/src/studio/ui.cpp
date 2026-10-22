@@ -516,6 +516,7 @@ json::Value Studio::menu_json(std::string_view name) const {
       m.push(entry("Duplicate", cmd("duplicate"), "Ctrl+D"));
       m.push(entry("Delete", cmd("delete"), "Delete"));
       const game::Actor* p0 = level_.find(primary());
+      if (p0 && selection_.size() == 1) m.push(entry(p0->logic ? "Edit Logic" : "Add Logic (Blueprint)", cmd("logicOpen", "owner", p0->id)));
       if (p0 && p0->controller) {
         const bool is = game::default_player(level_) == p0->id;
         m.push(entry(is ? "Is the Player" : "Make Player (control it in Play)", cmd("setPlayer", "id", p0->id), "", !is));
@@ -865,6 +866,7 @@ json::Value Studio::state() {
   s.set("outliner", outliner_json());
   s.set("details", details_json());
   s.set("world", world_json());
+  if (logic_open_) s.set("logic", logic_json());
   json::Value sel = json::Value::array();
   for (ActorId id : selection_) sel.push(id);
   s.set("selection", std::move(sel));
@@ -989,6 +991,7 @@ json::Value Studio::status() {
   s.set("play", play_names[static_cast<u32>(play_)]);
   s.set("paused", paused_);
   s.set("captured", mouse_captured_);
+  if (logic_open_ && world_->running()) s.set("logicTrace", logic_trace_json());
   if (play_ != PlayState::editing) {
     json::Value hud = hud_json(world_->hud(), world_->player() != 0 && play_ == PlayState::playing);
     s.set("hud", std::move(hud));
@@ -1100,6 +1103,7 @@ json::Value Studio::run(const json::Value& c) {
   auto num = [&](const char* k, f64 fallback = 0) { return c[k].is_number() ? c[k].as_number() : fallback; };
   auto str = [&](const char* k) -> std::string { return c[k].is_string() ? c[k].as_string() : std::string(); };
   auto view_index = [&]() { return c["viewport"].is_number() ? clamp(static_cast<u32>(num("viewport")), 0u, 3u) : active_view_; };
+  if (name.rfind("logic", 0) == 0) return logic_command(name, c);
 
   // ---- selection ----
   if (name == "select") {

@@ -380,6 +380,14 @@ class Studio {
   u32 upload_lines(u32& id, const std::vector<f32>& positions, const std::vector<f32>& colors, u32 layers, bool on_top = false);
   // panels
   json::Value outliner_json() const;
+  // logic editor (logic_edit.cpp)
+  json::Value logic_command(const std::string& name, const json::Value& c);
+  json::Value logic_json() const;
+  json::Value logic_trace_json() const;
+  json::Value logic_palette(const json::Value& c) const;
+  u32 logic_owner_ = 0;
+  bool logic_open_ = false;
+  std::string logic_view_ = "graph";
   json::Value details_json() const;
   json::Value world_json() const;
   json::Value catalog_json() const;

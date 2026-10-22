@@ -31,6 +31,7 @@ css = (web / "studio/studio.css").read_text()
 sources = {
     "kern": (web / "kern.mjs").read_text(),
     "game": (web / "studio/game.mjs").read_text(),
+    "logic": (web / "studio/logic.mjs").read_text(),
     "studio": (web / "studio/studio.mjs").read_text(),
 }
 for name, text in sources.items():
@@ -40,7 +41,7 @@ b64 = base64.b64encode(wasm.read_bytes()).decode()
 
 html = html.replace('<link rel="stylesheet" href="./studio.css">', "<style>\n" + css + "\n</style>")
 # Module sources stay embedded as text: packaged games are written from them.
-blocks = "".join(f'<script type="text/plain" id="kern-src-{n}">{t}</script>\n' for n, t in sources.items() if n != "studio")
+blocks = "".join(f'<script type="text/plain" id="kern-src-{n}">{t}</script>\n' for n, t in sources.items() if n in ("kern", "game"))
 blocks += f'<script type="text/plain" id="kern-wasm">{b64}</script>\n'
 
 # The page runs one inline module: the sources concatenated with their import
@@ -49,7 +50,7 @@ blocks += f'<script type="text/plain" id="kern-wasm">{b64}</script>\n'
 def strip(text):
     text = re.sub(r'^import \{[^}]*\} from "[^"]+";\n', "", text, flags=re.M)
     return re.sub(r"^export (?=(const|let|function|async function|class) )", "", text, flags=re.M)
-bundle = "\n".join(f"// ---- {n} ----\n" + strip(sources[n]) for n in ("kern", "game", "studio"))
+bundle = "\n".join(f"// ---- {n} ----\n" + strip(sources[n]) for n in ("kern", "game", "logic", "studio"))
 boot = """<script type="module">
 """ + bundle + """
 // ---- single-file boot ----

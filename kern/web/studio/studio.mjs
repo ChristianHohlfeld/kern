@@ -7,6 +7,7 @@
 // downloads, the clipboard, pointer lock, decoding images, local storage and
 // packaging standalone games.
 import {loadKern} from "../kern.mjs";
+import {LogicEditor, LOGIC_STYLE} from "./logic.mjs";
 import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE, GamepadInput, backgroundTicker, buildGameHtml, startAudio, KernNet, openNetwork} from "./game.mjs";
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
@@ -186,6 +187,23 @@ class StudioPage {
     document.head.append(style);
     fillIcons();
     this.buildViewports();
+    // The logic editor covers the viewports while it is open (like a Blueprint editor tab).
+    {
+      const style = document.createElement("style");
+      style.textContent = LOGIC_STYLE;
+      document.head.append(style);
+      const el = document.createElement("section");
+      el.id = "logicEditor";
+      el.hidden = true;
+      $("#viewArea").append(el);
+      this.logic = new LogicEditor(el, {
+        engine: this.engine,
+        state: () => this.state,
+        flushUi: () => this.flushUi(),
+        openMenu: (entries, x, y) => this.openMenu(entries, x, y),
+        toast: (text, actions, ms) => this.toast(text, actions, ms),
+      });
+    }
     this.initToolbar();
     this.initPanels();
     this.initInput();
@@ -492,6 +510,7 @@ class StudioPage {
   }
 
   renderStatus(st) {
+    if (st?.logicTrace && this.state?.logic?.open) this.logic.setTrace(st.logicTrace);
     if (!st || !this.state) return;
     const s = this.state;
     // Frame rate measured here (the page's own frames).
@@ -742,6 +761,10 @@ class StudioPage {
   }
 
   render(s) {
+    const logicOpen = !!s.logic?.open;
+    $("#logicEditor").hidden = !logicOpen;
+    $("#logicBtn")?.classList.toggle("on", logicOpen);
+    if (logicOpen) this.logic.render(s.logic);
     this.renderToolbar(s);
     this.renderViewports(s);
     this.renderOutliner(s.outliner);
@@ -928,7 +951,7 @@ class StudioPage {
     const primary = s.outliner.rows.find(r => r.primary);
     let html = `<div class="d-head"><span class="ico">${icon(primary?.icon || "box")}</span>` +
       (d.count === 1 ? `<input class="txt" data-path="name" data-type="text" value="${esc(d.title)}" spellcheck="false" aria-label="Actor name">` : `<span class="count">${esc(d.title)}</span><span class="spacer"></span>`) +
-      `<button class="d-add" data-add>${icon("plus")}Add</button></div>`;
+      `<button class="d-add" data-logic title="Open this actor's logic graph (Blueprint)">${icon("logic")}Logic</button><button class="d-add" data-add>${icon("plus")}Add</button></div>`;
     html += `<div class="search d-search"><span data-icon="search">${icon("search")}</span><input data-filter placeholder="Search details" value="${esc(this.detailsFilter || "")}" spellcheck="false"></div>`;
     const filter = (this.detailsFilter || "").toLowerCase();
     for (const sec of d.sections) {
@@ -937,6 +960,8 @@ class StudioPage {
       html += this.sectionHtml(sec, fields, ctx, !!filter);
     }
     host.innerHTML = html;
+    const lb = host.querySelector("[data-logic]");
+    if (lb) lb.onclick = () => { this.runCommand({cmd: "logicOpen", owner: primary?.id || 0}); };
     host.querySelector("[data-add]").onclick = e => {
       const r = e.currentTarget.getBoundingClientRect();
       this.openMenu(d.add.map(([type, label]) => ({label, cmd: {cmd: "addComponent", type}})), r.left, r.bottom + 2);
@@ -1585,6 +1610,11 @@ class StudioPage {
       }
       if (this.menuStack?.length && down && e.key === "Escape") { this.closeMenus(); e.preventDefault(); return; }
       if (editable(e.target)) return;
+      // Inside the logic editor only undo / redo / save reach the level (Delete, letters... are the graph's).
+      if (e.target.closest?.("#logicEditor")) {
+        const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+        if (!(mod && (k === "z" || k === "y" || k === "s"))) return;
+      }
       if (e.key === "Alt") e.preventDefault();  // keep the browser's menu bar out of Alt shortcuts
       if (down && e.code === "F1" && !e.shiftKey) { e.preventDefault(); this.engine.command({cmd: "dialog", name: "controls"}); this.flushUi(); return; }
       const r = this.engine.key(e.key, e.code, down, modifiers(e), e.repeat);

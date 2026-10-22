@@ -328,3 +328,6 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 }
 
 .badge.player{margin-left:6px;padding:0 5px;border-radius:3px;background:#2f7de1;color:#fff;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;line-height:15px;flex:none}
+
+.tb.logic{display:inline-flex;align-items:center;gap:5px;padding:0 10px 0 8px;font-weight:600}
+.tb.logic.on{background:var(--accent-soft);color:var(--text-hi)}
