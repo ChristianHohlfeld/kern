@@ -61,6 +61,7 @@ bool Renderer::init_gpu() {
   const Program& p = program_;
   u_.view_projection = p.location("uViewProjection");
   u_.material = p.location("uMaterial");
+  u_.emissive = p.location("uEmissive");
   u_.alpha_cutoff = p.location("uAlphaCutoff");
   u_.unlit = p.location("uUnlit");
   u_.linear_color = p.location("uLinearColor");
@@ -545,6 +546,7 @@ void Renderer::draw_mesh(const Mesh& m, RenderStats& stats) {
   UniformCache& c = cache_;
   const Material& mat = m.material;
   c.set_vec4(u_.material, mat.color);
+  c.set_vec3(u_.emissive, mat.emissive);
   c.set_float(u_.alpha_cutoff, mat.alpha == AlphaMode::mask ? mat.alpha_cutoff : 0.0f);
   c.set_int(u_.unlit, mat.unlit ? 1 : 0);
   c.set_int(u_.linear_color, m.linear_colors ? 1 : 0);

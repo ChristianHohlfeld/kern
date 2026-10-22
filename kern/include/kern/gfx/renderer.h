@@ -194,7 +194,7 @@ class Renderer {
   Program program_;
   UniformCache cache_;
   struct Locations {
-    u32 view_projection, material, alpha_cutoff, unlit, linear_color, pbr, has_texture, texture, skin_enabled, bones;
+    u32 view_projection, material, emissive, alpha_cutoff, unlit, linear_color, pbr, has_texture, texture, skin_enabled, bones;
     u32 sun_direction, sun_color, sky_color, ground_color, fog_color, eye, env_zenith, env_horizon, env_ground;
     u32 fog_density, exposure, env_intensity, grade;
     u32 point_count, point_pos_range, point_color_intensity;

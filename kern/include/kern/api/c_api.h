@@ -53,7 +53,8 @@ enum KernMeshDesc : kern::u32 {
   KERN_MD_ROUGHNESS = 33,  // f32
   KERN_MD_METALNESS = 34,  // f32
   KERN_MD_PARAMS = 35,     // 8 x i32 extension material parameters
-  KERN_MD_WORDS = 43,
+  KERN_MD_EMISSIVE = 43,   // 3 x f32 linear emissive colour
+  KERN_MD_WORDS = 46,
 };
 
 enum KernMeshFlags : kern::u32 {

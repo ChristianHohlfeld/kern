@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Builds a Kern WebAssembly module: the engine plus the game sources given.
 #
-#   kern/build.sh <out.wasm> [game sources...]
+#   kern/build.sh [--app] <out.wasm> [compiler flags / game sources...]
+#
+# --app links the application runtime (kern/src/app): use it for games written
+# entirely in C++ against kern::App (the host is kern/web/app.mjs). Without it
+# the module exposes the renderer/geometry C ABI for a JavaScript host.
 #
 # Toolchain: wasi-sdk (clang + wasm-ld + wasi-libc + libc++). Set WASI_SDK to
 # its install directory; the CI workflow downloads release 25 from GitHub.
@@ -10,7 +14,9 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-out="${1:?usage: kern/build.sh <out.wasm> [game sources...]}"
+with_app=0
+if [ "${1:-}" = "--app" ]; then with_app=1; shift; fi
+out="${1:?usage: kern/build.sh [--app] <out.wasm> [game sources...]}"
 shift || true
 WASI_SDK="${WASI_SDK:-/opt/wasi-sdk}"
 CXX="$WASI_SDK/bin/clang++"
@@ -23,7 +29,10 @@ if [ "$mode" = debug ]; then opt=(-O1 -g); else opt=(-O3 -flto -DNDEBUG); fi
 features=(-mcpu=mvp -msign-ext -mbulk-memory -mnontrapping-fptoint -mmutable-globals)
 
 sources=()
-while IFS= read -r f; do sources+=("$f"); done < <(find "$here/src" -name '*.cpp' | sort)
+while IFS= read -r f; do sources+=("$f"); done < <(find "$here/src" -name '*.cpp' -not -path "$here/src/app/*" | sort)
+if [ "$with_app" = 1 ]; then
+  while IFS= read -r f; do sources+=("$f"); done < <(find "$here/src/app" -name '*.cpp' | sort)
+fi
 
 mkdir -p "$(dirname "$out")"
 "$CXX" --target=wasm32-wasip1 --sysroot="$WASI_SDK/share/wasi-sysroot" \

@@ -19,7 +19,7 @@ export const KERN_WEB_VERSION = "kern-web-1";
 const MD = Object.freeze({
   POSITIONS: 0, NORMALS: 2, COLORS: 4, UVS: 6, INDICES: 8, INDEX_BYTES: 10, JOINTS: 11, WEIGHTS: 13, BONES: 15,
   EXT0: 17, EXT1: 19, TRANSFORMS: 21, TINTS: 23, TEXTURE: 25, FLAGS: 26, ALPHA_MODE: 27, COLOR: 28,
-  ALPHA_CUTOFF: 32, ROUGHNESS: 33, METALNESS: 34, PARAMS: 35, WORDS: 43,
+  ALPHA_CUTOFF: 32, ROUGHNESS: 33, METALNESS: 34, PARAMS: 35, EMISSIVE: 43, WORDS: 46,
 });
 const MF = Object.freeze({ VISIBLE: 1, UNLIT: 2, DOUBLE_SIDED: 4, CAST_SHADOW: 8, FRUSTUM_CULLED: 16, VIEWMODEL: 32, LINEAR_COLORS: 64, WELD: 128 });
 const ID = Object.freeze({ WIDTH: 0, HEIGHT: 1, SHADOWS: 2, SHADOW_RESOLUTION: 3, SHADOW_EXTENT: 4, SHADOW_BIAS: 5, BLOOM: 6, BLOOM_FORCED: 7, GRADE: 8, WORDS: 9 });
@@ -88,6 +88,8 @@ export class KernModule {
     this.timer = null;
     this.drawBufferLists = new Map();
     this.heightSampler = null;  // (x, y) => ground height, used by the geometry builders
+    this.statusSink = null;     // (text) => void, kern::Engine::set_status
+    this.pointerLockSink = null;  // (lock) => void, kern::Engine::request_pointer_lock
   }
 
   // ---- linear memory views (refreshed after memory growth) ----
@@ -164,6 +166,8 @@ export class KernModule {
     const env = {
       now: () => performance.now(),
       terrain_height: (x, y) => (self.heightSampler ? Number(self.heightSampler(x, y)) : 0),
+      status: (ptr, length) => self.statusSink?.(self.string(ptr, length)),
+      pointer_lock: lock => self.pointerLockSink?.(lock !== 0),
       log: (level, ptr, length) => {
         const text = self.string(ptr, length);
         if (self.logSink) self.logSink(level, text);
@@ -645,6 +649,8 @@ export class KernRenderer {
     f32[d + MD.ROUGHNESS] = Number.isFinite(material.roughness) ? material.roughness : 1;
     f32[d + MD.METALNESS] = Number.isFinite(material.metalness) ? material.metalness : 0;
     i32.set(this.materialParams(material), d + MD.PARAMS);
+    const emissive = material.emissive ?? [0, 0, 0];
+    f32[d + MD.EMISSIVE] = emissive[0] || 0; f32[d + MD.EMISSIVE + 1] = emissive[1] || 0; f32[d + MD.EMISSIVE + 2] = emissive[2] || 0;
     return material;
   }
 

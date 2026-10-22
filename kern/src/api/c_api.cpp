@@ -59,6 +59,7 @@ void read_material(const u32* d, MeshInput& in) {
   m.roughness = f32_at(d, KERN_MD_ROUGHNESS);
   m.metalness = f32_at(d, KERN_MD_METALNESS);
   for (u32 i = 0; i < kMaxMaterialParams; ++i) m.params[i] = static_cast<i32>(d[KERN_MD_PARAMS + i]);
+  m.emissive = {f32_at(d, KERN_MD_EMISSIVE), f32_at(d, KERN_MD_EMISSIVE + 1), f32_at(d, KERN_MD_EMISSIVE + 2)};
 }
 }  // namespace kern
 

@@ -100,7 +100,7 @@ in vec2 vUV;
 in float vOpacity;
 uniform vec4 uMaterial;
 uniform vec3 uSunDirection, uSunColor, uSkyColor, uGroundColor, uEye, uFogColor;
-uniform vec3 uEnvZenith, uEnvHorizon, uEnvGround;
+uniform vec3 uEnvZenith, uEnvHorizon, uEnvGround, uEmissive;
 uniform float uFogDensity, uExposure, uAlphaCutoff, uEnvIntensity, uSunShadowBias;
 uniform sampler2D uTexture;
 uniform sampler2DShadow uSunShadowMap;
@@ -136,6 +136,7 @@ constexpr const char* kFragmentBase = R"GLSL(
   vec3 base = linearInput ? rawBase : srgbToLinear(rawBase);
   vec3 n = normalize(vNormal), sun = normalize(uSunDirection);
   float surfaceGlass = 0.0;
+  vec3 emissive = uEmissive;
 )GLSL";
 
 constexpr const char* kFragmentLighting = R"GLSL(
@@ -185,6 +186,7 @@ constexpr const char* kFragmentLighting = R"GLSL(
     rgb = mix(rgb, skyRefl, surfaceGlass * (0.45 + 0.4 * fr));
     rgb += surfaceGlass * mix(vec3(0.05, 0.07, 0.09), vec3(0.32, 0.4, 0.5), fr);
   }
+  rgb += emissive;
   outHdr = vec4(max(rgb, vec3(0.0)), alpha);
   rgb = acesFilmic(rgb);
   if (uGrade == 1) rgb = gradeColor(rgb);

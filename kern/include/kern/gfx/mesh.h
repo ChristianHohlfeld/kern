@@ -36,6 +36,7 @@ struct Material {
   f32 alpha_cutoff = 0.5f;
   f32 roughness = 1.0f;
   f32 metalness = 0.0f;
+  Vec3 emissive{0, 0, 0};      // linear HDR colour added after lighting (feeds bloom)
   bool unlit = false;
   bool double_sided = false;
   bool cast_shadow = true;

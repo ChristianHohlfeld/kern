@@ -53,6 +53,23 @@ class RoadBuilder {
   bool done_ = true, failed_ = false;
 };
 
+/// Convenience writer for RoadBuilder streams (C++ games).
+class RoadStream {
+ public:
+  RoadStream() { data_.push_back(0); }
+  void road(const Vec2* points, u32 count, f64 width, bool curb, u32 surface_color, i32 marking_color = -1) {
+    data_[0] += 1;
+    data_.insert(data_.end(), {width, static_cast<f64>((curb ? 1 : 0) | (marking_color >= 0 ? 2 : 0)), static_cast<f64>(surface_color),
+                               static_cast<f64>(marking_color >= 0 ? marking_color : 0), static_cast<f64>(count)});
+    for (u32 i = 0; i < count; ++i) data_.insert(data_.end(), {static_cast<f64>(points[i].x), static_cast<f64>(points[i].y)});
+  }
+  const f64* data() const { return data_.data(); }
+  std::size_t size() const { return data_.size(); }
+
+ private:
+  std::vector<f64> data_;
+};
+
 /// Regular-grid terrain tile with one vertex per height node (cells x cells
 /// quads, both halves split along the SW-NE diagonal). Normals from central
 /// differences of the neighbouring nodes. Writes an indexed mesh.

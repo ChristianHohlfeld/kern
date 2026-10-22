@@ -17,8 +17,8 @@
 //   fragment_declarations uniforms/ins/functions of the fragment stage
 //   fragment_discard      early, may `discard` (sees vWorld, alpha, texel)
 //   fragment_input        may change `linearInput` (vertex colour already linear)
-//   fragment_surface      may change base, alpha, surfaceGlass or discard
-//                         (sees n, sun, uEye, vWorld, vUV)
+//   fragment_surface      may change base, alpha, surfaceGlass, emissive (linear HDR,
+//                         added after lighting) or discard (sees n, sun, uEye, vWorld, vUV)
 #pragma once
 
 #include <string>

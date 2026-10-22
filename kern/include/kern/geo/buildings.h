@@ -85,6 +85,29 @@ class BuildingBuilder {
   std::vector<u32> ring_starts_, holes_, tris_;
 };
 
+/// Convenience writer for BuildingBuilder streams (C++ games).
+class FootprintStream {
+ public:
+  FootprintStream() { data_.push_back(0); }
+  /// Starts a building; add its outer ring first, then holes.
+  void begin(u32 seed_hash, f64 base, f64 top) {
+    data_[0] += 1;
+    data_.insert(data_.end(), {static_cast<f64>(seed_hash), base, top, 0, 0, 0, 0});
+    rings_at_ = data_.size() - 1;
+  }
+  void ring(const Vec2* points, u32 count) {
+    data_[rings_at_] += 1;
+    data_.push_back(count);
+    for (u32 i = 0; i < count; ++i) data_.insert(data_.end(), {static_cast<f64>(points[i].x), static_cast<f64>(points[i].y)});
+  }
+  const f64* data() const { return data_.data(); }
+  std::size_t size() const { return data_.size(); }
+
+ private:
+  std::vector<f64> data_;
+  std::size_t rings_at_ = 0;
+};
+
 /// Removes repeated points (< 1.5 cm apart) and the closing duplicate; empties
 /// the ring when fewer than 3 points or |area| <= 0.08 m^2 remain. xy pairs.
 void clean_ring(std::vector<f64>& xy);
