@@ -412,6 +412,7 @@ GameWorld::GameWorld(Renderer& renderer, NightWindows* windows) : r_(renderer), 
 GameWorld::~GameWorld() {
   stop();
   clear();
+  release_soldier_art();
 }
 
 void GameWorld::set_layers(u32 layers) {
@@ -427,6 +428,7 @@ void GameWorld::set_layers(u32 layers) {
 }
 
 void GameWorld::clear() {
+  release_soldier_art();
   for (auto& [id, v] : visuals_) if (v->mesh) r_.remove(v->mesh);
   visuals_.clear();
   for (auto& [id, c] : cities_) {
@@ -895,7 +897,9 @@ void GameWorld::compute_world_matrices(f32 time, f32 alpha) {
 }
 
 void GameWorld::present(f64 now_ms, Vec3 eye) {
+  const f32 frame_dt = now_ms_ > 0 ? static_cast<f32>(clamp((now_ms - now_ms_) / 1000.0, 0.0, 0.1)) : 1.0f / 60;
   now_ms_ = now_ms;
+  present_soldier_art(now_ms, frame_dt);
   if (running()) {
     // Poses and visibility only (geometry does not change while simulating).
     for (auto& [id, v] : visuals_) {
@@ -906,7 +910,7 @@ void GameWorld::present(f64 now_ms, Vec3 eye) {
         v->world = world;
       }
       const Actor* a = level_.find(id);
-      bool visible = a && !a->hidden && alive_[id];
+      bool visible = a && !a->hidden && alive_[id] && !art_hidden_.count(id);
       for (const Actor* p = a ? level_.find(a->parent) : nullptr; p && visible; p = level_.find(p->parent)) visible = !p->hidden;
       if (visible != v->visible) { r_.set_visible(v->mesh, visible); v->visible = visible; }
     }
@@ -922,7 +926,7 @@ void GameWorld::present(f64 now_ms, Vec3 eye) {
       r_.update_instances(traffic_mesh_, Span<const f32>(transforms.data(), transforms.size()), {});
     }
   }
-  if (running() && (view_valid_ || viewmodel_mesh_ || !shots_.empty())) present_soldier(now_ms);
+  if (running() && !shots_.empty()) present_soldier(now_ms);
   if (particles_ready_) particles_.tick(now_ms, eye);
 }
 
@@ -1255,6 +1259,7 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   shots_.clear();
   view_valid_ = false;
   if (viewmodel_mesh_) { r_.remove(viewmodel_mesh_); r_.release_id(viewmodel_mesh_); viewmodel_mesh_ = 0; }
+  release_soldier_art();  // fresh decals, tracers and rigs for every run
   idle_pawn_ = Pawn{};
   pw_ = &idle_pawn_;
   local_ = nullptr;
@@ -1317,6 +1322,7 @@ void GameWorld::init_combat(ActorId id) {
 
 void GameWorld::stop() {
   if (!running()) return;
+  release_soldier_art();
   grab_.end();
   joints_.clear();
   traffic_.clear();

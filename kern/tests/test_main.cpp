@@ -16,6 +16,7 @@
 #include "kern/game/net_game.h"
 #include "kern/logic/logic.h"
 #include "logic_cases.h"
+#include "../src/game/soldier_models.h"
 
 #include <algorithm>
 #include <memory>
@@ -3627,6 +3628,89 @@ TEST(studio_touch_play_without_pointer_lock) {
   f.frames(1);
   CHECK(f.s->status()["touch"].is_object());
   f.cmd(R"({"cmd":"stop"})");
+}
+
+TEST(soldier_models_are_closed_and_outward) {
+  using namespace game::models;
+  // Every weapon has parts, markers in front of the grip and a muzzle at the front.
+  for (game::WeaponKind k : {game::WeaponKind::rifle, game::WeaponKind::pistol, game::WeaponKind::shotgun, game::WeaponKind::sniper}) {
+    const WeaponModel w = weapon_model(k);
+    CHECK(w.parts.matte.vertex_count() > 300);
+    CHECK(w.muzzle.z < w.grip.z);                  // the barrel points along -Z
+    CHECK(w.front_sight.z < w.rear_sight.z);
+    CHECK(std::fabs(w.front_sight.y - w.rear_sight.y) < .02f);  // level sights
+    if (k == game::WeaponKind::pistol) CHECK(w.slide.matte.vertex_count() > 100 && w.slide_travel > 0);
+  }
+  // Box and profile faces point away from the part's centre.
+  PartMeshes p;
+  Builder b(p);
+  b.material(0x808080);
+  b.profile({{0, 0}, {1, 0}, {1, .5f}, {0, .5f}}, .3f, .02f);
+  const u32 profile_vertices = p.matte.vertex_count();
+  b.box({1, 2, 3}, {5, 0, 0}, {.3f, .2f, .1f});
+  u32 outward = 0, total = 0;
+  for (u32 t = 0; t < p.matte.vertex_count(); t += 3) {
+    const f32* q = &p.matte.positions[t * 3];
+    const Vec3 a{q[0], q[1], q[2]}, bb{q[3], q[4], q[5]}, c{q[6], q[7], q[8]};
+    const Vec3 centroid = (a + bb + c) * (1.0f / 3), centre = t < profile_vertices ? Vec3{0, .25f, -.5f} : Vec3{5, 0, 0};
+    const Vec3 n = cross(bb - a, c - a);
+    if (dot(n, n) < 1e-12f) continue;
+    ++total;
+    if (dot(n, centroid - centre) > 0) ++outward;
+  }
+  CHECK(total > 20 && outward == total);
+  // The character: 17 bones, every vertex bound; walking swings the legs, aiming raises the arms.
+  const PartMeshes body = character_mesh(player_outfit(shirt_for(7)), true);
+  CHECK(body.matte.vertex_count() > 1000 && body.matte_bones.size() == body.matte.vertex_count());
+  CharacterAnimator anim(3);
+  CharacterAnimator::Input in;
+  in.dt = 1 / 60.0f;
+  in.armed = true;
+  for (int i = 0; i < 60; ++i) anim.update(in);
+  const Vec3 wrist_idle = anim.joint_matrix(kWristR).translation();
+  CHECK(wrist_idle.y > .3f);  // the rifle points forward (+Y)
+  in.speed = 6;
+  f32 lo = 1e9f, hi = -1e9f;
+  for (int i = 0; i < 120; ++i) {
+    anim.update(in);
+    const f32 y = anim.joint_matrix(kAnkleL).translation().y;
+    lo = min_of(lo, y);
+    hi = max_of(hi, y);
+  }
+  CHECK(hi - lo > .5f);  // running strides
+  in.speed = 0;
+  in.dead = true;
+  for (int i = 0; i < 60; ++i) anim.update(in);
+  CHECK(anim.joint_matrix(kHead).translation().z < .5f);  // fallen over
+  f32 bones[kJointCount * 16];
+  anim.bones(bones);
+  for (f32 v : bones) CHECK(std::isfinite(v));
+}
+
+TEST(soldier_art_in_play) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"new","template":"shootingRange"})")["ok"].as_bool());
+  f.frames(2);
+  // Editing: the soldier stands there as a rig, its capsule is hidden, a click on the rig selects it.
+  CHECK(f.s->world().art_stats().rigs >= 1);
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  f.frames(20);
+  game::GameWorld::ArtStats a = f.s->world().art_stats();
+  CHECK(a.rigs >= 1 && a.view_model);
+  // Fire: tracers fly, chips and bullet holes appear.
+  f.s->pointer(0, 0, 480, 270, 0, 1, 0, 0);
+  f.s->pointer(0, 2, 480, 270, 0, 0, 0, 0);
+  f.s->pointer(0, 0, 480, 270, 0, 1, 0, 0);
+  f.frames(4);
+  a = f.s->world().art_stats();
+  CHECK(a.tracers >= 1);
+  f.frames(14);
+  f.s->pointer(0, 2, 480, 270, 0, 0, 0, 0);
+  a = f.s->world().art_stats();
+  CHECK(a.decals + a.chips > 0);
+  f.cmd(R"({"cmd":"stop"})");
+  f.frames(2);
+  CHECK(f.s->world().art_stats().decals == 0);  // a fresh range every run
 }
 
 TEST(studio_player_presets_and_gameplay_blocks) {

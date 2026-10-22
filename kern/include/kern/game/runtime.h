@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "kern/game/geometry.h"
@@ -120,10 +121,15 @@ struct Hud {
 };
 
 /// A hitscan shot for presentation (tracer, muzzle flash, impact).
+struct SoldierArt;  // soldier_art.cpp
+struct SoldierArtDelete { void operator()(SoldierArt* a) const; };
+
 struct ShotEvent {
   Vec3 from, to;
   ActorId shooter = 0, hit = 0;
   bool impact = false, head = false;
+  Vec3 normal{0, 0, 1};           // surface normal at `to` (impacts)
+  u8 surface = 0;                 // 0 nothing, 1 static world, 2 moving body, 3 flesh (no decal)
 };
 
 /// A sound the simulation asks for (GameAudio plays it). Cues are produced in
@@ -345,6 +351,17 @@ class GameWorld {
   void fire_weapon(const PlayInput& in, const WeaponComponent& w);
   void update_health(f32 dt);
   void present_soldier(f64 now_ms);
+  /// Soldier art: SpawnCity's articulated soldiers (also while editing), the first-person weapon
+  /// and arms, muzzle flashes, tracers, decals, chips and brass (soldier_art.cpp).
+  void present_soldier_art(f64 now_ms, f32 dt);
+ public:
+  struct ArtStats { u32 rigs = 0, decals = 0, tracers = 0, chips = 0; bool view_model = false; };
+  /// What the soldier art draws right now (tests, stats).
+  ArtStats art_stats() const;
+ private:
+  void release_soldier_art();
+  std::unique_ptr<SoldierArt, SoldierArtDelete> art_;
+  std::unordered_set<ActorId> art_hidden_;  // actors drawn by a soldier rig instead of their meshes
   void replica_soldier(const PlayInput& in, f32 dt);
   void soldier_camera(Camera& cam, f32 dt, const PlayInput& in, const ControllerComponent& c);
   ActorId actor_for_body(physics::Body body) const;

@@ -388,6 +388,10 @@ const std::vector<BuiltinSound>& builtin_sounds() {
       {"lose", "Game over", "Gameplay", false},
       {"laser", "Laser", "Gameplay", false},
       {"gunshot", "Gunshot", "Combat", false},
+      {"smg", "SMG shot", "Combat", false},
+      {"pistol", "Pistol shot", "Combat", false},
+      {"sniper", "Sniper shot", "Combat", false},
+      {"launcher", "Launcher shot", "Combat", false},
       {"reload", "Reload", "Combat", false},
       {"hit", "Hit marker", "Combat", false},
       {"down", "Down", "Combat", false},
@@ -420,6 +424,129 @@ const BuiltinSound* find_builtin(std::string_view name) {
     if (name == b.name) return &b;
   return nullptr;
 }
+
+
+// ---------------------------------------------------------------------------
+// SpawnCity's combat bank (sim/combat_audio_bank.mjs): a 9 mm SMG round and a
+// hard handgun report built from what recordings contain (N-wave crack, blast
+// noise, pressure thump, mechanism clacks, slap-back reflections, street tail).
+
+namespace {
+
+constexpr f32 kTwoPi = 6.28318530718f;
+
+struct XorShift {
+  u32 s;
+  f32 next() { s ^= s << 13; s ^= s >> 17; s ^= s << 5; return static_cast<f32>(s) / 4294967296.0f; }
+};
+
+f32 n_wave(f32 t, f32 rise, f32 fall) {
+  if (t < rise) return t / rise;
+  if (t < rise + fall) return 1 - 1.6f * (t - rise) / fall;
+  if (t < rise + fall * 1.9f) return -.6f * (1 - (t - rise - fall) / (fall * .9f));
+  return 0;
+}
+
+void finish_bank(std::vector<f32>& d, f32 target) {
+  f32 peak = 1e-6f;
+  for (f32 v : d) peak = std::max(peak, std::fabs(v));
+  const f32 g = target / peak;
+  for (f32& v : d) v = std::tanh(v * g * 1.35f);
+}
+
+std::vector<f32> render_smg(u32 rate, int variant) {
+  const f32 duration = .2f + variant * .01f;
+  const std::size_t len = static_cast<std::size_t>(std::ceil(duration * rate));
+  std::vector<f32> data(len, 0.0f), dry(len, 0.0f);
+  XorShift rnd{0x5a1c0du + static_cast<u32>(variant) * 4049u};
+  f32 lp_a = 0, lp_b = 0, phase = 0;
+  const f32 rise = .00024f, fall = .0009f + variant * .00005f;
+  for (std::size_t n = 0; n < len; ++n) {
+    const f32 t = static_cast<f32>(n) / rate, white = rnd.next() * 2 - 1;
+    lp_a += .6f * (white - lp_a);
+    lp_b += .25f * (lp_a - lp_b);
+    const f32 blast = ((lp_a - lp_b) * .9f + (white - lp_a) * .5f) * std::exp(-t / .008f);
+    phase += kTwoPi * (185 * std::exp(-t * 30) + 70) / rate;
+    const f32 thump = std::sin(phase) * std::exp(-t / .02f) * (1 - std::exp(-t / .0008f));
+    const f32 u = t - .017f - variant * .001f;
+    const f32 bolt = u > 0 && u < .012f ? (std::sin(kTwoPi * 2700 * u) + .5f * (rnd.next() * 2 - 1)) * std::exp(-u / .003f) * .25f : 0;
+    dry[n] = n_wave(t, rise, fall) * 1.2f + blast * .9f + thump * .7f + bolt;
+  }
+  const f32 taps[3][2] = {{.011f, .32f}, {.019f, .22f}, {.031f, .14f}};
+  for (const auto& tap : taps) {
+    const std::size_t k = static_cast<std::size_t>((tap[0] + variant * .0006f) * rate);
+    for (std::size_t n = len; n-- > k;) data[n] += dry[n - k] * tap[1];
+  }
+  f32 lp = 0;
+  for (std::size_t n = 0; n < len; ++n) {
+    lp += .5f * (data[n] - lp);
+    data[n] = std::tanh((dry[n] + lp * .8f) * 2.1f);
+  }
+  finish_bank(data, .95f);
+  return data;
+}
+
+std::vector<f32> render_pistol(u32 rate, int variant) {
+  const f32 duration = .58f + variant * .012f;
+  const std::size_t len = static_cast<std::size_t>(std::ceil(duration * rate));
+  std::vector<f32> data(len, 0.0f), dry(len, 0.0f);
+  XorShift rnd{0x61c0a7u + static_cast<u32>(variant) * 7919u};
+  const f32 rise = .00028f + variant * .00002f, fall = .00105f + variant * .00006f;
+  f32 lp_a = 0, lp_b = 0, tail = 0, phase = 0, ring2 = 0;
+  const f32 mech[3][4] = {{.0215f + variant * .0011f, 2450, 3810, 1}, {.0452f + variant * .0017f, 2080, 3260, .8f}, {.0705f + variant * .0013f, 2900, 4400, .35f}};
+  for (std::size_t n = 0; n < len; ++n) {
+    const f32 t = static_cast<f32>(n) / rate, white = rnd.next() * 2 - 1;
+    lp_a += .55f * (white - lp_a);
+    const f32 hp = white - lp_a;
+    lp_b += .22f * (lp_a - lp_b);
+    const f32 blast = ((lp_a - lp_b) * .9f + hp * .55f) * std::exp(-t / .0105f);
+    phase += kTwoPi * (185 * std::exp(-t * 22) + 50) / rate;
+    const f32 thump = std::sin(phase) * std::exp(-t / .042f) * (1 - std::exp(-t / .0009f));
+    const f32 boom = std::sin(kTwoPi * 44 * t) * std::exp(-t / .11f) * (1 - std::exp(-t / .004f));
+    const f32 snap = t < .0018f ? (rnd.next() * 2 - 1) * (1 - t / .0018f) : 0;
+    f32 m = 0;
+    for (const auto& c : mech) {
+      const f32 u = t - c[0];
+      if (u >= 0 && u < .02f) m += c[3] * (std::sin(kTwoPi * c[1] * u) + .6f * std::sin(kTwoPi * c[2] * u) + .4f * (rnd.next() * 2 - 1)) * std::exp(-u / .0042f);
+    }
+    dry[n] = n_wave(t, rise, fall) * 1.3f + snap * .7f + blast + thump * 1.15f + boom * .38f + m * .36f;
+  }
+  const f32 taps[5][2] = {{.0142f, .42f}, {.0235f, .30f}, {.0371f, .24f}, {.0516f, .17f}, {.0784f, .11f}};
+  for (std::size_t n = 0; n < len; ++n) {
+    const f32 t = static_cast<f32>(n) / rate;
+    f32 v = dry[n];
+    for (const auto& tap : taps) {
+      const std::size_t d = static_cast<std::size_t>((tap[0] + variant * .0007f) * rate);
+      if (n >= d) v += tap[1] * dry[n - d] * .8f;
+    }
+    ring2 += .08f * ((rnd.next() * 2 - 1) - ring2);
+    tail += .15f * (ring2 - tail);
+    data[n] = v + (t > .012f ? tail * .42f * std::exp(-(t - .012f) / .16f) : 0);
+  }
+  f32 lp = 0;
+  for (std::size_t n = 0; n < len; ++n) {
+    lp += .45f * (data[n] - lp);
+    data[n] = dry[n] + (lp - dry[n] * .45f);
+  }
+  for (f32& v : data) v = std::tanh(v * 2.6f);
+  finish_bank(data, .99f);
+  return data;
+}
+
+/// Plays `in` at `speed` (playbackRate: < 1 is lower and longer).
+std::vector<f32> at_speed(const std::vector<f32>& in, f32 speed) {
+  const std::size_t len = static_cast<std::size_t>(in.size() / speed);
+  std::vector<f32> out(len);
+  for (std::size_t i = 0; i < len; ++i) {
+    const f32 x = i * speed;
+    const std::size_t k = static_cast<std::size_t>(x);
+    const f32 f = x - k;
+    out[i] = k + 1 < in.size() ? in[k] * (1 - f) + in[k + 1] * f : (k < in.size() ? in[k] : 0);
+  }
+  return out;
+}
+
+}  // namespace
 
 bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32& channels) {
   if (name.rfind("builtin:", 0) == 0) name.remove_prefix(8);
@@ -484,6 +611,20 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
     a.lowpass = 5000;
     a.resonance = 0.4f;
     out = synthesize(a, rate);
+  } else if (name == "smg") {
+    out = render_smg(rate, 0);
+    for (f32& v : out) v *= .55f;  // SpawnCity plays it at a lower gain than the pistol
+  } else if (name == "pistol") {
+    out = render_pistol(rate, 0);
+  } else if (name == "sniper") {
+    // The pistol report at .52 plus a .5 layer under it (gain .55): a deep, long boom.
+    const std::vector<f32> p = render_pistol(rate, 1);
+    out = at_speed(p, .52f);
+    const std::vector<f32> low = at_speed(p, .5f);
+    if (low.size() > out.size()) out.resize(low.size(), 0.0f);
+    for (std::size_t i = 0; i < low.size(); ++i) out[i] = std::tanh(out[i] + low[i] * .55f);
+  } else if (name == "launcher") {
+    out = at_speed(render_pistol(rate, 2), .62f);
   } else if (name == "gunshot") {
     // Crack (bright noise, fast decay) + body (low thump) + room tail.
     SynthPatch crack = patch(Wave::noise, 12000, 0.0003f, 0.004f, 0.07f, 0.95f);

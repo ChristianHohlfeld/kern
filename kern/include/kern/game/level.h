@@ -173,7 +173,7 @@ struct WeaponComponent {
   f32 impulse = 4;              // N*s on dynamic bodies that are hit
   i32 pellets = 1;              // shotgun: rays per shot
   f32 aim_fov = 42;             // degrees aiming down sights
-  std::string fire_sound = "builtin:gunshot";
+  std::string fire_sound = "builtin:smg";
   std::string reload_sound = "builtin:reload";
 };
 

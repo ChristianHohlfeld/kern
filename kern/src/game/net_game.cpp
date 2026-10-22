@@ -167,8 +167,15 @@ struct ShotsMsg {
     if constexpr (S::kReading) shots.resize(static_cast<std::size_t>(n));
     for (ShotEvent& e : shots)
       if (!serialize_compressed_vec3(s, e.from, kWorldBound, 0.01f) || !serialize_compressed_vec3(s, e.to, kWorldBound, 0.01f) ||
-          !serialize_bits(s, e.shooter, 32) || !serialize_bits(s, e.hit, 32) || !serialize_bool(s, e.impact) || !serialize_bool(s, e.head))
+          !serialize_bits(s, e.shooter, 32) || !serialize_bits(s, e.hit, 32) || !serialize_bool(s, e.impact) || !serialize_bool(s, e.head) ||
+          !serialize_compressed_float(s, e.normal.x, -1, 1, 1.0f / 127) || !serialize_compressed_float(s, e.normal.y, -1, 1, 1.0f / 127) ||
+          !serialize_compressed_float(s, e.normal.z, -1, 1, 1.0f / 127))
         return false;
+      else {
+        u32 surface = e.surface;
+        if (!serialize_bits(s, surface, 2)) return false;
+        e.surface = static_cast<u8>(surface);
+      }
     return true;
   }
 };

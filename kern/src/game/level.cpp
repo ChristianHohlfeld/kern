@@ -193,14 +193,17 @@ WeaponComponent weapon_preset(WeaponKind kind) {
     case WeaponKind::pistol:
       w.damage = 30; w.fire_rate = 360; w.automatic = false; w.magazine = 12; w.reserve = 60; w.reload_time = 1.4f;
       w.spread = 1.0f; w.aim_spread = 0.25f; w.recoil = 1.1f; w.range = 120; w.headshot = 2.0f; w.aim_fov = 52;
+      w.fire_sound = "builtin:pistol";
       break;
     case WeaponKind::shotgun:
       w.damage = 11; w.pellets = 8; w.fire_rate = 75; w.automatic = false; w.magazine = 6; w.reserve = 36; w.reload_time = 2.6f;
       w.spread = 4.5f; w.aim_spread = 3.2f; w.recoil = 2.4f; w.range = 45; w.headshot = 1.5f; w.impulse = 2; w.aim_fov = 55;
+      w.fire_sound = "builtin:launcher";
       break;
     case WeaponKind::sniper:
       w.damage = 90; w.fire_rate = 45; w.automatic = false; w.magazine = 5; w.reserve = 25; w.reload_time = 2.8f;
       w.spread = 3.0f; w.aim_spread = 0.02f; w.recoil = 3.0f; w.range = 1000; w.headshot = 3.0f; w.impulse = 12; w.aim_fov = 16;
+      w.fire_sound = "builtin:sniper";
       break;
   }
   return w;

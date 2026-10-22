@@ -68,26 +68,6 @@ Vec3 rotate_about(Vec3 v, Vec3 axis, f32 radians) {
   return v * c + cross(axis, v) * s + axis * (dot(axis, v) * (1 - c));
 }
 
-/// Box part of the view model (camera space: x right, y up, z forward).
-void add_box(MeshData& out, Vec3 center, Vec3 size, Vec3 color) {
-  MeshComponent box;
-  box.shape = Shape::box;
-  box.size = size;
-  const MeshData m = shape_mesh(box);
-  const u32 base = out.vertex_count();
-  for (u32 i = 0; i < m.vertex_count(); ++i) {
-    // shape_mesh is Z-up (x forward); the view model uses x right, y up, z forward:
-    const Vec3 p{m.positions[i * 3], m.positions[i * 3 + 1], m.positions[i * 3 + 2]};
-    const Vec3 n{m.normals[i * 3], m.normals[i * 3 + 1], m.normals[i * 3 + 2]};
-    out.positions.insert(out.positions.end(), {center.x + p.y, center.y + p.z, center.z + p.x});
-    out.normals.insert(out.normals.end(), {n.y, n.z, n.x});
-    out.colors.insert(out.colors.end(), {color.x, color.y, color.z});
-    out.uvs.insert(out.uvs.end(), {0, 0});
-  }
-  if (m.indices.empty()) for (u32 i = 0; i < m.vertex_count(); ++i) out.indices.push_back(base + i);
-  else for (u32 i : m.indices) out.indices.push_back(base + i);
-}
-
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -445,7 +425,7 @@ void GameWorld::fire_weapon(const PlayInput& in, const WeaponComponent& w) {
   const Vec3 side = normalize(cross(aim, {0, 0, 1}), {0, 1, 0});
   const Vec3 up = cross(side, aim);
   const Vec3 muzzle = eye + aim * 0.6f + side * 0.12f - up * 0.12f;
-  cue(w.fire_sound, muzzle, 1, 0.95f + 0.1f * (rt::noise(pw_->shots * 7 + static_cast<u32>(pw_->actor)) * 0.5f + 0.5f), true, audio::Bus::sfx, pw_->actor);
+  cue(w.fire_sound, muzzle, 1, 0.98f + 0.04f * (rt::noise(pw_->shots * 7 + static_cast<u32>(pw_->actor)) * 0.5f + 0.5f), true, audio::Bus::sfx, pw_->actor);
   const f32 rewind = clamp(in.rewind, 0.0f, 0.5f);
   for (i32 pellet = 0; pellet < max_of(1, w.pellets); ++pellet) {
     // Deterministic cone: uniform over the disc of the spread angle.
@@ -459,6 +439,8 @@ void GameWorld::fire_weapon(const PlayInput& in, const WeaponComponent& w) {
     ActorId target = 0;
     bool head = false;
     Vec3 point = eye + dir * best;
+    Vec3 normal = hit.hit ? hit.normal : Vec3{0, 0, 1};
+    u8 surface = hit.hit ? 1 : 0;
     // Other pawns where the shooter saw them (lag compensation), as capsules.
     for (auto& other : pawns_) {
       if (other.get() == pw_ || other->history.empty()) continue;
@@ -482,6 +464,8 @@ void GameWorld::fire_weapon(const PlayInput& in, const WeaponComponent& w) {
         point = eye + dir * d;
         head = point.z > feet.z + height - 0.32f;
         hit.hit = false;  // the pawn is in front of whatever the ray hit
+        surface = 3;
+        normal = dir * -1.0f;
       }
     }
     if (hit.hit) {
@@ -493,6 +477,8 @@ void GameWorld::fire_weapon(const PlayInput& in, const WeaponComponent& w) {
         if (health_.count(x->id)) { target = x->id; break; }
       }
       point = hit.point;
+      if (target) surface = 3;
+      else if (physics_.body_valid(hit.body) && physics_.body_type(hit.body) != physics::BodyType::fixed) surface = 2;
       if (physics_.body_valid(hit.body) && physics_.body_type(hit.body) == physics::BodyType::dynamic)
         physics_.apply_linear_impulse(hit.body, dir * w.impulse, hit.point);
     }
@@ -504,6 +490,8 @@ void GameWorld::fire_weapon(const PlayInput& in, const WeaponComponent& w) {
     s.hit = target;
     s.impact = best < w.range;
     s.head = head;
+    s.normal = normal;
+    s.surface = surface;
     if (shots_.size() < 256) shots_.push_back(s);
   }
   // Bloom and (local) camera kick.
@@ -628,119 +616,11 @@ void GameWorld::soldier_camera(Camera& cam, f32 dt, const PlayInput& in, const C
 // view model, tracers, muzzle flash
 
 void GameWorld::present_soldier(f64 now_ms) {
-  // Hide the local player's own body in first person (the view model replaces it).
-  const bool fp = local_ && player_ == local_->actor && mode_ != SimMode::simulate && view_valid_ && level_.find(local_->actor) &&
-                  level_.find(local_->actor)->controller && level_.find(local_->actor)->controller->mode == ControlMode::soldier;
-  if (local_)
-    for (ActorId id : local_->actors)
-      if (auto v = visuals_.find(id); v != visuals_.end() && v->second->mesh) {
-        const bool show = !fp && v->second->visible;
-        r_.set_visible(v->second->mesh, show);
-      }
-  // View model.
-  const Actor* a = local_ ? level_.find(local_->actor) : nullptr;
-  const bool has_gun = fp && a && a->weapon && !(health_.count(local_->actor) && health_[local_->actor].dead);
-  if (has_gun && !viewmodel_mesh_) {
-    MeshData gun;
-    const Vec3 dark{0.11f, 0.12f, 0.13f}, metal{0.32f, 0.34f, 0.36f}, accent{0.75f, 0.42f, 0.16f};
-    switch (a->weapon->kind) {
-      case WeaponKind::pistol:
-        add_box(gun, {0, 0.012f, 0.06f}, {0.032f, 0.04f, 0.17f}, metal);
-        add_box(gun, {0, -0.045f, 0.0f}, {0.028f, 0.09f, 0.045f}, dark);
-        break;
-      case WeaponKind::shotgun:
-        add_box(gun, {0, 0, 0.1f}, {0.045f, 0.05f, 0.52f}, dark);
-        add_box(gun, {0, -0.03f, 0.18f}, {0.04f, 0.035f, 0.22f}, accent);
-        add_box(gun, {0, -0.05f, -0.15f}, {0.04f, 0.09f, 0.16f}, accent);
-        break;
-      default:
-        add_box(gun, {0, 0, 0.05f}, {0.045f, 0.06f, 0.42f}, dark);        // receiver
-        add_box(gun, {0, 0.008f, 0.36f}, {0.022f, 0.022f, 0.24f}, metal);  // barrel
-        add_box(gun, {0, -0.07f, 0.08f}, {0.035f, 0.09f, 0.05f}, metal);   // magazine
-        add_box(gun, {0, -0.055f, -0.03f}, {0.03f, 0.07f, 0.035f}, dark);  // grip
-        add_box(gun, {0, -0.01f, -0.2f}, {0.04f, 0.07f, 0.16f}, accent);   // stock
-        add_box(gun, {0, 0.05f, 0.02f}, {0.02f, 0.03f, 0.08f}, dark);      // sight
-        if (a->weapon->kind == WeaponKind::sniper) add_box(gun, {0, 0.065f, 0.05f}, {0.035f, 0.035f, 0.2f}, metal);
-        break;
-    }
-    MeshInput in = gun.as_input(kMaxExtensionAttributes);
-    in.material.roughness = 0.45f;
-    in.material.metalness = 0.4f;
-    in.layers = layers_;
-    in.material.cast_shadow = false;
-    const Mat4 id;
-    in.transforms = Span<const f32>(id.m, 16);
-    viewmodel_mesh_ = r_.allocate_id();
-    if (!r_.upsert(viewmodel_mesh_, in)) { r_.release_id(viewmodel_mesh_); viewmodel_mesh_ = 0; }
-  }
-  if (viewmodel_mesh_) {
-    r_.set_visible(viewmodel_mesh_, has_gun);
-    if (has_gun) {
-      const Camera& c = view_camera_;
-      const Vec3 f = normalize(c.target - c.eye, {1, 0, 0});
-      const Vec3 r = normalize(cross(f, c.up), {0, -1, 0});
-      const Vec3 u = cross(r, f);
-      const f32 aim = hud_.aiming ? 1.0f : 0.0f;
-      aim_blend_ += (aim - aim_blend_) * 0.25f;
-      const f32 aim_blend = aim_blend_;
-      const f32 kick = recoil_pitch_ * 1.6f;
-      const f32 reload_dip = hud_.reload >= 0 ? std::sin(hud_.reload * 3.14159f) * 0.12f : 0.0f;
-      const f32 sway = std::sin(bob_phase_) * 0.006f * bob_weight_;
-      const Vec3 hip{0.17f, -0.16f, 0.36f}, ads{0.0f, -0.058f, 0.27f};
-      const Vec3 o = hip + (ads - hip) * aim_blend;
-      Vec3 pos = c.eye + r * (o.x + sway) + u * (o.y - reload_dip + std::fabs(sway) * 0.5f) + f * (o.z - kick * 0.5f);
-      // Columns: x = right, y = up (kicked), z = forward.
-      const Vec3 fwd = normalize(f + u * (kick + reload_dip * 0.8f));
-      const Vec3 up = normalize(cross(cross(fwd, u), fwd) * -1.0f);
-      Mat4 m;
-      m.m[0] = r.x; m.m[1] = r.y; m.m[2] = r.z;
-      m.m[4] = up.x; m.m[5] = up.y; m.m[6] = up.z;
-      m.m[8] = fwd.x; m.m[9] = fwd.y; m.m[10] = fwd.z;
-      m.m[12] = pos.x; m.m[13] = pos.y; m.m[14] = pos.z;
-      r_.update_instances(viewmodel_mesh_, Span<const f32>(m.m, 16), {});
-    }
-  }
-  // Tracers and impacts of this frame's shots (from the simulation or the network).
+  // The art (rigs, view model, tracers, decals ...) is drawn by present_soldier_art; this keeps
+  // the muzzle light: a point light at the muzzle for a moment after each shot.
   for (const ShotEvent& s : shots_) {
-    if (particles_ready_) {
-      const Vec3 d = s.to - s.from;
-      const f32 len = length(d);
-      const int n = clamp(static_cast<int>(len / 1.5f), 2, 24);
-      for (int i = 0; i < n; ++i) {
-        ParticleSpec t;
-        t.position = s.from + d * (static_cast<f32>(i) / static_cast<f32>(n));
-        t.velocity = d / max_of(0.001f, len) * 30.0f;
-        t.color = {1.0f, 0.86f, 0.55f, 0.9f};
-        t.start_ms = now_ms + i * 1.2;
-        t.life_ms = 70;
-        t.size = 0.06f;
-        particles_.emit(t);
-      }
-      ParticleSpec flash;
-      flash.position = s.from;
-      flash.color = {1.0f, 0.75f, 0.35f, 1};
-      flash.start_ms = now_ms;
-      flash.life_ms = 45;
-      flash.size = 0.28f;
-      flash.grow = 0.6f;
-      particles_.emit(flash);
-      if (s.impact) {
-        Rng rng(static_cast<u32>(now_ms) + static_cast<u32>(s.to.x * 977));
-        for (int i = 0; i < 6; ++i) {
-          ParticleSpec spark;
-          spark.position = s.to;
-          spark.velocity = Vec3{rng.range(-2, 2), rng.range(-2, 2), rng.range(0.5f, 3)};
-          spark.color = s.hit ? Vec4{1.0f, 0.2f, 0.15f, 1} : Vec4{1.0f, 0.8f, 0.5f, 1};
-          spark.start_ms = now_ms;
-          spark.life_ms = rng.range(120, 260);
-          spark.size = s.head ? 0.12f : 0.07f;
-          spark.gravity = 9;
-          particles_.emit(spark);
-        }
-      }
-    }
-    if (s.shooter && (!local_ || s.shooter != local_->actor)) flash_until_ = max_of(flash_until_, now_ms + 30), flash_at_ = s.from;
-    else flash_at_ = s.from;
+    if (s.shooter && (!local_ || s.shooter != local_->actor)) flash_until_ = max_of(flash_until_, now_ms + 30);
+    flash_at_ = s.from;
   }
   shots_.clear();
 }
