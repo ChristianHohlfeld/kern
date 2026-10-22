@@ -145,6 +145,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p generated && cp _site/editor/index.html generated/studio.html && cp _site/generated/kern_studio.wasm generated/
+          # the app files next to the page, as deployed (manifest, icons, service worker)
+          cp -r _site/editor/manifest.webmanifest _site/editor/sw.js _site/editor/build.json _site/editor/icons generated/
           [ -d /tmp/e2e/node_modules/playwright ] || npm install --prefix /tmp/e2e --no-audit --no-fund playwright@1.56.0
           /tmp/e2e/node_modules/.bin/playwright install --with-deps chromium || { echo "::error::playwright install failed"; exit 1; }
           python3 -m http.server 8771 --bind 127.0.0.1 >/tmp/http.log 2>&1 &
