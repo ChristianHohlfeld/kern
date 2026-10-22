@@ -11,6 +11,10 @@ MeshData box(Vec3 size, Vec3 color = {1, 1, 1});
 MeshData box_on_ground(Vec3 size, Vec3 color = {1, 1, 1});
 /// UV sphere with smooth normals.
 MeshData sphere(f32 radius, u32 segments = 24, u32 rings = 16, Vec3 color = {1, 1, 1});
+/// Capsule along Z: a cylinder of `length` between two hemispheres of `radius`, centred on the origin.
+MeshData capsule(f32 radius, f32 length, u32 segments = 16, u32 rings = 8, Vec3 color = {1, 1, 1});
+/// Torus around Z (major radius to the tube centre, minor tube radius).
+MeshData torus(f32 major, f32 minor, u32 segments = 24, u32 tube_segments = 8, Vec3 color = {1, 1, 1});
 /// Capped cylinder standing on z = 0.
 MeshData cylinder(f32 radius, f32 height, u32 segments = 20, Vec3 color = {1, 1, 1});
 /// Capped cone standing on z = 0.

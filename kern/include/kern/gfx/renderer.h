@@ -65,9 +65,11 @@ struct Viewport {
 
 struct RenderParams {
   Vec4 clear_color{0.045f, 0.07f, 0.12f, 1};
-  bool has_viewport = false;  // stereo eye: scissored sub-rectangle, no bloom
+  bool has_viewport = false;  // stereo eye / editor view: scissored sub-rectangle, no bloom
   Viewport viewport;
   bool page_hidden = false;
+  u32 layers = ~0u;           // only meshes with (mesh.layers & layers) != 0 are drawn (and cast shadows)
+  bool sky = true;            // false: the clear colour stays behind the scene
 };
 
 struct RenderStats {
@@ -84,6 +86,7 @@ struct TextureDesc {
   i32 width = 0, height = 0;
   bool mipmaps = true;
   bool repeat = false;
+  bool nearest = false;  // nearest-neighbour filtering (pixel art), no mipmaps
 };
 
 class Renderer {
@@ -119,6 +122,8 @@ class Renderer {
   bool remove(u32 id);
   /// Updates the material of a live mesh without re-uploading geometry.
   bool set_material(u32 id, const Material& material);
+  /// Moves a live mesh to other view layers.
+  bool set_layers(u32 id, u32 layers);
   Mesh* mesh(u32 id) const { return id < slots_.size() ? slots_[id].get() : nullptr; }
   Span<Mesh* const> meshes() const { return {live_.data(), live_.size()}; }
   u32 mesh_count() const { return static_cast<u32>(live_.size()); }

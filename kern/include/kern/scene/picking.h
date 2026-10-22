@@ -21,6 +21,7 @@ struct PickQuery {
   f32 max_distance = 1800;
   u32 ignore_id = 0;  // 0 = none
   bool include_invisible = false;
+  u32 layers = ~0u;   // meshes outside these layers are ignored
 };
 
 struct PickStats {

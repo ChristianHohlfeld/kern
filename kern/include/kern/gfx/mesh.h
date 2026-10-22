@@ -43,10 +43,11 @@ struct Material {
   bool frustum_culled = true;
   bool viewmodel = false;      // first-person layer: drawn last after a depth clear
   bool linear_colors = false;  // vertex colours are linear (skip the sRGB decode)
+  bool lines = false;          // line list (pairs of vertices), always unlit, never casts shadows or is picked
   /// Parameters owned by shader extensions (see ShaderExtension::material_keys).
   i32 params[kMaxMaterialParams] = {};
 
-  bool casts_shadow() const { return cast_shadow && alpha == AlphaMode::opaque; }
+  bool casts_shadow() const { return cast_shadow && alpha == AlphaMode::opaque && !lines; }
 };
 
 /// Borrowed input for Renderer::upsert. Spans must stay valid for the call only.
@@ -64,6 +65,7 @@ struct MeshInput {
   Material material;
   u32 texture = 0;                       // GPU texture handle (0 = none)
   bool visible = true;
+  u32 layers = 1;                        // view layers this mesh belongs to (RenderParams::layers)
 };
 
 struct MeshGpu {
@@ -80,6 +82,7 @@ struct MeshGpu {
 struct Mesh {
   u32 id = 0;
   bool visible = true;
+  u32 layers = 1;
   bool linear_colors = false;
   Material material;
   u32 texture = 0;
@@ -108,10 +111,10 @@ struct Mesh {
   bool skinned() const { return !bones.empty(); }
   /// Face culling for this mesh: 0 off, 1 back faces, 2 front faces (all
   /// instances mirrored flip the winding; a mix cannot be culled in one draw).
-  i32 cull_mode() const { return material.double_sided || mirror == 2 ? 0 : mirror == 1 ? 2 : 1; }
+  i32 cull_mode() const { return material.double_sided || material.lines || mirror == 2 ? 0 : mirror == 1 ? 2 : 1; }
   u32 vertex_count() const { return static_cast<u32>(positions.size() / 3); }
   u32 element_count() const { return indices.empty() ? vertex_count() : static_cast<u32>(indices.size()); }
-  u32 triangle_count() const { return element_count() / 3; }
+  u32 triangle_count() const { return material.lines ? 0 : element_count() / 3; }
   /// Vertex `v` in mesh space with the current skin pose applied.
   Vec3 posed_vertex(u32 v) const;
 };

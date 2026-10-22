@@ -98,7 +98,7 @@ u64 SunShadowMap::focus_key(Vec3 focus, Vec3 sun) {
   return hash_bytes(key, sizeof key);
 }
 
-u32 SunShadowMap::draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun) {
+u32 SunShadowMap::draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun, u32 layers) {
   focus_key(focus, sun);
   const LightBasis b = light_basis(sun);
   const f32 e = options_.extent;
@@ -124,7 +124,7 @@ u32 SunShadowMap::draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun) {
   u32 draws = 0;
   i32 skinned_state = -1, cull_state = -1;
   for (Mesh* m : meshes) {
-    if (!m->visible || !m->gpu.vao || !m->material.casts_shadow()) continue;
+    if (!m->visible || !m->gpu.vao || !m->material.casts_shadow() || !(m->layers & layers)) continue;
     if (!m->skinned() && !frustum.sphere_visible(m->world_bounds)) continue;
     const i32 skinned = m->skinned() ? 1 : 0;
     if (skinned != skinned_state) { gl::uniform1i(u_skinned_, skinned); skinned_state = skinned; }

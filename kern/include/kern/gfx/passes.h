@@ -31,7 +31,7 @@ class SunShadowMap {
   /// Snaps `focus` for `sun` and returns a cache key of the resulting map.
   u64 focus_key(Vec3 focus, Vec3 sun);
   /// Renders the casters among `meshes`; returns the number of draw calls.
-  u32 draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun);
+  u32 draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun, u32 layers = ~0u);
 
   const Mat4& matrix() const { return matrix_; }
   u32 depth_texture() const { return depth_; }

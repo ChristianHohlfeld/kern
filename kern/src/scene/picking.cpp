@@ -53,7 +53,9 @@ bool pick_meshes(Span<Mesh* const> meshes, const Ray& ray, const PickQuery& quer
   bool found = false;
   PickStats local;
   for (Mesh* mesh : meshes) {
-    if (!mesh || (!query.include_invisible && !mesh->visible) || mesh->id == query.ignore_id) continue;
+    if (!mesh || (!query.include_invisible && !mesh->visible) || mesh->id == query.ignore_id || mesh->material.lines ||
+        !(mesh->layers & query.layers))
+      continue;
     if (mesh->positions.empty() || !mesh->instance_count) continue;
     // A skinned pose may leave the bind-pose bounds: never cull skinned meshes by bounds.
     if (!mesh->skinned() && !sphere_hits_ray(r, mesh->world_bounds, best)) { local.bounds_rejected++; continue; }

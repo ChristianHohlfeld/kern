@@ -94,9 +94,9 @@ void clear(u32) {}
 void viewport(i32, i32, i32, i32) {}
 void scissor(i32, i32, i32, i32) {}
 void polygonOffset(f32, f32) {}
-void drawArrays(u32, i32, i32) { g_gl.draws++; }
+void drawArrays(u32 mode, i32, i32) { g_gl.draws++; if (mode == 0x0001) g_gl.line_draws++; }
 void drawArraysInstanced(u32, i32, i32, i32 instances) { g_gl.draws++; g_gl.instances += instances; }
-void drawElementsInstanced(u32, i32, u32, i32, i32 instances) { g_gl.draws++; g_gl.instances += instances; }
+void drawElementsInstanced(u32 mode, i32, u32, i32, i32 instances) { g_gl.draws++; g_gl.instances += instances; if (mode == 0x0001) g_gl.line_draws++; }
 i32 getExtension(const char*, u32) { return g_gl.extensions_available ? 1 : 0; }
 u32 createQuery() { g_gl.queries_created++; return next_handle(); }
 void deleteQuery(u32) {}

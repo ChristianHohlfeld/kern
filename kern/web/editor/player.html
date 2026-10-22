@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kern player</title>
+<style id="player-style"></style>
+</head>
+<body>
+<script type="module">
+// Development host for games: player.html?scene=path/to/scene.e3d
+// Without ?scene it plays the built-in "Roll & Collect" example.
+import {startPlayer, PLAYER_PAGE_STYLE} from "./player.mjs";
+document.getElementById("player-style").textContent = PLAYER_PAGE_STYLE;
+document.body.insertAdjacentHTML("afterbegin", '<canvas id="gl" tabindex="0"></canvas><div id="hud"></div><div id="message" hidden></div><div id="hint">WASD / arrows move · Space jump · R restart · drag to look</div><div id="stick" hidden><div></div></div><button id="jump" hidden>Jump</button><button id="restart" hidden>↻</button><div id="error" role="alert"></div>');
+const url = "../../../generated/kern_editor.wasm";
+const sceneUrl = new URLSearchParams(location.search).get("scene");
+const sceneText = sceneUrl ? await (await fetch(sceneUrl)).text() : null;
+startPlayer({url, sceneText: sceneText ?? "__demo__"}).catch(e => {
+  const b = document.getElementById("error"); b.style.display = "block"; b.textContent = e.message; console.error(e);
+});
+</script>
+</body>
+</html>

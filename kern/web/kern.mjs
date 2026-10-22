@@ -21,7 +21,7 @@ const MD = Object.freeze({
   EXT0: 17, EXT1: 19, TRANSFORMS: 21, TINTS: 23, TEXTURE: 25, FLAGS: 26, ALPHA_MODE: 27, COLOR: 28,
   ALPHA_CUTOFF: 32, ROUGHNESS: 33, METALNESS: 34, PARAMS: 35, EMISSIVE: 43, WORDS: 46,
 });
-const MF = Object.freeze({ VISIBLE: 1, UNLIT: 2, DOUBLE_SIDED: 4, CAST_SHADOW: 8, FRUSTUM_CULLED: 16, VIEWMODEL: 32, LINEAR_COLORS: 64, WELD: 128 });
+const MF = Object.freeze({ VISIBLE: 1, UNLIT: 2, DOUBLE_SIDED: 4, CAST_SHADOW: 8, FRUSTUM_CULLED: 16, VIEWMODEL: 32, LINEAR_COLORS: 64, WELD: 128, LINES: 256 });
 const ID = Object.freeze({ WIDTH: 0, HEIGHT: 1, SHADOWS: 2, SHADOW_RESOLUTION: 3, SHADOW_EXTENT: 4, SHADOW_BIAS: 5, BLOOM: 6, BLOOM_FORCED: 7, GRADE: 8, WORDS: 9 });
 const RP = Object.freeze({ CLEAR: 0, HAS_VIEWPORT: 4, X: 5, Y: 6, W: 7, H: 8, PAGE_HIDDEN: 9, WORDS: 10 });
 const RS = Object.freeze({ DRAW_CALLS: 0, SHADOW_DRAW_CALLS: 1, SHADOW_RESOLUTION: 2, SHADOW_REUSED: 3, TRIANGLES: 4, INSTANCES: 5, CULLED: 6, CPU_MS: 7, GPU_MS: 8, BLOOM: 9, VISIBLE: 10, SLOTS: 11 });
@@ -656,6 +656,7 @@ export class KernRenderer {
     if (material.castShadow !== false) flags |= MF.CAST_SHADOW;
     if (material.frustumCulled !== false) flags |= MF.FRUSTUM_CULLED;
     if (material.viewmodel === true) flags |= MF.VIEWMODEL;
+    if (material.lines === true) flags |= MF.LINES;
     if (material.linearColors || LINEAR_COLOR_ARRAYS.has(input.colors)) flags |= MF.LINEAR_COLORS;
     u32[d + MD.FLAGS] = flags;
     u32[d + MD.ALPHA_MODE] = material.alphaMode === "blend" ? 2 : material.alphaMode === "mask" ? 1 : 0;

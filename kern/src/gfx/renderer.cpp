@@ -185,9 +185,11 @@ bool Renderer::upsert(u32 id, const MeshInput& in) {
   const std::size_t p = in.positions.size;
   if (!p || p % 3) return fail("positions must be xyz triplets");
   const u32 vertices = static_cast<u32>(p / 3);
-  if (in.indices.empty() && vertices % 3) return fail("invalid triangles");
+  const u32 per_primitive = in.material.lines ? 2 : 3;
+  if (in.indices.empty() && vertices % per_primitive) return fail(in.material.lines ? "invalid lines" : "invalid triangles");
+  if (in.material.lines && !in.bones.empty()) return fail("line meshes cannot be skinned");
   if (!in.indices.empty()) {
-    if (in.indices.size % 3) return fail("invalid indices");
+    if (in.indices.size % per_primitive) return fail("invalid indices");
     for (u32 i : in.indices)
       if (i >= vertices) return fail("index %u outside %u vertices", i, vertices);
   }
@@ -223,13 +225,18 @@ bool Renderer::upsert(u32 id, const MeshInput& in) {
   Mesh& m = *mesh;
   m.id = id;
   m.visible = in.visible;
+  m.layers = in.layers;
   m.material = in.material;
+  if (m.material.lines) { m.material.unlit = true; m.material.cast_shadow = false; }
   m.texture = in.texture;
   m.linear_colors = in.material.linear_colors;
   assign(m.positions, in.positions);
   assign(m.indices, in.indices);
   if (!in.normals.empty()) {
     assign(m.normals, in.normals);
+  } else if (m.material.lines) {
+    m.normals.assign(p, 0.0f);
+    for (std::size_t k = 2; k < p; k += 3) m.normals[k] = 1;
   } else if (m.indices.empty()) {
     // Flat face normals for triangle soups.
     m.normals.resize(p);
@@ -255,7 +262,8 @@ bool Renderer::upsert(u32 id, const MeshInput& in) {
   m.world_bounds = instanced_bounds(m.local_bounds, m.transforms.data(), m.instance_count);
   if (!m.world_bounds.valid()) return fail("invalid world bounds");
   // Static world-space meshes get a BVH for picking; moving ones use the exact brute-force path.
-  if (m.instance_count == 1 && !skinned && m.triangle_count() >= kBvhMinTriangles && Mat4::load(m.transforms.data()).is_identity()) {
+  if (!m.material.lines && m.instance_count == 1 && !skinned && m.triangle_count() >= kBvhMinTriangles &&
+      Mat4::load(m.transforms.data()).is_identity()) {
     m.bvh = std::make_unique<Bvh>();
     m.bvh->build(m.positions.data(), vertices, m.indices.empty() ? nullptr : m.indices.data(), static_cast<u32>(m.indices.size()));
   }
@@ -414,7 +422,7 @@ bool Renderer::update_instances(u32 id, Span<const f32> transforms, Span<const f
   m->mirror = mirror_state(m->transforms.data(), n);
   m->world_bounds = bounds;
   // The BVH holds mesh-space triangles and is used for a single identity instance.
-  const bool static_world = n == 1 && !m->skinned() && Mat4::load(m->transforms.data()).is_identity();
+  const bool static_world = n == 1 && !m->skinned() && !m->material.lines && Mat4::load(m->transforms.data()).is_identity();
   if (!static_world) {
     m->bvh.reset();
   } else if (!m->bvh && m->triangle_count() >= kBvhMinTriangles) {
@@ -437,6 +445,15 @@ bool Renderer::update_bones(u32 id, Span<const f32> bones) {
   return true;
 }
 
+bool Renderer::set_layers(u32 id, u32 layers) {
+  Mesh* m = mesh(id);
+  if (!m) return fail("unknown mesh %u", id);
+  if (m->layers == layers) return true;
+  m->layers = layers;
+  touch(*m);
+  return true;
+}
+
 bool Renderer::set_visible(u32 id, bool visible) {
   Mesh* m = mesh(id);
   if (!m || m->visible == visible) return false;
@@ -448,8 +465,10 @@ bool Renderer::set_visible(u32 id, bool visible) {
 bool Renderer::set_material(u32 id, const Material& material) {
   Mesh* m = mesh(id);
   if (!m) return fail("unknown mesh %u", id);
+  if (material.lines != m->material.lines) return fail("the primitive type of mesh %u cannot change without a new upsert", id);
   const bool old_casts = m->material.casts_shadow();
   m->material = material;
+  if (m->material.lines) { m->material.unlit = true; m->material.cast_shadow = false; }
   m->linear_colors = material.linear_colors;
   ++scene_revision_;
   if (old_casts || material.casts_shadow()) ++shadow_revision_;
@@ -480,9 +499,10 @@ void Renderer::upload_texture(Texture& t) {
   gl::bindTexture(gl::TEXTURE_2D, t.handle);
   gl::texImage2D(gl::TEXTURE_2D, 0, gl::RGBA8, t.desc.width, t.desc.height, gl::RGBA, gl::UNSIGNED_BYTE, t.pixels.data(),
                  static_cast<u32>(t.pixels.size()));
-  if (t.desc.mipmaps) gl::generateMipmap(gl::TEXTURE_2D);
-  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, t.desc.mipmaps ? gl::LINEAR_MIPMAP_LINEAR : gl::LINEAR);
-  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR);
+  const bool mipmaps = t.desc.mipmaps && !t.desc.nearest;
+  if (mipmaps) gl::generateMipmap(gl::TEXTURE_2D);
+  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, t.desc.nearest ? gl::NEAREST : mipmaps ? gl::LINEAR_MIPMAP_LINEAR : gl::LINEAR);
+  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, t.desc.nearest ? gl::NEAREST : gl::LINEAR);
   const i32 wrap = t.desc.repeat ? gl::REPEAT : gl::CLAMP_TO_EDGE;
   gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, wrap);
   gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, wrap);
@@ -606,8 +626,9 @@ void Renderer::draw_mesh(const Mesh& m, RenderStats& stats) {
   if (cull != cull_state_) { apply_cull_mode(cull); cull_state_ = cull; }
   gl::bindVertexArray(m.gpu.vao);
   const i32 instances = static_cast<i32>(m.instance_count);
-  if (!m.indices.empty()) gl::drawElementsInstanced(gl::TRIANGLES, static_cast<i32>(m.indices.size()), m.gpu.element_type, 0, instances);
-  else gl::drawArraysInstanced(gl::TRIANGLES, 0, static_cast<i32>(m.vertex_count()), instances);
+  const u32 mode = mat.lines ? gl::LINES : gl::TRIANGLES;
+  if (!m.indices.empty()) gl::drawElementsInstanced(mode, static_cast<i32>(m.indices.size()), m.gpu.element_type, 0, instances);
+  else gl::drawArraysInstanced(mode, 0, static_cast<i32>(m.vertex_count()), instances);
   stats.draw_calls++;
   stats.instances += m.instance_count;
   stats.triangles += static_cast<f64>(m.triangle_count()) * m.instance_count;
@@ -654,11 +675,12 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   }
 
   if (shadow_) {
-    const u64 key = shadow_->focus_key(camera.target, lighting.sun_direction) ^ (shadow_revision_ * 0x9e3779b97f4a7c15ull);
+    const u64 key = shadow_->focus_key(camera.target, lighting.sun_direction) ^ (shadow_revision_ * 0x9e3779b97f4a7c15ull) ^
+                    (static_cast<u64>(params.layers) * 0xc2b2ae3d27d4eb4full);
     if (shadow_key_valid_ && key == shadow_key_) {
       stats.shadow_reused = true;
     } else {
-      stats.shadow_draw_calls = shadow_->draw(meshes(), camera.target, lighting.sun_direction);
+      stats.shadow_draw_calls = shadow_->draw(meshes(), camera.target, lighting.sun_direction, params.layers);
       shadow_key_ = key;
       shadow_key_valid_ = true;
     }
@@ -678,7 +700,7 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   transparent_.clear();
   viewmodel_.clear();
   for (Mesh* m : live_) {
-    if (!m->visible || !m->gpu.vao) continue;
+    if (!m->visible || !m->gpu.vao || !(m->layers & params.layers)) continue;
     const Material& mat = m->material;
     if (!m->skinned() && mat.frustum_culled && !frustum.sphere_visible(m->world_bounds)) { stats.culled_meshes++; continue; }
     if (mat.viewmodel) { viewmodel_.push_back(m); continue; }
@@ -698,7 +720,7 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   set_frame_uniforms(vp);
   for (Mesh* m : opaque_) draw_mesh(*m, stats);
 
-  sky_pass_.draw(camera, aspect, sky, lighting.exposure, start / 1000.0);
+  if (params.sky) sky_pass_.draw(camera, aspect, sky, lighting.exposure, start / 1000.0);
   program_.use();
   cull_state_ = -1;
 

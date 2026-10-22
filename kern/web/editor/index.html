@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Kern Editor: R.U.B.E-style 3D physics scene and game editor. C++ engine with Box3D, compiled to WebAssembly.">
+<meta name="kern-editor" content="editor3d-format-v2">
+<title>Kern Editor — Box3D scene &amp; game editor</title>
+<link rel="stylesheet" href="./editor.css">
+</head>
+<body>
+<div id="app">
+<nav class="menubar" aria-label="Main menu"><button data-menu="File">File</button><button data-menu="Edit">Edit</button><button data-menu="View">View</button><button data-menu="Scene">Scene</button><button data-menu="Window">Window</button><button data-menu="Tools">Tools</button><button data-menu="Help">Help</button><span class="brand">Kern Editor · Box3D · C++/WebAssembly</span></nav>
+<div class="toolbar" id="toolbar" role="toolbar" aria-label="Editor tools"></div><div id="engineNotice" role="alert"></div>
+<main class="work">
+<aside class="dock" id="leftDock">
+<section class="panel" id="itemsPanel"><div class="paneltitle"><span class="title">Items</span><button data-float="itemsPanel" title="Float">▣</button><button data-hide="itemsPanel" title="Hide">×</button></div><div class="filterbar"><label for="itemFilter">Filter</label><input id="itemFilter" placeholder="Name…"><select id="itemKind" aria-label="Item kind"><option value="all">All</option><option value="body">Bodies</option><option value="fixture">Fixtures</option><option value="joint">Joints</option><option value="image">Images</option><option value="sampler">Samplers</option></select></div><div class="panelbody tree" id="itemTree"></div></section>
+<section class="panel active-panel" id="contextPanel"><div class="paneltitle"><span class="title">Editor context help</span><button data-float="contextPanel" title="Float">▣</button><button data-hide="contextPanel" title="Hide">×</button></div><div class="panelbody help" id="contextHelp"></div></section>
+<section class="panel" id="undoPanel"><div class="paneltitle"><span class="title">Undo stack</span><button data-hide="undoPanel" title="Hide">×</button></div><div class="panelbody" id="undoList"></div></section>
+</aside>
+<div class="splitter" id="leftSplit"></div>
+<section id="workspace"><div id="tabs" role="tablist"></div><div class="views" id="views"><canvas id="gl" aria-hidden="true"></canvas></div></section>
+<div class="splitter" id="rightSplit"></div>
+<aside class="dock" id="rightDock">
+<section class="panel" id="propertiesPanel"><div class="paneltitle"><span class="title">Properties</span><button data-float="propertiesPanel" title="Float">▣</button><button data-hide="propertiesPanel" title="Hide">×</button></div><div class="panelbody" id="properties"></div></section>
+<section class="panel" id="helpPanel"><div class="paneltitle"><span class="title">Help</span><button data-float="helpPanel" title="Float">▣</button><button data-hide="helpPanel" title="Hide">×</button></div><div class="panelbody help" id="generalHelp">
+<h3>Working with a 3D scene</h3>
+<p>The Editor3D R.U.B.E-style workflow, running on the Kern engine. Use <b>Space → Add</b> for bodies, fixtures, joints, image planes and sampler volumes.</p>
+<p>Switch with <b>B / F / V / J / I / M / W</b>. Transform with <b>T/G, R, S</b>, constrain with <b>X/Y/Z</b>, type exact numbers, and use <b>C</b> for the 3D cursor.</p>
+<p><b>Run</b> opens an independent Box3D player. Left-drag dynamic bodies with a real Box3D MotorJoint. On touch devices switch Orbit to Grab to pull bodies.</p>
+<p><b>Games:</b> give a body the <i>Player</i> role and a control (roll, drive, fly, walk) in its Properties → Game group, add pickups, hazards and a goal, then Run. <b>File → Export game</b> writes a standalone HTML game. Try <b>File → Examples → Game: Roll &amp; Collect</b>.</p>
+<p><button class="plain" id="helpKeys">Keyboard reference</button> <button class="plain" id="helpAbout">Formats &amp; compatibility</button></p>
+</div></section>
+</aside>
+<div class="splitter" id="bottomSplit"></div>
+<aside class="dock" id="bottomDock"><section class="panel" id="logPanel"><div class="paneltitle"><span class="title">Message log</span><button id="clearLog">Clear</button><button data-hide="logPanel" title="Hide">×</button></div><div class="panelbody" id="log" role="log"></div></section></aside>
+</main>
+<footer class="statusbar"><span id="modeStatus">Body edit</span><span id="coordStatus">World location: 0, 0, 0</span><span id="statusMessage">Loading Kern…</span><span id="counts"></span><span id="zoomStatus">Perspective</span></footer>
+</div>
+<input type="file" id="sceneFile" accept=".json,.e3d" multiple hidden><input type="file" id="imageFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+<script type="module">
+import {startEditor} from "./editor.mjs";
+startEditor({url: "../../../generated/kern_editor.wasm"}).catch(error => {
+  document.getElementById("engineNotice").style.display = "block";
+  document.getElementById("engineNotice").textContent = "Kern editor failed to start: " + error.message;
+  console.error(error);
+});
+</script>
+</body>
+</html>

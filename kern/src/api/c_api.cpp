@@ -53,6 +53,7 @@ void read_material(const u32* d, MeshInput& in) {
   m.frustum_culled = flags & KERN_MF_FRUSTUM_CULLED;
   m.viewmodel = flags & KERN_MF_VIEWMODEL;
   m.linear_colors = flags & KERN_MF_LINEAR_COLORS;
+  m.lines = flags & KERN_MF_LINES;
   m.alpha = static_cast<AlphaMode>(min_of<u32>(d[KERN_MD_ALPHA_MODE], 2));
   m.color = {f32_at(d, KERN_MD_COLOR), f32_at(d, KERN_MD_COLOR + 1), f32_at(d, KERN_MD_COLOR + 2), f32_at(d, KERN_MD_COLOR + 3)};
   m.alpha_cutoff = f32_at(d, KERN_MD_ALPHA_CUTOFF);
@@ -157,7 +158,7 @@ KERN_EXPORT(kern_mesh_upsert) i32 kern_mesh_upsert(u32 id, const u32* d) {
   u32 ext_streams = 0, slot = kMaxExtensionAttributes;
   for (u32 a = 0; a < kMaxExtensionAttributes; ++a)
     if (!in.extension[a].empty()) { ext_streams++; if (slot == kMaxExtensionAttributes) slot = a; }
-  const bool weldable = (d[KERN_MD_FLAGS] & KERN_MF_WELD) && in.indices.empty() && in.bones.empty() && p >= 9 && p % 9 == 0 &&
+  const bool weldable = (d[KERN_MD_FLAGS] & KERN_MF_WELD) && !in.material.lines && in.indices.empty() && in.bones.empty() && p >= 9 && p % 9 == 0 &&
                         in.normals.size == p && (in.colors.empty() || in.colors.size == p) &&
                         (in.uvs.empty() || in.uvs.size == vertices * 2) && ext_streams <= 1 &&
                         (ext_streams == 0 || (in.extension[slot].size % vertices == 0 && in.extension[slot].size / vertices >= 1 &&

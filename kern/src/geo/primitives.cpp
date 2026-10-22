@@ -56,6 +56,53 @@ MeshData sphere(f32 r, u32 segments, u32 rings, Vec3 color) {
   return m;
 }
 
+MeshData capsule(f32 r, f32 length, u32 segments, u32 rings, Vec3 color) {
+  MeshData m;
+  segments = max_of<u32>(3, segments);
+  const u32 half = max_of<u32>(1, rings / 2);
+  const f32 h = max_of(0.0f, length) * 0.5f;
+  // Rows: north pole .. equator (offset +h), equator .. south pole (offset -h).
+  u32 rows = 0;
+  for (u32 band = 0; band < 2; ++band)
+    for (u32 j = 0; j <= half; ++j, ++rows) {
+      const f32 theta = (static_cast<f32>(band * half + j) / (2 * half)) * kPi;
+      const f32 offset = band == 0 ? h : -h;
+      for (u32 i = 0; i <= segments; ++i) {
+        const f32 u = static_cast<f32>(i) / segments, phi = u * 2 * kPi;
+        const Vec3 n{std::sin(theta) * std::cos(phi), std::sin(theta) * std::sin(phi), std::cos(theta)};
+        m.push(n * r + Vec3{0, 0, offset}, n, color, {u, static_cast<f32>(rows) / (2 * half + 1)});
+      }
+    }
+  for (u32 j = 0; j + 1 < rows; ++j)
+    for (u32 i = 0; i < segments; ++i) {
+      const u32 a = j * (segments + 1) + i, b = a + segments + 1;
+      if (j != 0) m.indices.insert(m.indices.end(), {a, b, a + 1});
+      if (j != rows - 2) m.indices.insert(m.indices.end(), {a + 1, b, b + 1});
+    }
+  return m;
+}
+
+MeshData torus(f32 major, f32 minor, u32 segments, u32 tube_segments, Vec3 color) {
+  MeshData m;
+  segments = max_of<u32>(3, segments);
+  tube_segments = max_of<u32>(3, tube_segments);
+  for (u32 j = 0; j <= tube_segments; ++j) {
+    const f32 v = static_cast<f32>(j) / tube_segments * 2 * kPi;
+    for (u32 i = 0; i <= segments; ++i) {
+      const f32 u = static_cast<f32>(i) / segments * 2 * kPi;
+      const Vec3 centre{std::cos(u) * major, std::sin(u) * major, 0};
+      const Vec3 n{std::cos(v) * std::cos(u), std::cos(v) * std::sin(u), std::sin(v)};
+      m.push(centre + n * minor, n, color, {static_cast<f32>(i) / segments, static_cast<f32>(j) / tube_segments});
+    }
+  }
+  for (u32 j = 0; j < tube_segments; ++j)
+    for (u32 i = 0; i < segments; ++i) {
+      const u32 a = j * (segments + 1) + i, b = a + segments + 1;
+      m.indices.insert(m.indices.end(), {a, a + 1, b, a + 1, b + 1, b});
+    }
+  return m;
+}
+
 MeshData cylinder(f32 r, f32 h, u32 segments, Vec3 color) {
   MeshData m;
   segments = max_of<u32>(3, segments);

@@ -66,6 +66,7 @@ enum KernMeshFlags : kern::u32 {
   KERN_MF_VIEWMODEL = 1u << 5,
   KERN_MF_LINEAR_COLORS = 1u << 6,
   KERN_MF_WELD = 1u << 7,  // weld a triangle soup into an indexed mesh before upload
+  KERN_MF_LINES = 1u << 8,  // line list instead of triangles (always unlit, no shadow, not pickable)
 };
 
 // ---- renderer init descriptor (u32 words; f32 where noted) ----
