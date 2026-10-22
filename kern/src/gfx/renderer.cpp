@@ -581,6 +581,22 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   const f64 start = now_ms();
   stats = RenderStats{};
 
+  // Validate everything before any GL state changes: a rejected frame leaves
+  // no framebuffer bound, no scissor enabled and no timer query open.
+  Viewport rect{0, 0, width_, height_};
+  if (params.has_viewport) {
+    rect = params.viewport;
+    if (rect.width < 1 || rect.height < 1 || rect.x < 0 || rect.y < 0 || rect.x + rect.width > width_ || rect.y + rect.height > height_)
+      return fail("viewport must fit inside the drawing buffer");
+  }
+  if (!(camera.fov > 0 && camera.fov < kPi) || !(camera.near > 0) || !(camera.far > camera.near)) return fail("invalid perspective camera");
+  bool ok = false;
+  const Mat4 view = Mat4::look_at(camera.eye, camera.target, camera.up, &ok);
+  if (!ok) return fail("degenerate camera direction/up");
+  const f32 aspect = static_cast<f32>(rect.width) / static_cast<f32>(rect.height);
+  const Mat4 vp = Mat4::perspective(camera.fov, aspect, camera.near, camera.far) * view;
+  const Frustum frustum = Frustum::from_matrix(vp);
+
   // GPU timer results arrive asynchronously, a few frames late.
   if (timer_supported_) {
     std::size_t keep = 0;
@@ -596,13 +612,6 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   if (timer_supported_ && pending_queries_.size() < 4) {
     timer_query = gl::createQuery();
     gl::beginQuery(gl::TIME_ELAPSED, timer_query);
-  }
-
-  Viewport rect{0, 0, width_, height_};
-  if (params.has_viewport) {
-    rect = params.viewport;
-    if (rect.width < 1 || rect.height < 1 || rect.x < 0 || rect.y < 0 || rect.x + rect.width > width_ || rect.y + rect.height > height_)
-      return fail("viewport must fit inside the drawing buffer");
   }
 
   if (shadow_) {
@@ -625,14 +634,6 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   gl::clearDepth(1);
   gl::depthMask(1);
   gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-
-  const f32 aspect = static_cast<f32>(rect.width) / static_cast<f32>(rect.height);
-  if (!(camera.fov > 0 && camera.fov < kPi) || !(camera.near > 0) || !(camera.far > camera.near)) return fail("invalid perspective camera");
-  bool ok = false;
-  const Mat4 view = Mat4::look_at(camera.eye, camera.target, camera.up, &ok);
-  if (!ok) return fail("degenerate camera direction/up");
-  const Mat4 vp = Mat4::perspective(camera.fov, aspect, camera.near, camera.far) * view;
-  const Frustum frustum = Frustum::from_matrix(vp);
 
   opaque_.clear();
   transparent_.clear();

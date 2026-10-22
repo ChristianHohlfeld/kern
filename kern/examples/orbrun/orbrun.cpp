@@ -258,7 +258,6 @@ class City {
 // the game
 
 struct Orb { Vec2 p; f32 phase; bool alive; };
-struct Spark { Vec3 p, v; f32 life; };
 struct TrafficCar { bool horizontal; f32 line, lane, along, speed, dir; Vec4 tint; };
 
 class OrbRun final : public App {
@@ -286,6 +285,7 @@ class OrbRun final : public App {
     gi.material.cast_shadow = false;
     if (!r.upsert(ground_, gi)) return false;
     if (!build_car_meshes(r)) return false;
+    if (!particles_.init(r, 512)) return false;
     return new_run(engine, 20261022u);
   }
 
@@ -296,12 +296,12 @@ class OrbRun final : public App {
     if (in.pressed(Key::enter)) new_run(engine, rng_.next());
     if (in.pressed(Key::n)) fast_time_ = !fast_time_;
     elapsed_ += dt;
+    now_ms_ = frame.time * 1000.0;
     if (!finished_) run_time_ += dt;
 
     drive(in, dt);
     update_traffic(dt);
     collect(engine);
-    update_sparks(dt);
     update_daylight(r, dt);
     update_camera(r, in, dt);
     upload_dynamic(r);
@@ -395,7 +395,7 @@ class OrbRun final : public App {
       c.tint = {c3.x, c3.y, c3.z, 1};
       traffic_.push_back(c);
     }
-    sparks_.clear();
+    particles_.clear();
     car_pos_ = {-City::kHalf + City::kPitch * 3, -City::kHalf + City::kPitch * 3 + 20};
     car_vel_ = {};
     heading_ = kPi * 0.5f;
@@ -532,7 +532,16 @@ class OrbRun final : public App {
       collected_++;
       for (u32 k = 0; k < 28; ++k) {
         const f32 a = rng_.range(0, 2 * kPi), up = rng_.range(4, 11), out = rng_.range(3, 9);
-        sparks_.push_back({{o.p.x, o.p.y, 1.6f}, {std::cos(a) * out, std::sin(a) * out, up}, rng_.range(0.6f, 1.1f)});
+        ParticleSpec spark;
+        spark.position = {o.p.x, o.p.y, 1.6f};
+        spark.velocity = {std::cos(a) * out, std::sin(a) * out, up};
+        spark.color = {0.55f, 1.0f, 0.92f, 1};
+        spark.start_ms = now_ms_;
+        spark.life_ms = rng_.range(600, 1100);
+        spark.size = rng_.range(0.25f, 0.5f);
+        spark.gravity = 14;
+        spark.fade_extra = 0.3f;
+        particles_.emit(spark);
       }
       if (collected_ == kOrbs) {
         finished_ = true;
@@ -540,20 +549,6 @@ class OrbRun final : public App {
       }
     }
     (void)engine;
-  }
-
-  void update_sparks(f32 dt) {
-    std::size_t keep = 0;
-    for (Spark& s : sparks_) {
-      s.life -= dt;
-      if (s.life <= 0) continue;
-      s.v.z -= 14 * dt;
-      s.p += s.v * dt;
-      if (s.p.z < 0.1f) { s.p.z = 0.1f; s.v.z *= -0.4f; }
-      sparks_[keep++] = s;
-    }
-    sparks_.resize(keep);
-    if (sparks_.size() > kMaxSparks) sparks_.erase(sparks_.begin(), sparks_.begin() + static_cast<long>(sparks_.size() - kMaxSparks));
   }
 
   void update_daylight(Renderer& r, f32 dt) {
@@ -624,10 +619,8 @@ class OrbRun final : public App {
                                        Vec3{1, 1, 1} * (1 + 0.08f * std::sin(t * 6 + o.phase))));
     sync_instanced(r, orbs_id_, orb_mesh_, orb_material(), scratch_, {});
 
-    // Sparks.
-    scratch_.clear();
-    for (const Spark& s : sparks_) put_matrix(scratch_, Mat4::trs(s.p, Quat::axis_angle({1, 1, 0}, s.life * 9), Vec3{1, 1, 1} * (0.12f + 0.25f * s.life)));
-    sync_instanced(r, sparks_id_, spark_mesh_, spark_material(), scratch_, {});
+    // Sparks: the engine's particle system (sorted, camera-facing, one draw).
+    particles_.tick(now_ms_, r.camera.eye);
 
     // Traffic.
     scratch_.clear();
@@ -643,26 +636,11 @@ class OrbRun final : public App {
     traffic_material.metalness = 0.2f;
     sync_instanced(r, traffic_id_, traffic_mesh_, traffic_material, scratch_, tints_);
 
-    // Lights: the car's headlight glow plus the nearest orbs.
-    PointLights lights;
-    auto add_light = [&](Vec3 p, f32 range, Vec3 color, f32 intensity) {
-      if (lights.count >= kMaxPointLights) return;
-      f32* pr = lights.pos_range + lights.count * 4;
-      f32* ci = lights.color_intensity + lights.count * 4;
-      pr[0] = p.x; pr[1] = p.y; pr[2] = p.z; pr[3] = range;
-      ci[0] = color.x; ci[1] = color.y; ci[2] = color.z; ci[3] = intensity;
-      lights.count++;
-    };
-    add_light({car_pos_.x + fwd2.x * 6, car_pos_.y + fwd2.y * 6, 2.2f}, 18, {1.0f, 0.9f, 0.75f}, 10 + 40 * night_);
-    nearest_.clear();
-    for (u32 i = 0; i < orbs_.size(); ++i)
-      if (orbs_[i].alive) nearest_.push_back(i);
-    std::sort(nearest_.begin(), nearest_.end(), [&](u32 a, u32 b) { return length(orbs_[a].p - car_pos_) < length(orbs_[b].p - car_pos_); });
-    for (u32 i = 0; i < nearest_.size() && lights.count < kMaxPointLights; ++i) {
-      const Orb& o = orbs_[nearest_[i]];
-      add_light({o.p.x, o.p.y, 2.2f}, 16, {0.3f, 1.0f, 0.9f}, 12 + 36 * night_);
-    }
-    r.set_point_lights(lights);
+    // Lights: the car's headlight glow plus the orbs; the pool keeps the most significant six.
+    lights_.request({car_pos_.x + fwd2.x * 6, car_pos_.y + fwd2.y * 6, 2.2f}, {1.0f, 0.9f, 0.75f}, 10 + 40 * night_, 18);
+    for (const Orb& o : orbs_)
+      if (o.alive) lights_.request({o.p.x, o.p.y, 2.2f}, {0.3f, 1.0f, 0.9f}, 12 + 36 * night_, 16);
+    r.set_point_lights(lights_.resolve({car_pos_.x, car_pos_.y, 2.0f}));
   }
 
   Material orb_material() const {
@@ -672,15 +650,6 @@ class OrbRun final : public App {
     m.cast_shadow = false;
     return m;
   }
-  Material spark_material() const {
-    Material m;
-    m.color = {1, 1, 1, 1};
-    m.emissive = {1.5f, 3.0f, 2.6f};
-    m.cast_shadow = false;
-    m.unlit = true;
-    return m;
-  }
-
   /// Keeps an instanced mesh in sync with a (possibly empty) instance list.
   void sync_instanced(Renderer& r, u32& id, const MeshData& mesh, const Material& material, const std::vector<f32>& transforms,
                       const std::vector<f32>& tints) {
@@ -719,22 +688,21 @@ class OrbRun final : public App {
   }
 
   static constexpr u32 kOrbs = 24, kTraffic = 22;
-  static constexpr std::size_t kMaxSparks = 400;
 
   NightWindows windows_;
   ShaderExtension* extensions_[1] = {&windows_};
   City city_;
   Rng rng_{1};
   std::vector<u32> run_meshes_;
-  u32 ground_ = 0, car_ = 0, thrusters_ = 0, orbs_id_ = 0, sparks_id_ = 0, traffic_id_ = 0;
+  u32 ground_ = 0, car_ = 0, thrusters_ = 0, orbs_id_ = 0, traffic_id_ = 0;
+  Particles particles_;
+  LightPool lights_;
+  f64 now_ms_ = 0;
   MeshData orb_mesh_ = primitives::sphere(0.9f, 18, 12, {0.3f, 1.0f, 0.9f});
-  MeshData spark_mesh_ = primitives::box({1, 1, 1}, {1, 1, 1});
   MeshData traffic_mesh_;
   std::vector<Orb> orbs_;
-  std::vector<Spark> sparks_;
   std::vector<TrafficCar> traffic_;
   std::vector<f32> scratch_, tints_;
-  std::vector<u32> nearest_;
   Vec2 car_pos_, car_vel_;
   f32 heading_ = 0, steer_visual_ = 0, pitch_ = 0, last_forward_speed_ = 0, boost_ = 1, shake_ = 0;
   Vec3 camera_eye_;

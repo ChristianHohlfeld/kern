@@ -1,8 +1,8 @@
 // Kern engine - core definitions shared by every module.
 //
 // Kern is built without exceptions and without RTTI. Fallible operations
-// return bool / nullptr / an empty Optional and record a human readable
-// message with set_error(); the platform layer exposes it as last_error().
+// return bool (or 0 / nullptr) and record a human readable message with
+// fail(); hosts read it with last_error() (kern_last_error in the C ABI).
 #pragma once
 
 #include <cstddef>

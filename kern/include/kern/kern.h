@@ -9,6 +9,7 @@
 #include "kern/geo/primitives.h"
 #include "kern/geo/roads.h"
 #include "kern/gfx/mesh.h"
+#include "kern/gfx/particles.h"
 #include "kern/gfx/passes.h"
 #include "kern/gfx/renderer.h"
 #include "kern/gfx/shader.h"

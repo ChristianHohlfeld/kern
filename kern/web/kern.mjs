@@ -673,6 +673,15 @@ export class KernRenderer {
     return record;
   }
 
+  /** Registers a mesh the engine created itself (e.g. the particle batch) under `id`. */
+  adoptMesh(id, kid, info = {}) {
+    const record = { id, kid, visible: true, skinned: false, instanceCount: 1, material: {}, ...info };
+    this.meshes.set(id, record);
+    this.byKid ??= new Map();
+    this.byKid.set(kid, record);
+    return record;
+  }
+
   /** Material-only descriptor (for meshes built inside the engine). Returns the descriptor address. */
   materialDescriptor(input) {
     const d = this.descPtr >> 2;

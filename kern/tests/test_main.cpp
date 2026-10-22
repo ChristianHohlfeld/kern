@@ -398,6 +398,49 @@ TEST(renderer_context_loss) {
   r.shutdown();
 }
 
+TEST(particles_and_lights) {
+  Renderer r;
+  CHECK(r.init({}));
+  Particles fx;
+  CHECK(fx.init(r, 3));
+  ParticleSpec s;
+  s.position = {0, 0, 2};
+  s.start_ms = 1000;
+  s.life_ms = 200;
+  CHECK(fx.emit(s) == 1);
+  s.life_ms = 1000;
+  s.grow = 1;
+  CHECK(fx.emit(s) == 2);
+  s.size = -1;
+  CHECK(fx.emit(s) == 0);  // invalid
+  s.size = 1;
+  CHECK(fx.emit(s) == 3);
+  CHECK(fx.emit(s) == 0);  // budget
+  CHECK(fx.stats().dropped == 1);
+  ParticleStats st = fx.tick(1100, {0, -10, 2});
+  CHECK(st.active == 3);
+  CHECK(r.mesh(fx.mesh_id()) && r.mesh(fx.mesh_id())->instance_count == 3);
+  st = fx.tick(1300, {0, -10, 2});
+  CHECK(st.active == 2 && st.expired == 1);
+  CHECK(fx.tick(900, {0, -10, 2}).active == 2);  // time is monotonic
+  st = fx.tick(5000, {0, -10, 2});
+  CHECK(st.active == 0);
+  CHECK(!r.mesh(fx.mesh_id())->visible);
+
+  LightPool pool(2);
+  CHECK(pool.request({1, 0, 0}, {1, 0, 0}, 10, 20));
+  CHECK(pool.request({200, 0, 0}, {0, 1, 0}, 12, 20));
+  CHECK(pool.request({2, 0, 0}, {0, 0, 1}, 4, 20));
+  CHECK(!pool.request({NAN, 0, 0}, {1, 1, 1}, 1, 1));
+  CHECK(!pool.request({0, 0, 0}, {1, 1, 1}, 0, 1));
+  const PointLights& l = pool.resolve({0, 0, 0});
+  CHECK(l.count == 2);
+  CHECK(l.pos_range[0] == 1 && l.pos_range[4] == 2);  // near lights beat the distant bright one
+  CHECK(pool.resolve({0, 0, 0}).count == 0);           // each frame owns only fresh requests
+  CHECK(r.set_point_lights(l));
+  r.shutdown();
+}
+
 // ---------------------------------------------------------------------------
 // app runtime
 
