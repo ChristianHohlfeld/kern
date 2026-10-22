@@ -1,5 +1,7 @@
 #include "kern/game/runtime.h"
 
+#include "runtime_internal.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -382,12 +384,6 @@ std::vector<BodyPlan> plan_bodies(const Level& level) {
 // ---------------------------------------------------------------------------
 // world
 
-struct GameWorld::Visual {
-  u32 mesh = 0;
-  u64 key = 0;
-  bool visible = true;
-  Mat4 world;
-};
 
 struct GameWorld::CityVisual {
   u64 key = 0;
@@ -398,14 +394,6 @@ struct GameWorld::CityVisual {
   bool visible = true;
 };
 
-struct GameWorld::SimBody {
-  BodyPlan plan;
-  physics::Body body;
-  Vec3 scale{1, 1, 1};    // owner's world scale (render)
-  bool animated = false;  // kinematic driven by rotator/mover
-  physics::Pose prev;     // pose before the last fixed step (render interpolation)
-  bool has_prev = false;
-};
 
 struct GameWorld::SimJoint {
   ActorId actor = 0, target = 0;
@@ -940,6 +928,7 @@ void GameWorld::present(f64 now_ms, Vec3 eye) {
       r_.update_instances(traffic_mesh_, Span<const f32>(transforms.data(), transforms.size()), {});
     }
   }
+  if (running() && (view_valid_ || viewmodel_mesh_ || !shots_.empty())) present_soldier(now_ms);
   if (particles_ready_) particles_.tick(now_ms, eye);
 }
 
@@ -1256,6 +1245,10 @@ bool GameWorld::start(const Level& level, SimMode mode) {
     for (const Actor& a : level_.actors)
       if (a.controller && a.body && a.body->motion == Motion::dynamic && body_of_actor_.count(a.id) && body_of_actor_[a.id]->body.valid()) { player_ = a.id; break; }
   pawns_.clear();
+  health_.clear();
+  shots_.clear();
+  view_valid_ = false;
+  if (viewmodel_mesh_) { r_.remove(viewmodel_mesh_); r_.release_id(viewmodel_mesh_); viewmodel_mesh_ = 0; }
   idle_pawn_ = Pawn{};
   pw_ = &idle_pawn_;
   local_ = nullptr;
@@ -1292,10 +1285,25 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   if (player_ && level_.find(player_)->controller->boost) hud_.boost = 1;
   if (mode == SimMode::play) say(hud_.title);
 
+  health_.clear();
+  shots_.clear();
+  fov_now_ = 0;
+  recoil_pitch_ = recoil_yaw_ = recoil_roll_ = shake_energy_ = land_dip_ = 0;
+  for (const Actor& a : level_.actors) init_combat(a.id);
+  if (player_ && level_.find(player_)->controller->mode == ControlMode::soldier) camera_pitch_ = 0;
+
   world_.clear();
   for (const Actor& a : level_.actors) world_[a.id] = level_.world_matrix(a.id);
   compute_world_matrices(0);
   return true;
+}
+
+void GameWorld::init_combat(ActorId id) {
+  const Actor* a = level_.find(id);
+  if (!a) return;
+  if (a->health) health_[id] = HealthState{a->health->max_health, a->health->armor};
+  if (a->weapon)
+    if (Pawn* p = pawn_of(id)) { p->mag = a->weapon->magazine; p->reserve = a->weapon->reserve; }
 }
 
 void GameWorld::stop() {
@@ -1403,7 +1411,10 @@ void GameWorld::fixed_step(const PlayInput& input, f32 h) {
       PlayInput in = pawn.get() == local_ ? input : pawn->input;
       if (pawn.get() == local_) pawn->yaw = camera_yaw_;
       else if (in.has_view_yaw) pawn->yaw = in.view_yaw;
-      drive_player(in, h);
+      pawn->pitch = pawn.get() == local_ ? camera_pitch_ : in.view_pitch;
+      const Actor* pa = level_.find(pawn->actor);
+      if (pa && pa->controller && pa->controller->mode == ControlMode::soldier) drive_soldier(in, h);
+      else drive_player(in, h);
     }
   pw_ = local_ ? local_ : &idle_pawn_;
   // Kinematic animation targets.
@@ -1429,6 +1440,7 @@ void GameWorld::fixed_step(const PlayInput& input, f32 h) {
     if (level_.world.time_limit > 0) hud_.remaining = max_of(0.0f, level_.world.time_limit - hud_.elapsed);
   }
   handle_events();
+  if (hud_.status == GameStatus::playing && !health_.empty()) update_health(h);
   // Respawning pickups.
   for (std::size_t i = 0; i < respawns_.size();) {
     if (sim_time_ >= respawns_[i].at) {
@@ -1628,6 +1640,7 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
       if (hs > c.max_speed) physics_.apply_force_to_center(body, Vec3{v.x, v.y, 0} * (-(hs - c.max_speed) / hs * 4 * m));
       break;
     }
+    case ControlMode::soldier:
     case ControlMode::character: {
       if (pw_->use_mover) {
         const bool was_ground = pw_->mover.on_ground();
@@ -2071,6 +2084,7 @@ ActorId GameWorld::add_pawn(ActorId source, ActorId id) {
   }
   Pawn* raw = pawn.get();
   pawns_.push_back(std::move(pawn));
+  for (ActorId aid : created) init_combat(aid);
   if (mode_ == SimMode::play) {
     Pawn* keep = pw_;
     pw_ = raw;
@@ -2190,6 +2204,13 @@ bool GameWorld::update_camera(Camera& cam, f32 dt, const PlayInput& in) {
   if (!a || !a->controller || it == body_of_actor_.end()) return false;
   const ControllerComponent& c = *a->controller;
   const physics::Body body = it->second->body;
+  if (c.mode == ControlMode::soldier && local_ && local_->actor == player_ && mode_ != SimMode::simulate) {
+    soldier_camera(cam, dt, in, c);
+    view_camera_ = cam;
+    view_valid_ = true;
+    return true;
+  }
+  view_valid_ = false;
   const physics::Pose pose = physics_.pose(body);
   const Vec3 v = physics_.linear_velocity(body);
   const f32 speed = length(v);
@@ -2232,8 +2253,10 @@ bool GameWorld::update_camera(Camera& cam, f32 dt, const PlayInput& in) {
         camera_yaw_ = heading / kDeg;
       } else {
         const f32 dist = c.camera_distance * camera_zoom_;
+        // View direction: positive pitch looks down at the player (the camera rises),
+        // so moving the mouse up looks up - the same sense as the first-person view.
         const Vec3 dir{std::cos(camera_yaw_ * kDeg) * std::cos(camera_pitch_ * kDeg), std::sin(camera_yaw_ * kDeg) * std::cos(camera_pitch_ * kDeg),
-                       std::sin(camera_pitch_ * kDeg)};
+                       -std::sin(camera_pitch_ * kDeg)};
         target = center + Vec3{0, 0, c.camera_height * 0.25f};
         Vec3 desired = target - dir * dist;
         // Keep the camera out of walls (Box3D ray from the target).

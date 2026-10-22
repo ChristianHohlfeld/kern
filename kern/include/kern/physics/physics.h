@@ -310,6 +310,8 @@ class CharacterMover {
   Vec3 position() const { return position_; }
   Vec3 velocity() const { return velocity_; }
   void set_velocity(Vec3 v) { velocity_ = v; }
+  /// Leaves the ground with `speed` m/s upwards (the next step will not snap back down).
+  void jump(f32 speed) { velocity_.z = speed; on_ground_ = false; pogo_ = 0; }
   bool on_ground() const { return on_ground_; }
   /// Planes touched in the last step (triggers and pickups the mover walked into).
   const std::vector<MoverPlane>& planes() const { return planes_; }

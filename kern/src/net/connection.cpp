@@ -330,9 +330,10 @@ class UnreliableChannel final : public Channel {
   using Channel::Channel;
   void reset() override { send_.clear(); receive_.clear(); }
   bool can_send() const override { return static_cast<int>(send_.size()) < config_.send_queue_size; }
-  bool send(Message m, ConnectionError& error) override {
-    if (static_cast<int>(m.data.size()) > config_.max_message_size) { error = ConnectionError::message_too_large; return false; }
-    if (!can_send()) return false;  // dropped: unreliable messages are not worth an error
+  bool send(Message m, ConnectionError&) override {
+    // Unreliable messages that cannot go out are dropped, never a connection error.
+    if (static_cast<int>(m.data.size()) > config_.max_message_size) return false;
+    if (!can_send()) return false;
     send_.push_back(std::move(m));
     return true;
   }

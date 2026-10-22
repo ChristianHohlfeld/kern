@@ -301,9 +301,9 @@ void NetGame::server_update(f64 time, f32 dt, const PlayInput& input) {
   // Sound cues produced this frame.
   {
     std::vector<SoundCue> fresh(world_.sound_cues().begin() + static_cast<std::ptrdiff_t>(min_of(cues.size(), world_.sound_cues().size())), world_.sound_cues().end());
-    for (std::size_t i = 0; i < fresh.size(); i += 32) {
-      CueMsg m;
-      m.cues.assign(fresh.begin() + static_cast<std::ptrdiff_t>(i), fresh.begin() + static_cast<std::ptrdiff_t>(min_of(fresh.size(), i + 32)));
+    for (std::size_t i = 0; i < fresh.size(); i += 8) {
+      CueMsg m;  // 8 cues stay well below one packet
+      m.cues.assign(fresh.begin() + static_cast<std::ptrdiff_t>(i), fresh.begin() + static_cast<std::ptrdiff_t>(min_of(fresh.size(), i + 8)));
       server_->broadcast(kUnreliable, kCues, m);
     }
   }

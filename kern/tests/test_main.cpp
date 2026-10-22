@@ -1351,6 +1351,29 @@ TEST(game_world_rules) {
   f.world->stop();
 }
 
+TEST(game_orbit_camera_mouse_sense) {
+  GameFixture f;
+  game::Level l = game::physics_lab_level();
+  CHECK(f.world->start(l, game::SimMode::play));
+  CHECK(f.world->player() != 0);
+  Camera cam;
+  f.world->update_camera(cam, 1.0f / 60, {});
+  Mat4 m;
+  f.world->actor_matrix(f.world->player(), m);
+  CHECK(cam.eye.z > m.translation().z);  // behind and above the player, looking down at it
+  // Mouse down (positive look_y) looks further down: the camera rises.
+  const f32 z0 = cam.eye.z;
+  game::PlayInput down;
+  down.look_y = 20;
+  for (int i = 0; i < 30; ++i) f.world->update_camera(cam, 1.0f / 60, i == 0 ? down : game::PlayInput{});
+  CHECK(cam.eye.z > z0 + 0.3f);
+  game::PlayInput up;
+  up.look_y = -40;
+  for (int i = 0; i < 30; ++i) f.world->update_camera(cam, 1.0f / 60, i == 0 ? up : game::PlayInput{});
+  CHECK(cam.eye.z < z0);
+  f.world->stop();
+}
+
 TEST(game_character_mover) {
   GameFixture f;
   game::Level l = game::basic_level();

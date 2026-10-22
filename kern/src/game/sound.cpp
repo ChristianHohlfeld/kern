@@ -20,7 +20,8 @@ std::string engine_sound_for(const ControllerComponent& c) {
     case ControlMode::flyer: return "builtin:hover";
     case ControlMode::vehicle: return "builtin:engine";
     case ControlMode::rolling:
-    case ControlMode::character: return "";
+    case ControlMode::character:
+    case ControlMode::soldier: return "";
   }
   return "";
 }

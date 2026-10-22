@@ -80,6 +80,12 @@ struct PlayInput {
   // Remote players: the direction their camera looks (degrees) for camera-relative movement.
   f32 view_yaw = 0;
   bool has_view_yaw = false;
+  f32 view_pitch = 0;                  // degrees, positive looks down (soldier aim)
+  // soldier
+  bool fire = false, aim = false, reload = false, crouch = false, interact = false;
+  f32 look_stick_x = 0, look_stick_y = 0;  // gamepad right stick (-1..1), turned into look by the camera
+  bool gamepad = false;                // the input came from a pad (aim assist, response curves)
+  f32 rewind = 0;                      // server: seconds the shooter saw the world in the past (lag compensation)
 };
 
 /// replica: a network client's copy of a server's game (poses come from snapshots, see net_game.h).
@@ -97,6 +103,26 @@ struct Hud {
   f32 speed = 0;                  // m/s of the player
   f32 boost = -1;                 // 0..1, < 0: the controller has no boost
   f32 best = 0;                   // best finishing time of this session (0 = none)
+  // soldier (first-person shooter) state of the local player
+  bool soldier = false;
+  f32 health = -1, max_health = 100, armor = 0;  // health < 0: no health
+  i32 ammo = -1, magazine = 0, reserve = 0;      // ammo < 0: no weapon
+  f32 reload = -1;                // 0..1 while reloading
+  f32 spread = 0;                 // current spread in degrees (crosshair size)
+  f32 hit_age = 99;               // seconds since our last hit (hit marker)
+  bool hit_head = false, hit_kill = false;
+  f32 damage_age = 99;            // seconds since we took damage (vignette)
+  f32 damage_yaw = 0;             // direction the damage came from, relative to the view (degrees)
+  f32 respawn_in = -1;            // seconds until respawn while dead
+  bool aiming = false;
+  f32 fov = 60;                   // current vertical field of view (degrees)
+};
+
+/// A hitscan shot for presentation (tracer, muzzle flash, impact).
+struct ShotEvent {
+  Vec3 from, to;
+  ActorId shooter = 0, hit = 0;
+  bool impact = false, head = false;
 };
 
 /// A sound the simulation asks for (GameAudio plays it). Cues are produced in
@@ -217,6 +243,15 @@ class GameWorld {
   std::vector<std::string>& events() { return events_; }
   /// Sounds of the last steps (jumps, pickups, impacts, ...); cleared by the caller.
   std::vector<SoundCue>& sound_cues() { return cues_; }
+  /// Shots of the last steps (soldiers); presented and then cleared by present().
+  std::vector<ShotEvent>& shots() { return shots_; }
+  /// Applies damage (server / standalone): armor first, death, respawn, score for `attacker`.
+  void damage(ActorId target, f32 amount, ActorId attacker, bool head, Vec3 from);
+  /// Health of an actor (-1 = no health). Network replicas set what the server sends.
+  f32 health_of(ActorId id) const;
+  void set_health(ActorId id, f32 health, f32 armor, bool dead);
+  /// The camera the frame is drawn with (view model of a first-person player).
+  void set_view(const Camera& camera) { view_camera_ = camera; view_valid_ = true; }
   /// False for collected pickups and used triggers (and their children).
   bool actor_alive(ActorId id) const;
   const PlayInput& last_input() const { return last_input_; }
@@ -248,7 +283,14 @@ class GameWorld {
   void say(std::string message);
   void respawn_player();
   bool grounded(physics::Body body, f32 reach) const;
+  void drive_soldier(const PlayInput& in, f32 dt);
+  void fire_weapon(const PlayInput& in, const WeaponComponent& w);
+  void update_health(f32 dt);
+  void present_soldier(f64 now_ms);
+  void soldier_camera(Camera& cam, f32 dt, const PlayInput& in, const ControllerComponent& c);
   ActorId actor_for_body(physics::Body body) const;
+  f32 a_eye_height(ActorId actor) const;
+  void init_combat(ActorId id);
   void set_actor_alive(ActorId id, bool alive);
   void burst(Vec3 at, Vec3 color);
 
@@ -322,7 +364,34 @@ class GameWorld {
     physics::CharacterMover mover;
     bool use_mover = false;
     f32 mover_lift = 0;               // body origin above the feet
+    // soldier
+    f32 pitch = 0;                    // aim pitch (degrees, positive looks down)
+    f32 crouch = 0;                   // 0 standing .. 1 crouched
+    f32 coyote = 0, jump_buffer = 0;  // seconds
+    i32 mag = 0, reserve = 0;
+    f32 next_fire = 0, reload_until = -1, spread = 0;
+    bool fire_latch = false;
+    u32 shots = 0;
+    f32 respawn_at = -1, protected_until = 0;
+    std::vector<std::pair<f32, Vec3>> history;  // (sim time, feet) for lag compensation
   };
+  struct HealthState {
+    f32 hp = 100, armor = 0, last_damage = -1e9f;
+    bool dead = false;
+    f32 respawn_at = -1;
+  };
+  std::unordered_map<ActorId, HealthState> health_;
+  std::vector<ShotEvent> shots_;
+  Camera view_camera_;
+  bool view_valid_ = false;
+  // camera feel (local player)
+  f32 bob_phase_ = 0, bob_weight_ = 0, recoil_pitch_ = 0, recoil_yaw_ = 0, recoil_roll_ = 0, shake_energy_ = 0, land_dip_ = 0;
+  f32 fov_now_ = 0, look_rate_x_ = 0, look_rate_y_ = 0, aim_blend_ = 0;
+  u32 viewmodel_mesh_ = 0, flash_mesh_ = 0, tracer_mesh_ = 0;
+  f64 flash_until_ = 0;
+  Vec3 flash_at_;
+  struct Tracer { Vec3 from, to; f64 born = 0; };
+  std::vector<Tracer> tracers_;
   std::vector<std::unique_ptr<Pawn>> pawns_;
   Pawn idle_pawn_;                    // state target when nobody is possessed
   Pawn* pw_ = &idle_pawn_;            // the pawn being driven

@@ -123,7 +123,9 @@ struct JointComponent {
   std::string break_sound = "builtin:break";  // played when the joint breaks ("" = silent)
 };
 
-enum class ControlMode : u8 { hovercar, rolling, character, flyer, vehicle };
+/// soldier: a first-person shooter player (Box3D character mover, crouch, sprint,
+/// aim, a weapon from its WeaponComponent, health from its HealthComponent).
+enum class ControlMode : u8 { hovercar, rolling, character, flyer, vehicle, soldier };
 const char* control_mode_name(ControlMode m);
 enum class CameraMode : u8 { chase, first_person, top_down };
 const char* camera_mode_name(CameraMode m);
@@ -143,6 +145,48 @@ struct ControllerComponent {
   std::string engine_sound = "auto";  // loop, pitch and volume follow speed and throttle
   std::string jump_sound = "builtin:jump";
   std::string boost_sound = "builtin:boost";
+  // soldier
+  f32 crouch_speed = 2.6f;      // m/s while crouching
+  f32 eye_height = 1.62f;       // m above the feet standing (crouching: 60 %)
+  f32 look_sensitivity = 1;     // mouse / touch / gamepad look scale
+  bool head_bob = true;
+};
+
+enum class WeaponKind : u8 { rifle, pistol, shotgun, sniper };
+const char* weapon_kind_name(WeaponKind k);
+
+/// A hitscan weapon for soldier players (server-authoritative and lag-compensated in multiplayer).
+struct WeaponComponent {
+  WeaponKind kind = WeaponKind::rifle;
+  f32 damage = 24;              // per hit (per pellet for shotguns)
+  f32 fire_rate = 600;          // rounds per minute
+  bool automatic = true;        // hold to fire
+  i32 magazine = 30;
+  i32 reserve = 120;            // spare rounds
+  f32 reload_time = 2.0f;       // seconds
+  f32 spread = 1.2f;            // degrees, hip fire while standing
+  f32 aim_spread = 0.15f;       // degrees aiming down sights
+  f32 recoil = 0.8f;            // degrees of view kick per shot
+  f32 range = 300;              // m
+  f32 headshot = 2.5f;          // damage multiplier on head colliders
+  f32 impulse = 4;              // N*s on dynamic bodies that are hit
+  i32 pellets = 1;              // shotgun: rays per shot
+  f32 aim_fov = 42;             // degrees aiming down sights
+  std::string fire_sound = "builtin:gunshot";
+  std::string reload_sound = "builtin:reload";
+};
+
+/// Hit points: actors with health take damage from weapons (and falls for players).
+struct HealthComponent {
+  f32 max_health = 100;
+  f32 armor = 0;                // absorbs damage first
+  f32 regen_delay = 5;          // seconds after the last damage, 0 = no regeneration
+  f32 regen_rate = 12;          // hit points per second
+  bool respawn = true;          // players respawn at their spawn; others reappear in place
+  f32 respawn_delay = 3;        // seconds
+  f32 points = 10;              // score for the player who brings it down
+  std::string hit_sound = "builtin:hit";
+  std::string death_sound = "builtin:down";
 };
 
 struct PickupComponent {
@@ -225,6 +269,8 @@ struct Actor {
   std::optional<MoverComponent> mover;
   std::optional<CityComponent> city;
   std::optional<AudioComponent> audio;
+  std::optional<WeaponComponent> weapon;
+  std::optional<HealthComponent> health;
 };
 
 enum class GameGoal : u8 { none, collect_all, reach_goal, survive, score };

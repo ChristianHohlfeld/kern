@@ -24,7 +24,8 @@ constexpr const char* kShapeNames[] = {"box", "sphere", "cylinder", "cone", "cap
 constexpr const char* kMotionNames[] = {"static", "kinematic", "dynamic"};
 constexpr const char* kColliderNames[] = {"auto", "box", "sphere", "capsule", "hull"};
 constexpr const char* kJointNames[] = {"hinge", "slider", "ball", "fixed", "distance", "wheel", "motor", "parallel", "noCollision"};
-constexpr const char* kControlNames[] = {"hovercar", "rolling", "character", "flyer", "vehicle"};
+constexpr const char* kControlNames[] = {"hovercar", "rolling", "character", "flyer", "vehicle", "soldier"};
+constexpr const char* kWeaponNames[] = {"rifle", "pistol", "shotgun", "sniper"};
 constexpr const char* kCameraNames[] = {"chase", "firstPerson", "topDown"};
 constexpr const char* kTriggerNames[] = {"goal", "hazard", "checkpoint", "message"};
 constexpr const char* kMoverNames[] = {"sine", "pingPong", "loop"};
@@ -169,6 +170,7 @@ const char* collider_shape_name(ColliderShape s) { return kColliderNames[static_
 const char* joint_kind_name(JointKind k) { return kJointNames[static_cast<u32>(k)]; }
 const char* control_mode_name(ControlMode m) { return kControlNames[static_cast<u32>(m)]; }
 const char* camera_mode_name(CameraMode m) { return kCameraNames[static_cast<u32>(m)]; }
+const char* weapon_kind_name(WeaponKind k) { return kWeaponNames[static_cast<u32>(k)]; }
 const char* trigger_action_name(TriggerAction a) { return kTriggerNames[static_cast<u32>(a)]; }
 const char* mover_mode_name(MoverMode m) { return kMoverNames[static_cast<u32>(m)]; }
 const char* game_goal_name(GameGoal g) { return kGoalNames[static_cast<u32>(g)]; }
@@ -447,7 +449,47 @@ json::Value actor_to_json(const Actor& a) {
     x.set("engineSound", k.engine_sound);
     x.set("jumpSound", k.jump_sound);
     x.set("boostSound", k.boost_sound);
+    x.set("crouchSpeed", num(k.crouch_speed));
+    x.set("eyeHeight", num(k.eye_height));
+    x.set("lookSensitivity", num(k.look_sensitivity));
+    x.set("headBob", k.head_bob);
     c.set("controller", std::move(x));
+  }
+  if (a.weapon) {
+    const WeaponComponent& k = *a.weapon;
+    json::Value x = json::Value::object();
+    x.set("kind", weapon_kind_name(k.kind));
+    x.set("damage", num(k.damage));
+    x.set("fireRate", num(k.fire_rate));
+    x.set("automatic", k.automatic);
+    x.set("magazine", k.magazine);
+    x.set("reserve", k.reserve);
+    x.set("reloadTime", num(k.reload_time));
+    x.set("spread", num(k.spread));
+    x.set("aimSpread", num(k.aim_spread));
+    x.set("recoil", num(k.recoil));
+    x.set("range", num(k.range));
+    x.set("headshot", num(k.headshot));
+    x.set("impulse", num(k.impulse));
+    x.set("pellets", k.pellets);
+    x.set("aimFov", num(k.aim_fov));
+    x.set("fireSound", k.fire_sound);
+    x.set("reloadSound", k.reload_sound);
+    c.set("weapon", std::move(x));
+  }
+  if (a.health) {
+    const HealthComponent& k = *a.health;
+    json::Value x = json::Value::object();
+    x.set("maxHealth", num(k.max_health));
+    x.set("armor", num(k.armor));
+    x.set("regenDelay", num(k.regen_delay));
+    x.set("regenRate", num(k.regen_rate));
+    x.set("respawn", k.respawn);
+    x.set("respawnDelay", num(k.respawn_delay));
+    x.set("points", num(k.points));
+    x.set("hitSound", k.hit_sound);
+    x.set("deathSound", k.death_sound);
+    c.set("health", std::move(x));
   }
   if (a.pickup) {
     json::Value x = json::Value::object();
@@ -640,8 +682,50 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       kr.string("engineSound", k.engine_sound);
       kr.string("jumpSound", k.jump_sound);
       kr.string("boostSound", k.boost_sound);
+      kr.number("crouchSpeed", k.crouch_speed, 0, 100);
+      kr.number("eyeHeight", k.eye_height, 0.2, 10);
+      kr.number("lookSensitivity", k.look_sensitivity, 0.05, 10);
+      kr.boolean("headBob", k.head_bob);
       if (!kr.ok) return false;
       a.controller = k;
+    }
+    if (const json::Value* x = c.find("weapon")) {
+      WeaponComponent k;
+      Reader wr{*x, error};
+      wr.enumeration("kind", kWeaponNames, k.kind);
+      wr.number("damage", k.damage, 0, 1e6);
+      wr.number("fireRate", k.fire_rate, 1, 6000);
+      wr.boolean("automatic", k.automatic);
+      wr.integer("magazine", k.magazine, 1, 10000);
+      wr.integer("reserve", k.reserve, 0, 1000000);
+      wr.number("reloadTime", k.reload_time, 0, 60);
+      wr.number("spread", k.spread, 0, 45);
+      wr.number("aimSpread", k.aim_spread, 0, 45);
+      wr.number("recoil", k.recoil, 0, 30);
+      wr.number("range", k.range, 1, 10000);
+      wr.number("headshot", k.headshot, 0, 100);
+      wr.number("impulse", k.impulse, 0, 1e6);
+      wr.integer("pellets", k.pellets, 1, 64);
+      wr.number("aimFov", k.aim_fov, 5, 120);
+      wr.string("fireSound", k.fire_sound);
+      wr.string("reloadSound", k.reload_sound);
+      if (!wr.ok) return false;
+      a.weapon = k;
+    }
+    if (const json::Value* x = c.find("health")) {
+      HealthComponent k;
+      Reader hr{*x, error};
+      hr.number("maxHealth", k.max_health, 1, 1e7);
+      hr.number("armor", k.armor, 0, 1e7);
+      hr.number("regenDelay", k.regen_delay, 0, 1e5);
+      hr.number("regenRate", k.regen_rate, 0, 1e6);
+      hr.boolean("respawn", k.respawn);
+      hr.number("respawnDelay", k.respawn_delay, 0, 1e5);
+      hr.number("points", k.points, -1e6, 1e6);
+      hr.string("hitSound", k.hit_sound);
+      hr.string("deathSound", k.death_sound);
+      if (!hr.ok) return false;
+      a.health = k;
     }
     if (const json::Value* x = c.find("pickup")) {
       PickupComponent p;
