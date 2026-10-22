@@ -8,7 +8,7 @@ namespace kern::game {
 namespace {
 
 constexpr int kReliable = 0, kUnreliable = 1;
-enum Msg : u16 { kWelcome = 1, kRefuse, kPawn, kUnpawn, kAlive, kInput, kSnapshot, kCues };
+enum Msg : u16 { kWelcome = 1, kRefuse, kPawn, kUnpawn, kAlive, kInput, kSnapshot, kCues, kShots };
 constexpr f32 kWorldBound = 8192;    // metres from the origin a networked pose may be
 constexpr int kMaxEntities = 255;
 constexpr int kInputHistory = 4;
@@ -48,7 +48,25 @@ bool serialize_input(S& s, PlayInput& in) {
   using namespace net;
   return serialize_compressed_float(s, in.move_x, -1, 1, 1.0f / 127) && serialize_compressed_float(s, in.move_y, -1, 1, 1.0f / 127) &&
          serialize_compressed_float(s, in.up, -1, 1, 1.0f / 127) && serialize_bool(s, in.jump) && serialize_bool(s, in.boost) &&
-         serialize_compressed_float(s, in.view_yaw, -360, 360, 0.1f);
+         serialize_compressed_float(s, in.view_yaw, -360, 360, 0.1f) && serialize_compressed_float(s, in.view_pitch, -90, 90, 0.05f) &&
+         serialize_bool(s, in.fire) && serialize_bool(s, in.aim) && serialize_bool(s, in.reload) && serialize_bool(s, in.crouch) &&
+         serialize_bool(s, in.interact);
+}
+
+template <class S>
+bool serialize_soldier(S& s, SoldierState& f) {
+  using namespace net;
+  i32 hits = f.hits, damages = f.damages;
+  if (!serialize_compressed_float(s, f.health, 0, 1000, 0.1f) || !serialize_compressed_float(s, f.max_health, 0, 1000, 0.1f) ||
+      !serialize_compressed_float(s, f.armor, 0, 1000, 0.1f) || !serialize_int(s, f.ammo, -1, 1000) || !serialize_int(s, f.magazine, 0, 1000) ||
+      !serialize_int(s, f.reserve, 0, 100000) || !serialize_compressed_float(s, f.reload, -1, 1, 1.0f / 255) ||
+      !serialize_compressed_float(s, f.spread, 0, 30, 0.01f) || !serialize_compressed_float(s, f.respawn_in, -1, 60, 0.05f) ||
+      !serialize_int(s, hits, 0, 255) || !serialize_int(s, damages, 0, 255) || !serialize_bool(s, f.hit_head) || !serialize_bool(s, f.hit_kill) ||
+      !serialize_bool(s, f.dead) || !serialize_compressed_float(s, f.damage_yaw, -360, 360, 0.5f))
+    return false;
+  f.hits = static_cast<u8>(hits);
+  f.damages = static_cast<u8>(damages);
+  return true;
 }
 
 struct InputMsg {
@@ -79,14 +97,17 @@ struct SnapshotMsg {
   i32 pickups = 0, pickups_total = 0;
   std::string message;
   std::vector<EntityState> entities;
+  bool has_soldier = false;      // the receiving client's own soldier
+  SoldierState soldier;
   template <class S>
   bool serialize(S& s) {
     using namespace net;
     if (!serialize_u32(s, tick) || !serialize_float(s, time) || !serialize_int(s, status, 0, 3) || !serialize_float(s, score) ||
         !serialize_float(s, elapsed) || !serialize_float(s, remaining) || !serialize_compressed_float(s, boost, -1, 1, 1.0f / 255) ||
         !serialize_compressed_float(s, message_age, 0, 60, 0.05f) || !serialize_int(s, pickups, 0, 65535) || !serialize_int(s, pickups_total, 0, 65535) ||
-        !serialize_string(s, message, 120))
+        !serialize_string(s, message, 120) || !serialize_bool(s, has_soldier))
       return false;
+    if (has_soldier && !serialize_soldier(s, soldier)) return false;
     i32 n = static_cast<i32>(entities.size());
     if (!serialize_int(s, n, 0, kMaxEntities)) return false;
     if constexpr (S::kReading) entities.resize(static_cast<std::size_t>(n));
@@ -115,6 +136,22 @@ struct CueMsg {
         return false;
       if constexpr (S::kReading) c.bus = static_cast<audio::Bus>(bus);
     }
+    return true;
+  }
+};
+
+struct ShotsMsg {
+  std::vector<ShotEvent> shots;
+  template <class S>
+  bool serialize(S& s) {
+    using namespace net;
+    i32 n = static_cast<i32>(shots.size());
+    if (!serialize_int(s, n, 0, 16)) return false;
+    if constexpr (S::kReading) shots.resize(static_cast<std::size_t>(n));
+    for (ShotEvent& e : shots)
+      if (!serialize_compressed_vec3(s, e.from, kWorldBound, 0.01f) || !serialize_compressed_vec3(s, e.to, kWorldBound, 0.01f) ||
+          !serialize_bits(s, e.shooter, 32) || !serialize_bits(s, e.hit, 32) || !serialize_bool(s, e.impact) || !serialize_bool(s, e.head))
+        return false;
     return true;
   }
 };
@@ -283,8 +320,14 @@ void NetGame::server_update(f64 time, f32 dt, const PlayInput& input) {
       if (r.have_input && !net::sequence_greater(static_cast<u16>(in.tick), static_cast<u16>(r.last_input_tick)) && in.tick <= r.last_input_tick) continue;
       PlayInput latest = in.inputs.front();
       const u32 fresh = r.have_input ? min_of<u32>(in.tick - r.last_input_tick, static_cast<u32>(in.inputs.size())) : 1;
-      for (u32 k = 0; k < fresh; ++k) latest.jump = latest.jump || in.inputs[k].jump;
+      for (u32 k = 0; k < fresh; ++k) {
+        latest.jump = latest.jump || in.inputs[k].jump;
+        latest.reload = latest.reload || in.inputs[k].reload;
+        latest.fire = latest.fire || in.inputs[k].fire;  // a tap between two packets still shoots
+      }
       latest.has_view_yaw = true;
+      // Lag compensation: the client saw the world one-way trip plus its interpolation delay ago.
+      if (net::Connection* c = server_->connection(slot)) latest.rewind = clamp(c->stats().rtt_ms * 0.0005f + settings_.interpolation_delay, 0.0f, 0.5f);
       r.last_input_tick = in.tick;
       r.have_input = true;
       if (r.pawn) world_.set_pawn_input(r.pawn, latest);
@@ -293,11 +336,22 @@ void NetGame::server_update(f64 time, f32 dt, const PlayInput& input) {
   }
   // Collected pickups and used triggers reach every client reliably.
   const std::vector<SoundCue> cues = world_.sound_cues();  // GameAudio drains them after us
+  const std::size_t shots_before = world_.shots().size();
   std::vector<std::pair<ActorId, bool>> changes;
   world_.take_alive_changes(changes);
   world_.step(dt, input);
   world_.take_alive_changes(changes);
   for (const auto& [id, alive] : changes) server_->broadcast(kReliable, kAlive, ActorMsg{static_cast<u32>(id), alive});
+  // Shots fired this frame (tracers and impacts on every client).
+  {
+    const std::vector<ShotEvent>& all = world_.shots();
+    const std::size_t from = shots_before <= all.size() ? shots_before : 0;
+    for (std::size_t i = from; i < all.size(); i += 8) {
+      ShotsMsg m;
+      m.shots.assign(all.begin() + static_cast<std::ptrdiff_t>(i), all.begin() + static_cast<std::ptrdiff_t>(min_of(all.size(), i + 8)));
+      server_->broadcast(kUnreliable, kShots, m);
+    }
+  }
   // Sound cues produced this frame.
   {
     std::vector<SoundCue> fresh(world_.sound_cues().begin() + static_cast<std::ptrdiff_t>(min_of(cues.size(), world_.sound_cues().size())), world_.sound_cues().end());
@@ -344,6 +398,7 @@ void NetGame::server_send_snapshots() {
     s.message_age = clamp(h.message_age, 0.0f, 60.0f);
     s.pickups = static_cast<i32>(min_of<u32>(h.pickups, 65535));
     s.pickups_total = static_cast<i32>(min_of<u32>(h.pickups_total, 65535));
+    if (r.pawn) s.has_soldier = world_.soldier_state(r.pawn, s.soldier);
     // Priority accumulator: what changed grows fast, the client's own pawn always goes first.
     std::vector<std::pair<f32, EntityState>> candidates;
     for (ActorId id : moving) {
@@ -447,6 +502,7 @@ void NetGame::client_update(f64 time, f32 dt, const PlayInput& input) {
         h.message_age = s.message_age;
         h.pickups = static_cast<u32>(s.pickups);
         h.pickups_total = static_cast<u32>(s.pickups_total);
+        if (s.has_soldier) world_.apply_soldier_state(s.soldier);
         for (const EntityState& e : s.entities) {
           auto& ent = entities_[static_cast<ActorId>(e.actor)];
           if (!ent) ent = std::make_unique<Entity>();
@@ -455,6 +511,10 @@ void NetGame::client_update(f64 time, f32 dt, const PlayInput& input) {
           v.push_back({static_cast<f64>(s.time), e.position, e.rotation});
           if (v.size() > 32) v.erase(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(v.size() - 32));
         }
+      } else if (m->type == kShots) {
+        ShotsMsg sm;
+        if (!net::read(*m, sm)) continue;
+        for (ShotEvent& e : sm.shots) world_.shots().push_back(e);
       } else if (m->type == kCues) {
         CueMsg c;
         if (!net::read(*m, c)) continue;
@@ -471,6 +531,7 @@ void NetGame::client_update(f64 time, f32 dt, const PlayInput& input) {
     PlayInput in = input;
     in.has_view_yaw = true;
     in.view_yaw = std::remainder(world_.camera_yaw(), 360.0f);
+    in.view_pitch = clamp(world_.camera_pitch(), -90.0f, 90.0f);
     recent_inputs_.insert(recent_inputs_.begin(), in);
     if (recent_inputs_.size() > kInputHistory) recent_inputs_.resize(kInputHistory);
     InputMsg msg;

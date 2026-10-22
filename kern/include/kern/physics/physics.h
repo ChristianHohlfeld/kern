@@ -216,6 +216,8 @@ class World {
   /// are reported in joint_events() after a step (0 = never).
   void set_joint_thresholds(Joint joint, f32 force, f32 torque);
   Vec3 joint_force(Joint joint) const;
+  /// Motor of a revolute (rad/s, N*m), prismatic (m/s, N), distance (m/s, N) or spherical joint (torque only).
+  void set_joint_motor(Joint joint, bool enable, f32 speed, f32 max_force);
   Vec3 joint_torque(Joint joint) const;
   /// Touching contact points of a body (for debug views).
   void contact_points(Body body, std::vector<ContactPoint>& out) const;

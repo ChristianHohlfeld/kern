@@ -12,6 +12,10 @@ Level orb_run_level();
 /// hinged door, a breakable rope bridge, a motorised turntable, a slider
 /// lift, a self-driving car on wheel joints, and a rolling ball to play with.
 Level physics_lab_level();
+/// First-person shooter range: a replicated Soldier (rifle, health, respawn),
+/// target dummies at 10-60 m, cover, crates to shoot around, a tower to climb.
+/// Score 150 points to win; works as is with several players.
+Level shooting_range_level();
 /// A floor, daylight and nothing else.
 Level basic_level();
 /// Nothing at all.

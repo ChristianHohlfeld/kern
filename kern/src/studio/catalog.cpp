@@ -42,6 +42,8 @@ constexpr Item kItems[] = {
     {"hover_car", "Hover Car", "Gameplay", "car", "Playable hover car (Box3D)"},
     {"rolling_ball", "Rolling Ball", "Gameplay", "ball", "Playable ball with jump"},
     {"character", "Character", "Gameplay", "person", "Playable capsule character"},
+    {"soldier", "Soldier", "Gameplay", "soldier", "First-person shooter player: rifle, health, respawn (replicated)"},
+    {"target_dummy", "Target Dummy", "Gameplay", "target", "Shootable target with health and a head; respawns"},
     {"drone", "Drone", "Gameplay", "drone", "Playable flyer"},
     {"orb", "Orb", "Gameplay", "orb", "Glowing pickup worth 1 point"},
     {"star", "Star", "Gameplay", "star", "Spinning pickup worth 10 points"},
@@ -272,6 +274,46 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
     c.camera_height = 2.5f;
     body.controller = c;
     add(body, {0, 0, 0.9f});
+  } else if (item == "soldier") {
+    game::Actor body = dynamic(shape_actor("Soldier", game::Shape::capsule, {0.32f, 0.42f, 0.3f}), 80);
+    body.mesh->radius = 0.35f;
+    body.mesh->height = 1.45f;
+    body.body->allow_sleep = false;
+    game::ControllerComponent c;
+    c.mode = game::ControlMode::soldier;
+    c.camera = game::CameraMode::first_person;
+    c.max_speed = 5.5f;
+    c.boost_speed = 8.1f;
+    c.jump_speed = 3.6f;
+    c.camera_fov = 72;
+    body.controller = c;
+    body.weapon = game::WeaponComponent{};
+    body.health = game::HealthComponent{};
+    const i32 root = add(body, {0, 0, 0.725f});
+    game::Actor head = shape_actor("Head", game::Shape::sphere, {0.85f, 0.7f, 0.55f});
+    head.mesh->radius = 0.17f;
+    head.tags.push_back("head");
+    add(head, {0, 0, 0.83f}, root);
+    game::Actor gun = shape_actor("Rifle", game::Shape::box, {0.12f, 0.12f, 0.13f});
+    gun.mesh->size = {0.75f, 0.07f, 0.12f};
+    gun.mesh->collision = false;
+    add(gun, {0.35f, -0.22f, 0.35f}, root);
+  } else if (item == "target_dummy") {
+    game::Actor body = shape_actor("Target Dummy", game::Shape::capsule, {0.85f, 0.35f, 0.25f});
+    body.mesh->radius = 0.32f;
+    body.mesh->height = 1.45f;
+    game::HealthComponent h;
+    h.max_health = 100;
+    h.regen_delay = 3;
+    h.regen_rate = 40;
+    h.respawn_delay = 3;
+    body.health = h;
+    body.tags.push_back("target");
+    const i32 root = add(body, {0, 0, 0.725f});
+    game::Actor head = shape_actor("Head", game::Shape::sphere, {0.95f, 0.85f, 0.75f});
+    head.mesh->radius = 0.17f;
+    head.tags.push_back("head");
+    add(head, {0, 0, 0.88f}, root);
   } else if (item == "drone") {
     game::Actor drone = dynamic(shape_actor("Drone", game::Shape::box, {0.25f, 0.27f, 0.3f}), 3);
     drone.mesh->size = {0.6f, 0.6f, 0.18f};

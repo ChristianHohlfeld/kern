@@ -136,6 +136,16 @@ struct SoundCue {
   ActorId actor = 0;
 };
 
+/// What a network client needs to show its own soldier's HUD (sent by the server per client).
+struct SoldierState {
+  f32 health = 100, max_health = 100, armor = 0;
+  i32 ammo = 0, magazine = 0, reserve = 0;
+  f32 reload = -1, spread = 0, respawn_in = -1;
+  u8 hits = 0, damages = 0;        // counters: a change shows the hit marker / damage vignette
+  bool hit_head = false, hit_kill = false, dead = false;
+  f32 damage_yaw = 0;              // world yaw (degrees) the last damage came from
+};
+
 struct SimStats {
   u32 bodies = 0, awake = 0, shapes = 0, joints = 0, broken_joints = 0, contacts = 0;
   u64 steps = 0;
@@ -195,6 +205,7 @@ class GameWorld {
   bool update_camera(Camera& camera, f32 dt, const PlayInput& input);
   ActorId player() const { return player_; }
   f32 camera_yaw() const { return camera_yaw_; }
+  f32 camera_pitch() const { return camera_pitch_; }
   f32 sim_time() const { return sim_time_; }
 
   // ---- players (multiplayer) ----
@@ -250,11 +261,53 @@ class GameWorld {
   /// Health of an actor (-1 = no health). Network replicas set what the server sends.
   f32 health_of(ActorId id) const;
   void set_health(ActorId id, f32 health, f32 armor, bool dead);
+  /// Server: HUD state of a soldier pawn for its client. False if the pawn is no soldier.
+  bool soldier_state(ActorId pawn, SoldierState& out) const;
+  /// Client: applies the server's state of this machine's soldier to the HUD.
+  void apply_soldier_state(const SoldierState& s);
   /// The camera the frame is drawn with (view model of a first-person player).
   void set_view(const Camera& camera) { view_camera_ = camera; view_valid_ = true; }
   /// False for collected pickups and used triggers (and their children).
   bool actor_alive(ActorId id) const;
   const PlayInput& last_input() const { return last_input_; }
+
+  // ---- logic (Kern Logic graphs: the level's and the actors') ----
+  /// The running graphs (Play and Simulate on the authority; null otherwise).
+  logic::Runtime* logic_runtime() { return logic_.get(); }
+  /// A key of this machine's keyboard while playing ("KeyF", "Digit1"...): On Key events.
+  void key_event(const std::string& code, bool down);
+  /// Replicated changes made by logic (the network server sends them; clients apply them).
+  struct PropertyChange { ActorId actor = 0; std::string path; json::Value value; };
+  struct SpawnChange { ActorId source = 0, id = 0; Vec3 position, rotation; };
+  void take_replicated_changes(std::vector<PropertyChange>& props, std::vector<SpawnChange>& spawns);
+  /// Everything changed so far (for players who join later).
+  void replicated_state(std::vector<PropertyChange>& props, std::vector<SpawnChange>& spawns) const;
+  /// Sets a component property of a running actor by JSON path ("components.light.color").
+  bool set_property(ActorId id, const std::string& path, const json::Value& value);
+  /// A copy of `source` (with children and logic) at a place; `id` forces the root id (replicas).
+  ActorId spawn_copy(ActorId source, Vec3 position, Vec3 rotation_deg, ActorId id = 0);
+  bool teleport(ActorId id, Vec3 position, const Vec3* rotation_deg = nullptr);
+  Vec3 actor_velocity(ActorId id) const;
+  bool set_actor_velocity(ActorId id, Vec3 velocity);
+  bool push_actor(ActorId id, Vec3 amount, bool impulse);  // impulse (N*s) or force for one step (N)
+  bool set_simulate_physics(ActorId id, bool simulate);
+  bool set_joint_motor(ActorId id, i32 joint, bool enable, f32 speed, f32 max_force);
+  ActorId find_actor(std::string_view name) const;
+  void actors_with_tag(std::string_view tag, std::vector<ActorId>& out) const;
+  bool has_tag(ActorId id, std::string_view tag) const;
+  /// Closest hit between two points (sensors ignored): actor, point, normal.
+  bool line_trace(Vec3 from, Vec3 to, ActorId ignore, ActorId& actor, Vec3& point, Vec3& normal);
+  void add_score(f32 points);
+  void end_game(bool won, const std::string& message);
+  void show_message(const std::string& message) { say(message); }
+  void play_sound(const std::string& sound, Vec3 at, f32 volume, f32 pitch, bool spatial, ActorId actor = 0) { cue(sound, at, volume, pitch, spatial, spatial ? audio::Bus::sfx : audio::Bus::ui, actor); }
+  void particle_burst(Vec3 at, Vec3 color) { burst(at, color); }
+  void shake_camera(f32 amount) { shake_ = max_of(shake_, amount); shake_energy_ = min_of(1.35f, shake_energy_ + amount); }
+  void destroy_actor(ActorId id);
+  void heal(ActorId id, f32 amount);
+  void give_ammo(ActorId pawn, i32 rounds);
+  /// Calls a logic Custom Event by name (Studio console, other systems).
+  void call_logic_event(const std::string& name, ActorId target = 0);
 
  private:
   struct Visual;
@@ -262,6 +315,7 @@ class GameWorld {
   struct SimBody;
   struct SimJoint;
   struct Traffic;
+  class LogicHost;
 
   physics::Body create_body(const BodyPlan& plan);
   void sync_actor_mesh(const Actor& a, const Mat4& world);
@@ -287,6 +341,7 @@ class GameWorld {
   void fire_weapon(const PlayInput& in, const WeaponComponent& w);
   void update_health(f32 dt);
   void present_soldier(f64 now_ms);
+  void replica_soldier(const PlayInput& in, f32 dt);
   void soldier_camera(Camera& cam, f32 dt, const PlayInput& in, const ControllerComponent& c);
   ActorId actor_for_body(physics::Body body) const;
   f32 a_eye_height(ActorId actor) const;
@@ -374,6 +429,13 @@ class GameWorld {
     u32 shots = 0;
     f32 respawn_at = -1, protected_until = 0;
     std::vector<std::pair<f32, Vec3>> history;  // (sim time, feet) for lag compensation
+    u8 hit_count = 0, damage_count = 0;          // replicated feedback counters
+    bool hit_head = false, hit_kill = false;
+    f32 damage_from_yaw = 0;                     // world yaw the last damage came from
+    Vec3 seen_feet, seen_vel;                    // replicas: presented feet and their velocity
+    bool seen_valid = false;
+    f32 client_next_fire = 0;                    // replicas: predicted fire timing (camera kick)
+    PlayInput prev_input;                        // input actions: edges for logic events
   };
   struct HealthState {
     f32 hp = 100, armor = 0, last_damage = -1e9f;
@@ -398,6 +460,18 @@ class GameWorld {
   Pawn* local_ = nullptr;             // the pawn this machine controls
   Pawn* pawn_of(ActorId actor);
   std::vector<std::pair<ActorId, bool>> alive_changes_;
+  // logic
+  void start_logic();
+  void logic_fire(const char* type, ActorId actor, ActorId other, std::vector<std::pair<std::string, logic::Value>> extra = {}, std::string key = {});
+  void logic_inputs(Pawn& pawn, const PlayInput& in);
+  void interact(Pawn& pawn);
+  std::unique_ptr<LogicHost> logic_host_;
+  std::unique_ptr<logic::Runtime> logic_;
+  u32 logic_seed_ = 0x9e3779b9u;
+  bool logic_events_ = false;
+  bool starting_replica_ = false;       // start() for a network replica: no logic           // the level has graphs: shapes report sensor / hit events
+  std::vector<PropertyChange> prop_changes_, prop_log_;
+  std::vector<SpawnChange> spawn_changes_, spawn_log_;
   std::unordered_map<ActorId, std::pair<Vec3, Quat>> replica_poses_;
 };
 

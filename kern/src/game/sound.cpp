@@ -84,10 +84,12 @@ void SoundBank::request_level(const Level& level) {
       request(engine_sound_for(*a.controller));
       request(a.controller->jump_sound);
       if (a.controller->boost) request(a.controller->boost_sound);
-      if (a.controller->mode == ControlMode::character) request("builtin:step");
+      if (a.controller->mode == ControlMode::character || a.controller->mode == ControlMode::soldier) request("builtin:step");
       if (a.controller->mode != ControlMode::hovercar && a.controller->mode != ControlMode::flyer) request("builtin:land");
       request("builtin:powerup");
     }
+    if (a.weapon) { request(a.weapon->fire_sound); request(a.weapon->reload_sound); request("builtin:click"); }
+    if (a.health) { request(a.health->hit_sound); request(a.health->death_sound); }
     if (a.pickup) { request(a.pickup->sound); goal = true; }
     if (a.trigger) {
       const char* fallback = a.trigger->action == TriggerAction::goal ? "builtin:goal"

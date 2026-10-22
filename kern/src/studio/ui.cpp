@@ -104,6 +104,7 @@ std::string lower(std::string s) {
 game::Level template_level(const std::string& name) {
   if (name == "orbRun") return game::orb_run_level();
   if (name == "physicsLab") return game::physics_lab_level();
+  if (name == "shootingRange") return game::shooting_range_level();
   if (name == "empty") return game::empty_level();
   return game::basic_level();
 }
@@ -176,7 +177,8 @@ json::Value Studio::key(std::string_view key, std::string_view code, bool down, 
     if (c == "KeyP" && m_alt && !repeat) { stop(); handled = true; return done(); }  // Alt+P toggles play
     if (c == "KeyS" && m_alt && !repeat) { play(game::SimMode::simulate); handled = true; return done(); }
     if (playing_pawn) {
-      if (c == "KeyR" && m_ctrl) { world_->restart(); handled = true; return done(); }
+      // Ctrl+R restarts, except for soldiers (Ctrl crouches, R reloads).
+      if (c == "KeyR" && m_ctrl && !soldier_pawn()) { world_->restart(); handled = true; return done(); }
       // Everything else drives the pawn.
       handled = !m_ctrl || c == "ControlLeft";
       return done();
@@ -579,13 +581,14 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
   if (name == "new") {
     d.set("title", "New Level");
     json::Value cards = json::Value::array();
-    const char* ids[] = {"orbRun", "physicsLab", "basic", "empty"};
-    const char* labels[] = {"Orb Run", "Physics Lab", "Basic", "Empty"};
+    const char* ids[] = {"orbRun", "physicsLab", "shootingRange", "basic", "empty"};
+    const char* labels[] = {"Orb Run", "Physics Lab", "Shooting Range", "Basic", "Empty"};
     const char* help[] = {"Procedural night city, Box3D hover car, 24 orbs to collect",
                           "Every Box3D joint: hinge, slider, wheel, rope bridge, motor, stacks",
+                          "First-person Soldier (desktop, gamepad, touch), targets, cover - multiplayer ready",
                           "Floor, sun and sky - a clean start",
                           "Nothing at all"};
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
       json::Value c = json::Value::object();
       c.set("id", ids[i]);
       c.set("label", labels[i]);
@@ -924,6 +927,45 @@ json::Value Studio::state() {
   return s;
 }
 
+
+static json::Value hud_json(const game::Hud& h, bool player) {
+  json::Value hud = json::Value::object();
+  hud.set("status", game::game_status_name(h.status));
+  hud.set("title", h.title);
+  hud.set("message", h.message);
+  hud.set("messageAge", internal::round_num(h.message_age, 100));
+  hud.set("score", internal::round_num(h.score, 10));
+  hud.set("pickups", h.pickups);
+  hud.set("pickupsTotal", h.pickups_total);
+  hud.set("elapsed", internal::round_num(h.elapsed, 100));
+  hud.set("remaining", internal::round_num(h.remaining, 100));
+  hud.set("speed", internal::round_num(h.speed, 10));
+  hud.set("boost", internal::round_num(h.boost, 100));
+  hud.set("best", internal::round_num(h.best, 100));
+  hud.set("player", player);
+  if (h.soldier) {
+    json::Value f = json::Value::object();
+    f.set("health", internal::round_num(h.health, 10));
+    f.set("maxHealth", internal::round_num(h.max_health, 10));
+    f.set("armor", internal::round_num(h.armor, 10));
+    f.set("ammo", h.ammo);
+    f.set("magazine", h.magazine);
+    f.set("reserve", h.reserve);
+    f.set("reload", internal::round_num(h.reload, 100));
+    f.set("spread", internal::round_num(h.spread, 100));
+    f.set("hitAge", internal::round_num(h.hit_age, 100));
+    f.set("hitHead", h.hit_head);
+    f.set("hitKill", h.hit_kill);
+    f.set("damageAge", internal::round_num(h.damage_age, 100));
+    f.set("damageYaw", internal::round_num(h.damage_yaw, 10));
+    f.set("respawnIn", internal::round_num(h.respawn_in, 10));
+    f.set("aiming", h.aiming);
+    f.set("fov", internal::round_num(h.fov, 10));
+    hud.set("soldier", std::move(f));
+  }
+  return hud;
+}
+
 json::Value Studio::status() {
   json::Value s = json::Value::object();
   s.set("revision", static_cast<f64>(revision_));
@@ -933,21 +975,7 @@ json::Value Studio::status() {
   s.set("paused", paused_);
   s.set("captured", mouse_captured_);
   if (play_ != PlayState::editing) {
-    const game::Hud& h = world_->hud();
-    json::Value hud = json::Value::object();
-    hud.set("status", game::game_status_name(h.status));
-    hud.set("title", h.title);
-    hud.set("message", h.message);
-    hud.set("messageAge", internal::round_num(h.message_age, 100));
-    hud.set("score", internal::round_num(h.score, 10));
-    hud.set("pickups", h.pickups);
-    hud.set("pickupsTotal", h.pickups_total);
-    hud.set("elapsed", internal::round_num(h.elapsed, 100));
-    hud.set("remaining", internal::round_num(h.remaining, 100));
-    hud.set("speed", internal::round_num(h.speed, 10));
-    hud.set("boost", internal::round_num(h.boost, 100));
-    hud.set("best", internal::round_num(h.best, 100));
-    hud.set("player", world_->player() != 0 && play_ == PlayState::playing);
+    json::Value hud = hud_json(world_->hud(), world_->player() != 0 && play_ == PlayState::playing);
     s.set("hud", std::move(hud));
     const game::SimStats st = world_->stats();
     json::Value stats = json::Value::object();
@@ -990,21 +1018,7 @@ json::Value Studio::status() {
       o.set("rtt", internal::round_num(c.game->stats().rtt_ms, 10));
       o.set("buffer", internal::round_num(c.game->stats().buffer_ms, 10));
       if (c.game->playing()) {
-        const game::Hud& h = c.world->hud();
-        json::Value hud = json::Value::object();
-        hud.set("status", game::game_status_name(h.status));
-        hud.set("title", h.title);
-        hud.set("message", h.message);
-        hud.set("messageAge", internal::round_num(h.message_age, 100));
-        hud.set("score", internal::round_num(h.score, 10));
-        hud.set("pickups", h.pickups);
-        hud.set("pickupsTotal", h.pickups_total);
-        hud.set("elapsed", internal::round_num(h.elapsed, 100));
-        hud.set("remaining", internal::round_num(h.remaining, 100));
-        hud.set("speed", internal::round_num(h.speed, 10));
-        hud.set("boost", internal::round_num(h.boost, 100));
-        hud.set("best", 0.0);
-        hud.set("player", true);
+        json::Value hud = hud_json(c.world->hud(), true);
         o.set("hud", std::move(hud));
       }
       cl.push(std::move(o));
@@ -1348,6 +1362,37 @@ json::Value Studio::run(const json::Value& c) {
     if (c["up"].is_number()) touch_.up = clamp(static_cast<f32>(num("up")), -1.0f, 1.0f);
     if (c["jump"].is_bool()) touch_.jump = c["jump"].as_bool();
     if (c["boost"].is_bool()) touch_.boost = c["boost"].as_bool();
+    if (c["fire"].is_bool()) touch_.fire = c["fire"].as_bool();
+    if (c["aim"].is_bool()) touch_.aim = c["aim"].as_bool();
+    if (c["reload"].is_bool()) touch_.reload = c["reload"].as_bool();
+    if (c["crouch"].is_bool()) touch_.crouch = c["crouch"].as_bool();
+    if (c["interact"].is_bool()) touch_.interact = c["interact"].as_bool();
+    // Touch look: finger travel in CSS pixels (SpawnCity: 0.0068 rad/px across, 0.0059 rad/px up/down).
+    if (c["lookX"].is_number()) touch_look_x_ += static_cast<f32>(num("lookX")) * 0.39f;
+    if (c["lookY"].is_number()) touch_look_y_ += static_cast<f32>(num("lookY")) * 0.34f;
+    return ok();
+  }
+  if (name == "gamepad") {
+    // Xbox / standard-mapping gamepad state, sent every frame by the page while one is connected.
+    game::PlayInput& g = pad_;
+    g = game::PlayInput{};
+    pad_connected_ = c["connected"].as_bool(true);
+    if (!pad_connected_) return ok();
+    g.gamepad = true;
+    g.move_x = clamp(static_cast<f32>(num("lx")), -1.0f, 1.0f);
+    g.move_y = clamp(static_cast<f32>(num("ly")), -1.0f, 1.0f);
+    g.look_stick_x = clamp(static_cast<f32>(num("rx")), -1.0f, 1.0f);
+    g.look_stick_y = clamp(static_cast<f32>(num("ry")), -1.0f, 1.0f);
+    g.fire = num("rt") > 0.35;
+    g.aim = num("lt") > 0.35;
+    g.jump = c["a"].as_bool();
+    g.crouch = c["b"].as_bool();
+    g.reload = c["x"].as_bool();
+    g.interact = c["y"].as_bool();
+    g.boost = c["l3"].as_bool() || c["lb"].as_bool();
+    g.up = (c["rb"].as_bool() ? 1.0f : 0.0f) - (c["lb"].as_bool() ? 1.0f : 0.0f);
+    if (c["start"].as_bool() && !pad_start_ && play_ != PlayState::editing) toggle_pause();
+    pad_start_ = c["start"].as_bool();
     return ok();
   }
   if (name == "releasePointer") { mouse_captured_ = false; touch(); return ok(); }

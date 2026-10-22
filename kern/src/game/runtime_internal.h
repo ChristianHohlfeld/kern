@@ -31,4 +31,36 @@ inline f32 wrap180(f32 a) { a = std::fmod(a + 180.0f, 360.0f); if (a < 0) a += 3
 inline f32 noise(u32 x) { x = hash_u32(x); return static_cast<f32>(x & 0xFFFFFF) / static_cast<f32>(0x7FFFFF) - 1.0f; }
 }  // namespace rt
 
+struct GameWorld::SimJoint {
+  ActorId actor = 0, target = 0;
+  physics::Joint joint;
+  physics::Body a, b;
+  physics::Pose frame_a, frame_b;
+  JointKind kind = JointKind::hinge;
+  std::size_t index = 0;          // into the actor's joints
+  bool broken = false;
+};
+
+class GameWorld::LogicHost : public logic::Host {
+ public:
+  explicit LogicHost(GameWorld& w) : w_(w) {}
+  f64 time() const override { return w_.sim_time_; }
+  void print(const std::string& text, bool screen) override {
+    w_.events_.push_back("Logic: " + text);
+    if (screen) w_.say(text);
+  }
+  void error(const std::string& text) override { w_.events_.push_back("Logic error: " + text); }
+  u32 random() override {
+    u32& s = w_.logic_seed_;
+    s ^= s << 13;
+    s ^= s >> 17;
+    s ^= s << 5;
+    return s;
+  }
+  void* game() override { return &w_; }
+
+ private:
+  GameWorld& w_;
+};
+
 }  // namespace kern::game

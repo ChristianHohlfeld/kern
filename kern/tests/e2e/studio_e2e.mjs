@@ -322,7 +322,7 @@ const vpCenter = async (page, i = 0) => {
   // New level from a template via the dialog.
   await page.click('.mb[data-menu="file"]');
   await page.locator(".menu .mi", {hasText: "New Level"}).click();
-  check(await until(async () => (await page.locator(".dialog .tpl").count()) === 4), "New Level shows four templates");
+  check(await until(async () => (await page.locator(".dialog .tpl").count()) === 5), "New Level shows five templates");
   await page.locator(".tpl", {hasText: "Physics Lab"}).click();
   await page.locator(".dialog .btn.primary").click();
   check(await until(async () => (await state(page)).level.name === "Physics Lab"), "Physics Lab opens");
@@ -331,6 +331,24 @@ const vpCenter = async (page, i = 0) => {
   await page.waitForTimeout(800);
   await shot(page, "studio-physics-lab.png");
   await page.click("#stopBtn");
+
+  // Soldier (first-person shooter): the Shooting Range template, mouse fires, HUD shows ammo and crosshair.
+  await cmd(page, {cmd: "new", template: "shootingRange"});
+  await cmd(page, {cmd: "play", mode: "play"});
+  check(await until(async () => (await status(page)).hud?.soldier?.ammo === 30, 30000), "Shooting Range plays a Soldier with a full magazine");
+  check(await until(async () => (await page.locator(".vp .k-xh, .vp .k-xh-dot").count()) > 0, 20000), "the soldier HUD draws a crosshair");
+  {
+    const c = await vpCenter(page);
+    await page.mouse.move(c.x, c.y);
+    await page.mouse.down();  // capture click: does not fire
+    await page.mouse.up();
+    await page.mouse.down();
+    check(await until(async () => (await status(page)).hud?.soldier?.ammo < 30, 120000), "holding the left mouse button fires");
+    await page.mouse.up();
+    await page.keyboard.press("Escape");
+  }
+  await page.waitForTimeout(300);
+  if ((await state(page)).play?.state !== "editing") await cmd(page, {cmd: "stop"});
 
   // Help.
   await page.keyboard.press("F1");
@@ -351,19 +369,22 @@ const vpCenter = async (page, i = 0) => {
 
   // Online between two tabs of the browser (BroadcastChannel transport, Kern Net on top).
   {
+    // Both tabs play the lighter Shooting Range (software rendering of two cities is too slow here).
+    await cmd(page, {cmd: "new", template: "shootingRange"});
     const guest = await ctx.newPage();
     guest.on("pageerror", e => errors.push("guest: " + e.message));
     await guest.goto(base + "/generated/studio.html");
-    await guest.waitForFunction(() => window.KernStudio && window.KernStudio.frames() > 5, null, {timeout: 90000});
+    await guest.waitForFunction(() => window.KernStudio && window.KernStudio.frames() > 2, null, {timeout: 240000});
+    await cmd(guest, {cmd: "new", template: "shootingRange"});
     await cmd(page, {cmd: "submitDialog", name: "netHost", values: {room: "e2e", relay: ""}});
     check(await until(async () => (await status(page)).net?.role === "server", 15000), "Host Online Game starts a server");
     await cmd(guest, {cmd: "submitDialog", name: "netJoin", values: {room: "e2e", relay: ""}});
-    check(await until(async () => (await status(guest)).net?.status?.startsWith("Connected (slot"), 30000), "a second tab joins the hosted game");
-    check(await until(async () => (await status(page)).net?.players === 2, 15000), "the host sees two players");
+    check(await until(async () => (await status(guest)).net?.status?.startsWith("Connected (slot"), 90000), "a second tab joins the hosted game");
+    check(await until(async () => (await status(page)).net?.players === 2, 60000), "the host sees two players");
     const gs = await status(guest);
     check(gs.hud?.status === "playing", "the guest plays the host's game");
     await cmd(guest, {cmd: "netStop"});
-    check(await until(async () => (await status(page)).net?.players === 1, 15000), "the host notices the guest leaving");
+    check(await until(async () => (await status(page)).net?.players === 1, 60000), "the host notices the guest leaving");
     await cmd(page, {cmd: "netStop"});
     await guest.close();
   }

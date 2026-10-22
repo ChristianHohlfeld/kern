@@ -105,6 +105,89 @@ void GameWorld::set_health(ActorId id, f32 health, f32 armor, bool dead) {
   h.dead = dead;
 }
 
+bool GameWorld::soldier_state(ActorId pawn, SoldierState& out) const {
+  const Pawn* p = nullptr;
+  for (const auto& q : pawns_) if (q->actor == pawn) p = q.get();
+  const Actor* a = level_.find(pawn);
+  if (!p || !a || !a->controller || a->controller->mode != ControlMode::soldier) return false;
+  out = SoldierState{};
+  if (const auto h = health_.find(pawn); h != health_.end()) {
+    out.health = h->second.dead ? 0 : h->second.hp;
+    out.armor = h->second.armor;
+    out.dead = h->second.dead;
+  }
+  out.max_health = a->health ? a->health->max_health : 100;
+  if (a->weapon) {
+    out.ammo = p->mag;
+    out.magazine = a->weapon->magazine;
+    out.reserve = p->reserve;
+    out.reload = p->reload_until >= 0 ? clamp(1 - (p->reload_until - sim_time_) / max_of(0.01f, a->weapon->reload_time), 0.0f, 1.0f) : -1;
+  } else {
+    out.ammo = -1;
+  }
+  out.spread = p->spread;
+  out.respawn_in = p->respawn_at >= 0 ? max_of(0.0f, p->respawn_at - sim_time_) : -1;
+  out.hits = p->hit_count;
+  out.damages = p->damage_count;
+  out.hit_head = p->hit_head;
+  out.hit_kill = p->hit_kill;
+  out.damage_yaw = p->damage_from_yaw;
+  return true;
+}
+
+void GameWorld::apply_soldier_state(const SoldierState& s) {
+  Pawn* p = local_;
+  if (!p) return;
+  hud_.soldier = true;
+  hud_.health = s.health;
+  hud_.max_health = s.max_health;
+  hud_.armor = s.armor;
+  hud_.ammo = s.ammo;
+  hud_.magazine = s.magazine;
+  hud_.reserve = s.reserve;
+  hud_.reload = s.reload;
+  hud_.spread = s.spread;
+  hud_.respawn_in = s.dead ? s.respawn_in : -1;
+  if (s.hits != p->hit_count) { hud_.hit_age = 0; p->hit_count = s.hits; }
+  hud_.hit_head = s.hit_head;
+  hud_.hit_kill = s.hit_kill;
+  if (s.damages != p->damage_count) { hud_.damage_age = 0; p->damage_count = s.damages; }
+  hud_.damage_yaw = rt::wrap180(s.damage_yaw - camera_yaw_);
+  HealthState& h = health_[p->actor];
+  h.hp = s.health;
+  h.armor = s.armor;
+  h.dead = s.dead;
+  p->mag = s.ammo;
+  p->reserve = s.reserve;
+}
+
+void GameWorld::replica_soldier(const PlayInput& in, f32 dt) {
+  // Network client: the server simulates; this machine predicts what only it sees -
+  // crouch height of the eye, aiming, and the camera kick of its own shots.
+  Pawn* p = local_;
+  const Actor* a = p ? level_.find(p->actor) : nullptr;
+  if (!a || !a->controller || a->controller->mode != ControlMode::soldier) return;
+  const bool dead = hud_.respawn_in >= 0 || (health_.count(p->actor) && health_[p->actor].dead);
+  p->crouch = in.crouch && !dead ? min_of(1.0f, p->crouch + dt * 8) : max_of(0.0f, p->crouch - dt * 8);
+  const bool sprint = in.boost && in.move_y > 0.3f && !in.aim && p->crouch < 0.5f;
+  hud_.soldier = true;
+  hud_.aiming = in.aim && !sprint && !dead;
+  hud_.speed = length(Vec3{p->seen_vel.x, p->seen_vel.y, 0});
+  if (a->weapon && in.fire && !dead && !sprint && hud_.ammo > 0 && hud_.reload < 0 && sim_time_ >= p->client_next_fire) {
+    const WeaponComponent& w = *a->weapon;
+    if (w.automatic || !p->fire_latch) {
+      p->client_next_fire = sim_time_ + 60.0f / max_of(1.0f, w.fire_rate);
+      ++p->shots;
+      recoil_pitch_ = min_of(0.05f + w.recoil * kDegree, recoil_pitch_ + 0.016f + w.recoil * kDegree * 0.5f);
+      recoil_yaw_ = clamp(recoil_yaw_ + 0.0042f * rt::noise(p->shots * 13u), -0.012f, 0.012f);
+      recoil_roll_ = clamp(recoil_roll_ - 0.006f * rt::noise(p->shots * 17u + 3), -0.018f, 0.018f);
+      shake_energy_ = min_of(1.35f, shake_energy_ + 0.78f);
+      flash_until_ = now_ms_ + 45;
+    }
+  }
+  p->fire_latch = in.fire;
+}
+
 void GameWorld::damage(ActorId target, f32 amount, ActorId attacker, bool head, Vec3 from) {
   auto it = health_.find(target);
   if (it == health_.end() || it->second.dead || !(amount > 0)) return;
@@ -120,25 +203,38 @@ void GameWorld::damage(ActorId target, f32 amount, ActorId attacker, bool head, 
   const Vec3 at = world_.count(target) ? world_[target].translation() : from;
   cue(hc.hit_sound, at + Vec3{0, 0, 1}, head ? 1.0f : 0.7f, head ? 1.35f : 1.0f, true, audio::Bus::sfx, target);
   Pawn* shooter = attacker ? pawn_of(attacker) : nullptr;
+  if (shooter) {
+    ++shooter->hit_count;
+    shooter->hit_head = head;
+    shooter->hit_kill = false;
+  }
   if (shooter && shooter == local_) {
     hud_.hit_age = 0;
     hud_.hit_head = head;
     hud_.hit_kill = false;
   }
+  const Vec3 dd = from - at;
+  const f32 from_yaw = std::atan2(dd.y, dd.x) / kDegree;
+  if (victim) {
+    ++victim->damage_count;
+    victim->damage_from_yaw = from_yaw;
+  }
   if (victim && victim == local_) {
     hud_.damage_age = 0;
-    const Vec3 d = from - at;
-    hud_.damage_yaw = rt::wrap180(std::atan2(d.y, d.x) / kDegree - victim->yaw);
+    hud_.damage_yaw = rt::wrap180(from_yaw - victim->yaw);
   }
+  logic_fire("game.damaged", target, attacker, {{"amount", logic::Value::number(amount)}, {"head", logic::Value::boolean(head)}});
   if (h.hp > 0) return;
   // Down.
   h.hp = 0;
   h.dead = true;
   cue(hc.death_sound, at + Vec3{0, 0, 1}, 1, 1, true, audio::Bus::sfx, target);
+  if (shooter) shooter->hit_kill = true;
   if (shooter && shooter == local_) hud_.hit_kill = true;
   if (shooter && hud_.status == GameStatus::playing) hud_.score += hc.points;
   const std::string who = a ? a->name : std::string("target");
   if (shooter) say(who + (head ? " down - headshot!" : " down"));
+  logic_fire("game.death", target, attacker, {{"head", logic::Value::boolean(head)}});
   if (victim) {
     victim->respawn_at = sim_time_ + max_of(0.5f, hc.respawn_delay);
     if (victim == local_) hud_.respawn_in = hc.respawn_delay;
@@ -158,6 +254,7 @@ void GameWorld::update_health(f32 dt) {
       if (h.respawn_at >= 0 && sim_time_ >= h.respawn_at) {
         h = HealthState{hc.max_health, hc.armor};
         set_actor_alive(id, true);
+        logic_fire("game.respawn", id, 0);
       }
       continue;
     }
@@ -178,6 +275,7 @@ void GameWorld::update_health(f32 dt) {
     respawn_player();
     pw_ = keep;
     if (pawn.get() == local_) hud_.respawn_in = -1;
+    logic_fire("game.respawn", pawn->actor, 0);
   }
 }
 
@@ -392,6 +490,7 @@ void GameWorld::fire_weapon(const PlayInput& in, const WeaponComponent& w) {
     recoil_roll_ = clamp(recoil_roll_ - 0.006f * rt::noise(pw_->shots * 17u + 3), -0.018f, 0.018f);
     shake_energy_ = min_of(1.35f, shake_energy_ + 0.78f);
     flash_until_ = now_ms_ + 45;
+    flash_at_ = muzzle;
   }
 }
 
@@ -447,15 +546,24 @@ void GameWorld::soldier_camera(Camera& cam, f32 dt, const PlayInput& in, const C
   Vec3 feet = p->mover.position();
   if (actor_matrix(p->actor, m)) feet = m.translation() - Vec3{0, 0, p->mover_lift};
   const auto hs = health_.find(p->actor);
-  const bool dead = hs != health_.end() && hs->second.dead;
+  const bool dead = (hs != health_.end() && hs->second.dead) || (mode_ == SimMode::replica && hud_.respawn_in >= 0);
   f32 eye_h = c.eye_height * (1 - 0.4f * p->crouch);
   f32 roll = 0;
   if (dead) { eye_h = 0.3f; roll = 1.2f; }
+  // Velocity: the mover's on the authority, measured from the presented poses on a replica.
+  if (dt > 0) {
+    if (p->seen_valid) p->seen_vel = p->seen_vel + ((feet - p->seen_feet) / dt - p->seen_vel) * min_of(1.0f, dt * 12);
+    p->seen_feet = feet;
+    p->seen_valid = true;
+  }
+  const bool replica = mode_ == SimMode::replica;
+  const Vec3 vel = replica ? p->seen_vel : p->mover.velocity();
+  const bool grounded = replica ? std::fabs(vel.z) < 0.6f : p->mover.on_ground();
   // Head bob (weight follows speed, phase follows speed).
-  const Vec3 hv{p->mover.velocity().x, p->mover.velocity().y, 0};
+  const Vec3 hv{vel.x, vel.y, 0};
   const f32 speed = length(hv);
   const bool sprinting = speed > c.max_speed * 1.1f;
-  const f32 bob_target = c.head_bob && p->mover.on_ground() && speed > 0.12f ? clamp(speed / (sprinting ? 7.2f : 4.8f), 0.0f, 1.0f) : 0.0f;
+  const f32 bob_target = c.head_bob && grounded && speed > 0.12f ? clamp(speed / (sprinting ? 7.2f : 4.8f), 0.0f, 1.0f) : 0.0f;
   bob_weight_ = rt::damp(bob_weight_, bob_target, bob_target > bob_weight_ ? 9.0f : 13.0f, dt);
   bob_phase_ += 6.2831853f * (1.42f + 0.105f * speed) * dt;
   const f32 bs = bob_weight_ * (sprinting ? 1.2f : 1.0f) * (aiming ? 0.25f : 1.0f);

@@ -448,6 +448,33 @@ export const toBase64 = bytes => {
 
 export const escHtml = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 
+/**
+ * Gamepad (Xbox layout, browser "standard" mapping): sticks, triggers and buttons
+ * go to the engine every frame while a pad is connected. Kern applies dead zones,
+ * response curves and the soldier's aim rates (SpawnCity mapping):
+ * left stick move, right stick look, RT fire, LT aim, A jump, B crouch,
+ * X reload, Y interact, L3 / LB sprint, Start pause.
+ */
+export class GamepadInput {
+  constructor(engine) { this.engine = engine; this.connected = false; this.last = ""; }
+  poll() {
+    const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(p => p && p.connected) : [];
+    const p = pads.find(g => g.mapping === "standard") || pads[0];
+    if (!p) {
+      if (this.connected) { this.connected = false; this.last = ""; this.engine.command({cmd: "gamepad", connected: false}); }
+      return null;
+    }
+    const b = i => !!p.buttons[i]?.pressed, v = i => p.buttons[i]?.value ?? 0, ax = i => p.axes[i] ?? 0;
+    const s = {cmd: "gamepad", connected: true, lx: ax(0), ly: -ax(1), rx: ax(2), ry: ax(3), lt: v(6), rt: v(7),
+      a: b(0), b: b(1), x: b(2), y: b(3), lb: b(4), rb: b(5), l3: b(10), start: b(9)};
+    const key = JSON.stringify(s);
+    // Sticks at rest and nothing pressed: send once, then stay quiet.
+    if (key !== this.last || Math.abs(s.rx) > 0.05 || Math.abs(s.ry) > 0.05) { this.last = key; this.engine.command(s); }
+    this.connected = true;
+    return p;
+  }
+}
+
 /** "83.4" -> "1:23.4" */
 export function formatTime(seconds) {
   if (!(seconds >= 0)) return "-";
@@ -473,7 +500,8 @@ export function hudHtml(h) {
   if (h.best > 0) stats.push(`<div class="k-hud-stat"><b>${formatTime(h.best)}</b><span>best</span></div>`);
   parts.push(`<div class="k-hud-stats">${stats.join("")}</div>`);
   let html = `<div class="k-hud-top">${parts.join("")}</div>`;
-  if (h.player) {
+  if (h.soldier) html += soldierHtml(h.soldier, h.status === "playing");
+  else if (h.player) {
     const kmh = Math.round(h.speed * 3.6);
     html += `<div class="k-hud-speed"><b>${kmh}</b><span>km/h</span>` +
       (h.boost >= 0 ? `<div class="k-hud-boost"><div style="width:${Math.round(h.boost * 100)}%"></div></div>` : "") + `</div>`;
@@ -483,6 +511,34 @@ export function hudHtml(h) {
   if (h.status === "won" || h.status === "lost")
     html += `<div class="k-hud-banner k-${h.status}"><div>${h.status === "won" ? "Victory" : "Game over"}</div>` +
       `<small>${escHtml(h.message || "")}</small><button type="button" data-hud="restart">Play again</button><em>R to restart</em></div>`;
+  return html;
+}
+
+/** First-person shooter HUD: crosshair sized by the spread, hit marker, health, ammo, damage direction. */
+function soldierHtml(f, playing) {
+  let html = "";
+  const tanHalf = Math.tan((f.fov || 60) * Math.PI / 360);
+  // Crosshair gap: the spread cone's radius on screen (vh), plus a little room.
+  const gap = Math.min(18, 50 * Math.tan(f.spread * Math.PI / 180) / tanHalf + 0.6).toFixed(2);
+  if (f.respawnIn < 0 && playing) {
+    html += f.aiming ? `<div class="k-xh k-xh-dot"></div>`
+      : `<div class="k-xh" style="--g:${gap}vh"><i class="k-xh-t"></i><i class="k-xh-b"></i><i class="k-xh-l"></i><i class="k-xh-r"></i><i class="k-xh-c"></i></div>`;
+    if (f.hitAge < 0.28) html += `<div class="k-hit${f.hitKill ? " k-kill" : f.hitHead ? " k-head" : ""}" style="opacity:${(1 - f.hitAge / 0.28).toFixed(2)}"><i></i><i></i><i></i><i></i></div>`;
+  }
+  if (f.damageAge < 1.2) {
+    const a = Math.max(0, 1 - f.damageAge / 1.2);
+    html += `<div class="k-dmg" style="opacity:${(a * 0.85).toFixed(2)}"></div>`;
+    html += `<div class="k-dmg-dir" style="transform:translate(-50%,-50%) rotate(${(-f.damageYaw).toFixed(0)}deg);opacity:${a.toFixed(2)}"><i></i></div>`;
+  }
+  const hp = Math.max(0, f.health), max = Math.max(1, f.maxHealth);
+  html += `<div class="k-hp${hp / max < 0.3 ? " k-low" : ""}"><b>${Math.ceil(hp)}</b><div class="k-hp-bar"><div style="width:${Math.round(100 * hp / max)}%"></div>` +
+    (f.armor > 0 ? `<div class="k-armor" style="width:${Math.round(100 * Math.min(1, f.armor / max))}%"></div>` : "") + `</div></div>`;
+  if (f.ammo >= 0) {
+    html += `<div class="k-ammo${f.ammo === 0 ? " k-empty" : ""}"><b>${f.ammo}</b><span>/ ${f.reserve}</span>` +
+      (f.reload >= 0 ? `<div class="k-reload"><div style="width:${Math.round(f.reload * 100)}%"></div></div><em>Reloading</em>`
+        : f.ammo === 0 ? `<em>${f.reserve > 0 ? "R / X to reload" : "No ammo"}</em>` : "") + `</div>`;
+  }
+  if (f.respawnIn >= 0) html += `<div class="k-respawn"><div>Down</div><small>Respawn in ${Math.ceil(f.respawnIn)}</small></div>`;
   return html;
 }
 
@@ -506,7 +562,34 @@ export const HUD_STYLE = `.k-hud{position:absolute;inset:0;pointer-events:none;c
 .k-hud-banner.k-lost div{color:#ff9a7a}
 .k-hud-banner small{display:block;margin:6px 0 14px;font-size:14px;opacity:.85}
 .k-hud-banner button{font:600 14px system-ui,sans-serif;padding:8px 20px;border:0;border-radius:6px;background:#2f7de1;color:#fff;cursor:pointer}
-.k-hud-banner em{display:block;margin-top:8px;font-size:11px;font-style:normal;opacity:.55}`;
+.k-hud-banner em{display:block;margin-top:8px;font-size:11px;font-style:normal;opacity:.55}
+.k-xh{position:absolute;left:50%;top:50%;width:0;height:0;--g:1vh;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))}
+.k-xh i{position:absolute;background:rgba(255,255,255,.92);border-radius:1px}
+.k-xh-t,.k-xh-b{width:2px;height:9px;left:-1px}.k-xh-t{bottom:var(--g)}.k-xh-b{top:var(--g)}
+.k-xh-l,.k-xh-r{height:2px;width:9px;top:-1px}.k-xh-l{right:var(--g)}.k-xh-r{left:var(--g)}
+.k-xh-c{width:2px;height:2px;left:-1px;top:-1px}
+.k-xh-dot{width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:rgba(255,255,255,.85)}
+.k-hit{position:absolute;left:50%;top:50%;width:0;height:0}
+.k-hit i{position:absolute;width:2px;height:10px;background:#fff;left:-1px;top:-5px}
+.k-hit i:nth-child(1){transform:rotate(45deg) translateY(-12px)}.k-hit i:nth-child(2){transform:rotate(135deg) translateY(-12px)}
+.k-hit i:nth-child(3){transform:rotate(225deg) translateY(-12px)}.k-hit i:nth-child(4){transform:rotate(315deg) translateY(-12px)}
+.k-hit.k-head i{background:#ffd34d}.k-hit.k-kill i{background:#ff4d4d;height:14px}
+.k-dmg{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 55%,rgba(200,20,20,.55) 100%)}
+.k-dmg-dir{position:absolute;left:50%;top:50%;width:min(46vh,46vw);height:min(46vh,46vw)}
+.k-dmg-dir i{position:absolute;left:50%;top:0;width:60px;height:14px;margin-left:-30px;border-radius:50% 50% 0 0;background:rgba(255,60,50,.85)}
+.k-hp{position:absolute;left:20px;bottom:20px;display:flex;align-items:center;gap:10px}
+.k-hp b{font-size:30px;font-weight:700;min-width:52px}
+.k-hp-bar{position:relative;width:180px;height:8px;border-radius:4px;background:rgba(255,255,255,.18);overflow:hidden}
+.k-hp-bar div{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#5fe08a,#b5f5c9)}
+.k-hp-bar .k-armor{background:#69b7ff;height:3px;top:auto}
+.k-hp.k-low b{color:#ff8a7a}.k-hp.k-low .k-hp-bar div:first-child{background:#ff6b5b}
+.k-ammo{position:absolute;right:22px;bottom:18px;text-align:right}
+.k-ammo b{font-size:38px;font-weight:700}.k-ammo span{margin-left:6px;font-size:16px;opacity:.65}
+.k-ammo em{display:block;font-size:11px;font-style:normal;letter-spacing:.1em;text-transform:uppercase;opacity:.8}
+.k-ammo.k-empty b{color:#ff8a7a}
+.k-reload{width:120px;height:3px;margin:4px 0 2px auto;background:rgba(255,255,255,.2)}.k-reload div{height:100%;background:#fff}
+.k-respawn{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);text-align:center}
+.k-respawn div{font-size:34px;font-weight:800;color:#ff8a7a}.k-respawn small{font-size:15px;opacity:.85}`;
 
 export const PLAYER_STYLE = `html,body{margin:0;height:100%;overflow:hidden;background:#0d1015;color:#eef3f8;font:14px system-ui,-apple-system,"Segoe UI",sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
 #gl{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none}
@@ -520,12 +603,18 @@ export const PLAYER_STYLE = `html,body{margin:0;height:100%;overflow:hidden;back
 #jump{right:28px;bottom:48px;width:86px;height:86px}
 #boost{right:128px;bottom:36px;width:64px;height:64px}
 #restart{right:20px;top:16px;width:44px;height:44px;font-size:20px}
+#fire{right:34px;bottom:150px;width:92px;height:92px;background:rgba(255,80,60,.28)}
+#aim{right:140px;bottom:160px;width:60px;height:60px}
+#reload{right:150px;bottom:236px;width:54px;height:54px;font-size:12px}
+#crouch{right:214px;bottom:44px;width:58px;height:58px;font-size:12px}
+.tbtn.on{background:rgba(120,200,255,.45)}
 [hidden]{display:none!important}
 ${HUD_STYLE}`;
 
 export const PLAYER_BODY = `<canvas id="gl" tabindex="0" aria-label="Game view"></canvas><div id="hud" class="k-hud"></div><div id="loading">Loading</div>
-<div id="hint">WASD / arrows move · Space jump · Shift boost · mouse look (click to capture, Esc frees) · P pause · R restart</div>
+<div id="hint">WASD / arrows move · Space jump · Shift boost · mouse look (click to capture, Esc frees) · P pause · R restart · gamepad supported</div>
 <div id="stick" hidden aria-label="Move"><div></div></div><button class="tbtn" id="jump" hidden>Jump</button><button class="tbtn" id="boost" hidden>Boost</button>
+<button class="tbtn" id="fire" hidden>Fire</button><button class="tbtn" id="aim" hidden>Aim</button><button class="tbtn" id="reload" hidden>Reload</button><button class="tbtn" id="crouch" hidden>Crouch</button>
 <button class="tbtn" id="restart" hidden aria-label="Restart">↻</button><div id="error" role="alert"></div>`;
 
 /**
@@ -601,7 +690,8 @@ export async function startGame({levelText = null, template = null, bytes = null
   canvas.addEventListener("webglcontextrestored", () => { kern.attachContext(canvas, gl); engine.contextRestored(); });
 
   // Mouse: click captures the pointer for mouse look; touch drags orbit the camera.
-  const send = (type, e) => engine.pointer(0, type, e.clientX, e.clientY, {button: e.button, buttons: e.buttons, mods: modifiers(e), wheel: e.deltaY ?? 0});
+  // Touch drags look around; only mouse buttons fire and aim (touch has its own buttons).
+  const send = (type, e) => engine.pointer(0, type, e.clientX, e.clientY, {button: e.pointerType === "touch" ? -1 : e.button, buttons: e.buttons, mods: modifiers(e), wheel: e.deltaY ?? 0});
   canvas.addEventListener("pointerdown", e => {
     canvas.focus();
     try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
@@ -647,6 +737,27 @@ export async function startGame({levelText = null, template = null, bytes = null
   };
   hold("jump", {cmd: "gameInput", jump: true, up: 1}, {cmd: "gameInput", jump: false, up: 0});
   hold("boost", {cmd: "gameInput", boost: true}, {cmd: "gameInput", boost: false});
+  hold("fire", {cmd: "gameInput", fire: true}, {cmd: "gameInput", fire: false});
+  hold("reload", {cmd: "gameInput", reload: true}, {cmd: "gameInput", reload: false});
+  hold("crouch", {cmd: "gameInput", crouch: true}, {cmd: "gameInput", crouch: false});
+  let aimOn = false;  // aim toggles on touch
+  $("aim").addEventListener("pointerdown", e => { e.preventDefault(); aimOn = !aimOn; $("aim").classList.toggle("on", aimOn); engine.command({cmd: "gameInput", aim: aimOn}); });
+  // The fire button also looks: dragging it steers the aim like the right half of the screen.
+  {
+    const b = $("fire");
+    let last = null;
+    b.addEventListener("pointerdown", e => { last = {x: e.clientX, y: e.clientY}; b.setPointerCapture(e.pointerId); });
+    b.addEventListener("pointermove", e => {
+      if (!last) return;
+      engine.command({cmd: "gameInput", lookX: e.clientX - last.x, lookY: e.clientY - last.y});
+      last = {x: e.clientX, y: e.clientY};
+    });
+    const end = () => { last = null; };
+    b.addEventListener("pointerup", end);
+    b.addEventListener("pointercancel", end);
+  }
+  const gamepad = new GamepadInput(engine);
+  let soldierShown = false;
   $("restart").addEventListener("click", () => engine.command({cmd: "restart"}));
   hud.addEventListener("click", e => { if (e.target.closest("[data-hud=restart]")) engine.command({cmd: "restart"}); });
 
@@ -664,9 +775,16 @@ export async function startGame({levelText = null, template = null, bytes = null
     audio?.pump();
     net?.flush();
     if (time - lastTextures > 250) { lastTextures = time; engine.pollTextures(); engine.pollSounds(audio); }
+    gamepad.poll();
     const st = engine.status();
     const html = hudHtml(st?.hud);
     if (html !== hudKey) { hudKey = html; hud.innerHTML = html; }
+    const soldier = coarse && !!st?.hud?.soldier;
+    if (soldier !== soldierShown) {
+      soldierShown = soldier;
+      for (const id of ["fire", "aim", "reload", "crouch"]) $(id).hidden = !soldier;
+      $("boost").textContent = soldier ? "Sprint" : "Boost";
+    }
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

@@ -391,6 +391,34 @@ void World::destroy_joint(Joint joint, bool wake_bodies) {
 
 bool World::joint_valid(Joint joint) const { return valid() && joint.valid() && b3Joint_IsValid(joint_id(joint)); }
 
+void World::set_joint_motor(Joint joint, bool enable, f32 speed, f32 max_force) {
+  if (!joint_valid(joint)) return;
+  const b3JointId id = joint_id(joint);
+  switch (b3Joint_GetType(id)) {
+    case b3_revoluteJoint:
+      b3RevoluteJoint_EnableMotor(id, enable);
+      b3RevoluteJoint_SetMotorSpeed(id, speed);
+      b3RevoluteJoint_SetMaxMotorTorque(id, max_force);
+      break;
+    case b3_prismaticJoint:
+      b3PrismaticJoint_EnableMotor(id, enable);
+      b3PrismaticJoint_SetMotorSpeed(id, speed);
+      b3PrismaticJoint_SetMaxMotorForce(id, max_force);
+      break;
+    case b3_distanceJoint:
+      b3DistanceJoint_EnableMotor(id, enable);
+      b3DistanceJoint_SetMotorSpeed(id, speed);
+      b3DistanceJoint_SetMaxMotorForce(id, max_force);
+      break;
+    case b3_sphericalJoint:
+      b3SphericalJoint_EnableMotor(id, enable);
+      b3SphericalJoint_SetMaxMotorTorque(id, max_force);
+      break;
+    default: break;
+  }
+  b3Joint_WakeBodies(id);
+}
+
 void World::step(f32 dt, i32 substeps) {
   contact_begin_.clear();
   contact_end_.clear();

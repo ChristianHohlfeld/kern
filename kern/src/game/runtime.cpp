@@ -395,15 +395,6 @@ struct GameWorld::CityVisual {
 };
 
 
-struct GameWorld::SimJoint {
-  ActorId actor = 0, target = 0;
-  physics::Joint joint;
-  physics::Body a, b;
-  physics::Pose frame_a, frame_b;
-  JointKind kind = JointKind::hinge;
-  std::size_t index = 0;          // into the actor's joints
-  bool broken = false;
-};
 
 struct GameWorld::Traffic {
   ActorId city = 0;
@@ -819,6 +810,8 @@ f32 GameWorld::apply_lighting(Vec3 eye) {
     if (it == world_.end()) continue;
     lights_.request(it->second.translation(), srgb_to_linear(a.light->color), a.light->intensity * (1 + 1.8f * night), a.light->range);
   }
+  // Muzzle flash: a short, bright warm light at the last shot's muzzle.
+  if (running() && now_ms_ < flash_until_) lights_.request(flash_at_, {1.0f, 0.72f, 0.38f}, 9.0f * (1 + night), 7.0f);
   r_.set_point_lights(lights_.resolve(eye));
   return night;
 }
@@ -1130,9 +1123,10 @@ physics::Body GameWorld::create_body(const BodyPlan& plan) {
     ss.material.category_bits = sp.source.category;
     ss.material.mask_bits = sp.source.mask;
     ss.material.group_index = sp.source.group;
-    ss.material.sensor_events = sp.source.sensor || player;
+    // Logic graphs listen to overlaps and hits of anything that moves.
+    ss.material.sensor_events = sp.source.sensor || player || (logic_events_ && plan.motion != Motion::fixed);
     ss.material.contact_events = player;
-    ss.material.hit_events = plan.motion == Motion::dynamic && (player || impact_sound);
+    ss.material.hit_events = plan.motion == Motion::dynamic && (player || impact_sound || logic_events_);
     ss.material.user = sp.actor;
     if (!physics_.create_shape(body, ss).valid()) {
       const std::string why = last_error();
@@ -1172,6 +1166,8 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   respawns_.clear();
   alive_.clear();
   for (const Actor& a : level_.actors) alive_[a.id] = true;
+  logic_events_ = !level_.logic.empty();
+  for (const Actor& a : level_.actors) logic_events_ |= a.logic.has_value() && !a.logic->empty();
 
   // Hierarchy order: parents before children.
   order_.clear();
@@ -1245,6 +1241,8 @@ bool GameWorld::start(const Level& level, SimMode mode) {
     for (const Actor& a : level_.actors)
       if (a.controller && a.body && a.body->motion == Motion::dynamic && body_of_actor_.count(a.id) && body_of_actor_[a.id]->body.valid()) { player_ = a.id; break; }
   pawns_.clear();
+  logic_.reset();
+  logic_host_.reset();
   health_.clear();
   shots_.clear();
   view_valid_ = false;
@@ -1295,6 +1293,9 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   world_.clear();
   for (const Actor& a : level_.actors) world_[a.id] = level_.world_matrix(a.id);
   compute_world_matrices(0);
+  // Logic graphs (the authority runs them; replicas switch them off in start_replica).
+  start_logic();
+  if (logic_) logic_->begin();
   return true;
 }
 
@@ -1378,6 +1379,7 @@ bool GameWorld::restart() {
 void GameWorld::step(f32 dt, const PlayInput& input) {
   last_input_ = input;
   if (!running() || paused_) return;
+  if (shots_.size() > 192) shots_.erase(shots_.begin(), shots_.begin() + 64);  // nobody presents them (headless server)
   const f64 h = 1.0 / static_cast<f64>(clamp(level_.world.step_hz, 15.0f, 480.0f));
   accumulator_ += clamp(dt, 0.0f, 0.1f);
   u32 steps = 0;
@@ -1412,6 +1414,7 @@ void GameWorld::fixed_step(const PlayInput& input, f32 h) {
       if (pawn.get() == local_) pawn->yaw = camera_yaw_;
       else if (in.has_view_yaw) pawn->yaw = in.view_yaw;
       pawn->pitch = pawn.get() == local_ ? camera_pitch_ : in.view_pitch;
+      logic_inputs(*pawn, in);
       const Actor* pa = level_.find(pawn->actor);
       if (pa && pa->controller && pa->controller->mode == ControlMode::soldier) drive_soldier(in, h);
       else drive_player(in, h);
@@ -1441,6 +1444,7 @@ void GameWorld::fixed_step(const PlayInput& input, f32 h) {
   }
   handle_events();
   if (hud_.status == GameStatus::playing && !health_.empty()) update_health(h);
+  if (logic_) logic_->tick(h);
   // Respawning pickups.
   for (std::size_t i = 0; i < respawns_.size();) {
     if (sim_time_ >= respawns_[i].at) {
@@ -1485,7 +1489,7 @@ void GameWorld::possess_character(bool on) {
   const Actor* a = pw_->actor ? level_.find(pw_->actor) : nullptr;
   if (!a || !a->controller || it == body_of_actor_.end() || !it->second->body.valid()) { pw_->use_mover = false; return; }
   const physics::Body body = it->second->body;
-  if (a->controller->mode != ControlMode::character) { pw_->use_mover = false; return; }
+  if (a->controller->mode != ControlMode::character && a->controller->mode != ControlMode::soldier) { pw_->use_mover = false; return; }
   if (!on) {
     if (pw_->use_mover) {
       physics_.set_body_type(body, physics::BodyType::dynamic);
@@ -1532,7 +1536,9 @@ void GameWorld::possess_character(bool on) {
   ms.stop_speed = 1.5f;
   ms.accelerate = clamp(c.acceleration / ms.max_speed * 2.0f, 8.0f, 30.0f);
   const f32 g = length(physics_.gravity()) * (a->body ? a->body->gravity_scale : 1.0f);
-  ms.gravity = max_of(0.0f, g * 1.5f);
+  // Characters fall a little faster than the world (snappier); soldiers use real gravity
+  // so jumps match shooter conventions (3.6 m/s -> 0.66 m).
+  ms.gravity = max_of(0.0f, c.mode == ControlMode::soldier ? g : g * 1.5f);
   pw_->mover.settings = ms;
   pw_->mover_lift = -bottom;
   const physics::Pose pose = physics_.pose(body);
@@ -1782,6 +1788,35 @@ void GameWorld::handle_events() {
       }
     }
   pw_ = local_ ? local_ : &idle_pawn_;
+  // Logic: overlaps (both sides get the event) and hits.
+  if (logic_) {
+    auto who = [&](physics::Shape shape, physics::Body body) {
+      ActorId id = static_cast<ActorId>(physics_.shape_user(shape));
+      return id ? id : actor_for_body(body);
+    };
+    for (const physics::TouchEvent& e : physics_.sensor_begin()) {
+      const ActorId sensor = who(e.shape_a, e.body_a), visitor = who(e.shape_b, e.body_b);
+      if (!sensor || !visitor || !alive_[sensor]) continue;
+      logic_fire("game.overlap_begin", sensor, visitor);
+      logic_fire("game.overlapped_begin", visitor, sensor);
+    }
+    for (const physics::TouchEvent& e : physics_.sensor_end()) {
+      const ActorId sensor = who(e.shape_a, e.body_a), visitor = who(e.shape_b, e.body_b);
+      if (!sensor || !visitor) continue;
+      logic_fire("game.overlap_end", sensor, visitor);
+      logic_fire("game.overlapped_end", visitor, sensor);
+    }
+    u32 n = 0;
+    for (const physics::HitEvent& h : physics_.hits()) {
+      if (++n > 32) break;
+      const ActorId a = who(h.shape_a, h.body_a), b = who(h.shape_b, h.body_b);
+      const std::vector<std::pair<std::string, logic::Value>> extra{{"speed", logic::Value::number(h.approach_speed)},
+                                                                     {"point", logic::Value::vector(h.point)},
+                                                                     {"normal", logic::Value::vector(h.normal)}};
+      if (a) logic_fire("game.hit", a, b, extra);
+      if (b) logic_fire("game.hit", b, a, extra);
+    }
+  }
   // Camera shake from hard player hits, impact sounds for bodies that have one.
   u32 impacts = 0;
   for (const physics::HitEvent& h : physics_.hits()) {
@@ -1879,6 +1914,7 @@ void GameWorld::collect(ActorId id) {
   ++hud_.pickups;
   cue(a->pickup->sound, at, 0.9f, 1 + 0.04f * static_cast<f32>(hud_.pickups % 5), true, audio::Bus::sfx, id);
   burst(at, srgb_to_linear(a->pickup->burst_color) * 1.6f);
+  logic_fire("game.pickup", id, pw_->actor, {{"points", logic::Value::number(a->pickup->points)}});
   if (a->pickup->respawn > 0) respawns_.push_back({id, sim_time_ + a->pickup->respawn});
   else if (level_.world.goal == GameGoal::collect_all && hud_.pickups >= hud_.pickups_total) {
     bool has_goal = false;
@@ -1893,6 +1929,8 @@ void GameWorld::trigger(ActorId id) {
   if (!a || !a->trigger || hud_.status != GameStatus::playing) return;
   const TriggerComponent& t = *a->trigger;
   const Vec3 at = world_[id].translation();
+  logic_fire("game.trigger", id, pw_->actor);
+  if (!level_.find(id)) return;  // the graph destroyed it
   auto sound = [&](const char* fallback) {
     cue(t.sound == "auto" ? std::string(fallback) : t.sound, at, 1, 1, true, audio::Bus::sfx, id);
   };
@@ -1950,6 +1988,13 @@ void GameWorld::finish(GameStatus status, std::string message, bool jingle) {
   if (status == GameStatus::won && (level_.world.goal == GameGoal::collect_all || level_.world.goal == GameGoal::reach_goal))
     if (hud_.best <= 0 || hud_.elapsed < hud_.best) hud_.best = hud_.elapsed;
   events_.push_back(status == GameStatus::won ? "Game won: " + hud_.message : "Game lost: " + hud_.message);
+  if (logic_) {
+    logic::Event e;
+    e.type = "game.over";
+    e.args.push_back({"won", logic::Value::boolean(status == GameStatus::won)});
+    e.args.push_back({"message", logic::Value::text(hud_.message)});
+    logic_->fire(e);
+  }
 }
 
 void GameWorld::say(std::string message) {
@@ -2085,7 +2130,14 @@ ActorId GameWorld::add_pawn(ActorId source, ActorId id) {
   Pawn* raw = pawn.get();
   pawns_.push_back(std::move(pawn));
   for (ActorId aid : created) init_combat(aid);
-  if (mode_ == SimMode::play) {
+  if (logic_)
+    for (ActorId aid : created)
+      if (const Actor* a = level_.find(aid); a && a->logic && !a->logic->empty()) logic_->add(*a->logic, static_cast<logic::ActorRef>(aid), a->name);
+  if (logic_) {
+    logic_->begin();
+    logic_fire("game.pawn_added", root, 0);
+  }
+  if (mode_ == SimMode::play || mode_ == SimMode::replica) {  // replicas: the capsule size for the camera
     Pawn* keep = pw_;
     pw_ = raw;
     possess_character(true);
@@ -2164,7 +2216,10 @@ void GameWorld::networked_actors(std::vector<ActorId>& out) const {
 }
 
 bool GameWorld::start_replica(const Level& level) {
-  if (!start(level, SimMode::play)) return false;
+  starting_replica_ = true;
+  const bool ok = start(level, SimMode::play);
+  starting_replica_ = false;
+  if (!ok) return false;
   // Rules run on the server: every body only follows the poses it sends.
   for (auto& b : bodies_) {
     if (!b->body.valid() || b->plan.motion == Motion::fixed) continue;
@@ -2190,6 +2245,7 @@ void GameWorld::step_replica(f32 dt, f32 time, const PlayInput& input) {
   drive_traffic(clamp(dt, 0.0f, 0.1f));
   if (!traffic_.empty()) physics_.step(clamp(dt, 0.001f, 0.1f), 1);
   sim_time_ = max_of(0.0f, time);
+  replica_soldier(input, clamp(dt, 0.0f, 0.1f));
   if (level_.world.day_length > 0) {
     time_of_day_ += dt / level_.world.day_length;
     time_of_day_ -= std::floor(time_of_day_);

@@ -7,7 +7,7 @@
 // downloads, the clipboard, pointer lock, decoding images, local storage and
 // packaging standalone games.
 import {loadKern} from "../kern.mjs";
-import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE, buildGameHtml, startAudio, KernNet, openNetwork} from "./game.mjs";
+import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE, GamepadInput, buildGameHtml, startAudio, KernNet, openNetwork} from "./game.mjs";
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = escHtml;
@@ -222,6 +222,7 @@ class StudioPage {
       this.frameCount = (this.frameCount || 0) + 1;
       this.resizeCanvas();
       this.placeViewports();
+      (this.gamepad ||= new GamepadInput(this.engine)).poll();
       this.engine.frame(time);
       this.audio?.pump();
       if (this.net.active) {
@@ -405,7 +406,7 @@ class StudioPage {
     const pos = e => { const r = el.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     const send = (type, e, extra = {}) => {
       const [x, y] = pos(e);
-      return this.engine.pointer(i, type, x, y, {button: e.button, buttons: e.buttons, mods: modifiers(e), ...extra});
+      return this.engine.pointer(i, type, x, y, {button: e.pointerType === "touch" && this.state?.play?.state === "playing" ? -1 : e.button, buttons: e.buttons, mods: modifiers(e), ...extra});
     };
     el.addEventListener("pointerdown", e => {
       if (e.target.closest(".vp-bar, .k-hud-banner")) return;

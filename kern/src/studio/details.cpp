@@ -31,7 +31,8 @@ constexpr const char* kMotion[] = {"static", "Static", "kinematic", "Kinematic",
 constexpr const char* kColliders[] = {"auto", "Fit to mesh", "box", "Box", "sphere", "Sphere", "capsule", "Capsule", "hull", "Convex hull", nullptr};
 constexpr const char* kJoints[] = {"hinge", "Hinge (revolute)", "slider", "Slider (prismatic)", "ball", "Ball (spherical)", "fixed", "Fixed (weld)", "distance", "Distance / rope",
                                    "wheel", "Wheel (suspension)", "motor", "Motor", "parallel", "Parallel", "noCollision", "No collision (filter)", nullptr};
-constexpr const char* kModes[] = {"hovercar", "Hover car", "rolling", "Rolling ball", "character", "Character", "flyer", "Flyer", "vehicle", "Vehicle", nullptr};
+constexpr const char* kModes[] = {"hovercar", "Hover car", "rolling", "Rolling ball", "character", "Character", "flyer", "Flyer", "vehicle", "Vehicle", "soldier", "Soldier (first person shooter)", nullptr};
+constexpr const char* kWeaponKinds[] = {"rifle", "Rifle", "pistol", "Pistol", "shotgun", "Shotgun", "sniper", "Sniper rifle", nullptr};
 constexpr const char* kCameras[] = {"chase", "Chase", "firstPerson", "First person", "topDown", "Top down", nullptr};
 constexpr const char* kTriggers[] = {"goal", "Goal (win)", "hazard", "Hazard (lose)", "checkpoint", "Checkpoint (respawn here)", "message", "Message", nullptr};
 constexpr const char* kMovers[] = {"sine", "Sine", "pingPong", "Ping-pong", "loop", "Loop", nullptr};
@@ -127,9 +128,43 @@ constexpr FieldDef kController[] = {
     {"cameraDistance", "Distance", F::number, 0, 500, 0.5, "m"},
     {"cameraHeight", "Height", F::number, -100, 500, 0.25, "m"},
     {"cameraFov", "Field of view", F::number, 20, 120, 1, "°"},
+    {"crouchSpeed", "Crouch speed", F::number, 0, 100, 0.1, "m/s", nullptr, "Soldier"},
+    {"eyeHeight", "Eye height", F::number, 0.2, 10, 0.01, "m"},
+    {"lookSensitivity", "Look sensitivity", F::number, 0.05, 10, 0.05},
+    {"headBob", "Head bob", F::boolean},
     {"engineSound", "Engine loop", F::sound_auto, 0, 0, 0, "", nullptr, "Sound"},
     {"jumpSound", "Jump", F::sound},
     {"boostSound", "Boost", F::sound},
+};
+constexpr FieldDef kWeapon[] = {
+    {"kind", "Type", F::choice, 0, 0, 0, "", kWeaponKinds},
+    {"damage", "Damage", F::number, 0, 10000, 1},
+    {"headshot", "Headshot multiplier", F::number, 1, 20, 0.1},
+    {"fireRate", "Fire rate", F::number, 1, 6000, 10, "rpm"},
+    {"automatic", "Automatic", F::boolean},
+    {"pellets", "Pellets per shot", F::integer, 1, 32, 1},
+    {"range", "Range", F::number, 1, 10000, 5, "m"},
+    {"impulse", "Impulse on bodies", F::number, 0, 1e5, 0.5, "N·s"},
+    {"magazine", "Magazine", F::integer, 1, 1000, 1, "", nullptr, "Ammo"},
+    {"reserve", "Reserve", F::integer, 0, 100000, 10},
+    {"reloadTime", "Reload time", F::number, 0, 60, 0.1, "s"},
+    {"spread", "Hip spread", F::number, 0, 30, 0.05, "°", nullptr, "Handling"},
+    {"aimSpread", "Aimed spread", F::number, 0, 30, 0.01, "°"},
+    {"recoil", "Recoil", F::number, 0, 20, 0.05},
+    {"aimFov", "Aim field of view", F::number, 5, 120, 1, "°"},
+    {"fireSound", "Fire", F::sound, 0, 0, 0, "", nullptr, "Sound"},
+    {"reloadSound", "Reload", F::sound},
+};
+constexpr FieldDef kHealth[] = {
+    {"maxHealth", "Health", F::number, 1, 1e7, 5},
+    {"armor", "Armor", F::number, 0, 1e7, 5},
+    {"regenDelay", "Regenerate after (0 = never)", F::number, 0, 1e5, 0.5, "s"},
+    {"regenRate", "Regeneration", F::number, 0, 1e5, 1, "/s"},
+    {"respawn", "Respawn", F::boolean},
+    {"respawnDelay", "Respawn delay", F::number, 0, 1e5, 0.5, "s"},
+    {"points", "Points for a kill", F::number, -1e6, 1e6, 1},
+    {"hitSound", "Hit", F::sound, 0, 0, 0, "", nullptr, "Sound"},
+    {"deathSound", "Down", F::sound},
 };
 constexpr FieldDef kPickup[] = {
     {"points", "Points", F::number, -1e6, 1e6, 1},
@@ -220,6 +255,8 @@ constexpr SectionDef kSections[] = {
     {"colliders", "Collider", kCollider, std::size(kCollider), true},
     {"joints", "Constraint", kJoint, std::size(kJoint), true},
     {"controller", "Player Controller", kController, std::size(kController), false},
+    {"weapon", "Weapon", kWeapon, std::size(kWeapon), false},
+    {"health", "Health", kHealth, std::size(kHealth), false},
     {"pickup", "Pickup", kPickup, std::size(kPickup), false},
     {"trigger", "Trigger", kTrigger, std::size(kTrigger), false},
     {"rotator", "Rotator", kRotator, std::size(kRotator), false},
@@ -486,7 +523,7 @@ json::Value Studio::details_json() const {
     add.push(std::move(e));
   };
   bool any_mesh = false, any_light = false, any_body = false, any_ctl = false, any_pickup = false, any_trigger = false, any_rot = false, any_mover = false,
-       any_city = false, any_parent = false, any_audio = false;
+       any_city = false, any_parent = false, any_audio = false, any_weapon = false, any_health = false;
   for (const game::Actor* a : actors) {
     any_mesh |= a->mesh.has_value();
     any_light |= a->light.has_value();
@@ -498,6 +535,8 @@ json::Value Studio::details_json() const {
     any_mover |= a->mover.has_value();
     any_city |= a->city.has_value();
     any_audio |= a->audio.has_value();
+    any_weapon |= a->weapon.has_value();
+    any_health |= a->health.has_value();
     any_parent |= a->parent != 0;
   }
   offer("mesh", "Static Mesh", !any_mesh);
@@ -506,6 +545,8 @@ json::Value Studio::details_json() const {
   offer("collider", "Collider", true);
   offer("joint", "Constraint (joint)", true);
   offer("controller", "Player Controller", !any_ctl);
+  offer("weapon", "Weapon", !any_weapon);
+  offer("health", "Health", !any_health);
   offer("pickup", "Pickup", !any_pickup);
   offer("trigger", "Trigger", !any_trigger);
   offer("rotator", "Rotator", !any_rot);
@@ -590,6 +631,13 @@ bool Studio::set_property(const std::string& path, const json::Value& value, con
       updated.id = a->id;
       updated.parent = a->parent;
       if (path == "name" && updated.name.empty()) { error = "a name cannot be empty"; return false; }
+      // A new weapon type brings its handling (damage, rate, magazine, spread...); sounds stay.
+      if (path == "weapon.kind" && updated.weapon) {
+        game::WeaponComponent w = game::weapon_preset(updated.weapon->kind);
+        w.fire_sound = updated.weapon->fire_sound;
+        w.reload_sound = updated.weapon->reload_sound;
+        updated.weapon = w;
+      }
       *a = std::move(updated);
       ++changed_actors;
     }
@@ -659,6 +707,8 @@ bool Studio::add_component(const std::string& type) {
       else if (type == "rotator" && !a->rotator) a->rotator = game::RotatorComponent{};
       else if (type == "mover" && !a->mover) a->mover = game::MoverComponent{};
       else if (type == "audio" && !a->audio) a->audio = game::AudioComponent{};
+      else if (type == "weapon" && !a->weapon) a->weapon = game::WeaponComponent{};
+      else if (type == "health" && !a->health) a->health = game::HealthComponent{};
       else if (type == "city" && !a->city) {
         if (a->parent) { error = "a city must be a top-level actor"; return false; }
         a->city = game::CityComponent{};
@@ -688,6 +738,8 @@ bool Studio::remove_component(const std::string& type, i32 index) {
       else if (type == "mover") a->mover.reset();
       else if (type == "city") a->city.reset();
       else if (type == "audio") a->audio.reset();
+      else if (type == "weapon") a->weapon.reset();
+      else if (type == "health") a->health.reset();
     }
     return true;
   });

@@ -295,6 +295,7 @@ bool same_document(const game::Level& a, const game::Level& b) {
     if (x.src != y.src && (!x.src || !y.src || *x.src != *y.src)) return false;
   }
   if (json::stringify(game::world_to_json(a.world)) != json::stringify(game::world_to_json(b.world))) return false;
+  if (!(a.logic == b.logic)) return false;
   for (std::size_t i = 0; i < a.textures.size(); ++i) {
     const game::TextureAsset &x = a.textures[i], &y = b.textures[i];
     if (x.id != y.id || x.name != y.name || x.width != y.width || x.height != y.height) return false;
@@ -768,18 +769,27 @@ bool Studio::net_join(u64 server) {
 void Studio::net_stop() { stop(); }
 
 void Studio::update_net(f32 dt, const game::PlayInput& in) {
-  net_time_ += dt;
-  if (hub_) {
-    hub_->simulator().settings = net_play_.network;
-    hub_->advance_time(net_time_);
-  }
   game::PlayInput idle;
-  net_->update(net_time_, dt, active_view_ == 0 || clients_.empty() ? in : idle);
+  // While in-process players are still joining, exchange packets several times per
+  // frame (the time step is split), so the handshake does not wait for rendered frames.
+  bool joining = false;
+  for (const LocalClient& c : clients_) joining |= !c.game->playing();
+  const int passes = joining && hub_ ? 4 : 1;
+  for (int pass = 0; pass < passes; ++pass) {
+    const f32 h = dt / static_cast<f32>(passes);
+    net_time_ += h;
+    if (hub_) {
+      hub_->simulator().settings = net_play_.network;
+      hub_->advance_time(net_time_);
+    }
+    net_->update(net_time_, h, active_view_ == 0 || clients_.empty() ? in : idle);
+    for (std::size_t i = 0; i < clients_.size(); ++i)
+      clients_[i].game->update(net_time_, h, active_view_ == i + 1 ? in : idle);
+  }
   for (std::size_t i = 0; i < clients_.size(); ++i) {
     LocalClient& c = clients_[i];
     const bool active = active_view_ == i + 1;
     const game::PlayInput& cin = active ? in : idle;
-    c.game->update(net_time_, dt, cin);
     if (c.game->playing()) {
       Camera cam = c.camera_valid ? c.camera : camera_of(views_[i + 1]);
       c.camera_valid = c.world->update_camera(cam, dt, cin);
@@ -789,7 +799,14 @@ void Studio::update_net(f32 dt, const game::PlayInput& in) {
   }
 }
 
+bool Studio::soldier_pawn() const {
+  if (!world_->running()) return false;
+  const game::Actor* a = world_->level().find(world_->player());
+  return a && a->controller && a->controller->mode == game::ControlMode::soldier;
+}
+
 bool Studio::play(game::SimMode mode) {
+  play_buttons_ = 0;
   if (play_ != PlayState::editing) {
     // Simulate <-> Play while running.
     if (!world_->set_mode(mode)) { report(last_error(), "warn"); return false; }

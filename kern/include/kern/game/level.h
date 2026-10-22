@@ -11,6 +11,7 @@
 // like an editor rotator, colours as sRGB 0..1.
 #pragma once
 
+#include "kern/logic/logic.h"
 #include <memory>
 #include <optional>
 #include <string>
@@ -177,6 +178,9 @@ struct WeaponComponent {
 };
 
 /// Hit points: actors with health take damage from weapons (and falls for players).
+/// Handling of a weapon type: damage, rate, magazine, spread and recoil.
+WeaponComponent weapon_preset(WeaponKind kind);
+
 struct HealthComponent {
   f32 max_health = 100;
   f32 armor = 0;                // absorbs damage first
@@ -271,6 +275,7 @@ struct Actor {
   std::optional<AudioComponent> audio;
   std::optional<WeaponComponent> weapon;
   std::optional<HealthComponent> health;
+  std::optional<logic::Graph> logic;   // the actor's own logic graph (Self = this actor)
 };
 
 enum class GameGoal : u8 { none, collect_all, reach_goal, survive, score };
@@ -327,6 +332,7 @@ struct Level {
   std::vector<Actor> actors;
   std::vector<TextureAsset> textures;
   std::vector<SoundAsset> sounds;
+  logic::Graph logic;            // the level graph (Self = none; sees every actor's events)
   EditorCamera camera;
   ActorId next_id = 1;
 

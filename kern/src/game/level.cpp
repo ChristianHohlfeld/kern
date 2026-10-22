@@ -185,6 +185,27 @@ Quat euler_to_quat(Vec3 d) {
   return qz * qy * qx;
 }
 
+WeaponComponent weapon_preset(WeaponKind kind) {
+  WeaponComponent w;
+  w.kind = kind;
+  switch (kind) {
+    case WeaponKind::rifle: break;  // the defaults: 24 dmg, 600 rpm automatic, 30 / 120
+    case WeaponKind::pistol:
+      w.damage = 30; w.fire_rate = 360; w.automatic = false; w.magazine = 12; w.reserve = 60; w.reload_time = 1.4f;
+      w.spread = 1.0f; w.aim_spread = 0.25f; w.recoil = 1.1f; w.range = 120; w.headshot = 2.0f; w.aim_fov = 52;
+      break;
+    case WeaponKind::shotgun:
+      w.damage = 11; w.pellets = 8; w.fire_rate = 75; w.automatic = false; w.magazine = 6; w.reserve = 36; w.reload_time = 2.6f;
+      w.spread = 4.5f; w.aim_spread = 3.2f; w.recoil = 2.4f; w.range = 45; w.headshot = 1.5f; w.impulse = 2; w.aim_fov = 55;
+      break;
+    case WeaponKind::sniper:
+      w.damage = 90; w.fire_rate = 45; w.automatic = false; w.magazine = 5; w.reserve = 25; w.reload_time = 2.8f;
+      w.spread = 3.0f; w.aim_spread = 0.02f; w.recoil = 3.0f; w.range = 1000; w.headshot = 3.0f; w.impulse = 12; w.aim_fov = 16;
+      break;
+  }
+  return w;
+}
+
 Vec3 quat_to_euler(Quat q) {
   const f32 n = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
   if (n > 0) { q.x /= n; q.y /= n; q.z /= n; q.w /= n; }
@@ -551,6 +572,7 @@ json::Value actor_to_json(const Actor& a) {
     x.set("delay", num(k.delay));
     c.set("audio", std::move(x));
   }
+  if (a.logic) c.set("logic", logic::graph_to_json(*a.logic));
   o.set("components", std::move(c));
   return o;
 }
@@ -799,6 +821,11 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       if (k.max_distance <= k.min_distance) k.max_distance = k.min_distance + 0.01f;
       a.audio = k;
     }
+    if (const json::Value* x = c.find("logic")) {
+      logic::Graph g;
+      if (!logic::graph_from_json(*x, g, error)) return false;
+      a.logic = std::move(g);
+    }
   }
   return r.ok;
 }
@@ -897,6 +924,7 @@ json::Value to_json(const Level& level) {
     snd.push(std::move(x));
   }
   o.set("sounds", std::move(snd));
+  if (!level.logic.empty()) o.set("logic", logic::graph_to_json(level.logic));
   return o;
 }
 
@@ -919,6 +947,8 @@ bool from_json(const json::Value& doc, Level& out, std::string* error) {
   }
   r.uinteger("nextId", l.next_id);
   if (!r.ok) return false;
+  if (const json::Value* g = doc.find("logic"); g && !g->is_null())
+    if (!logic::graph_from_json(*g, l.logic, error)) return false;
   const json::Value& actors = doc["actors"];
   if (!actors.is_null() && !actors.is_array()) { if (error) *error = "actors must be an array"; return false; }
   if (actors.size() > 100000) { if (error) *error = "too many actors"; return false; }
@@ -1010,6 +1040,9 @@ std::vector<Issue> validate(const Level& level) {
     if (a.body) sound(a.body->impact_sound, "impact sound");
     for (const JointComponent& j : a.joints) sound(j.break_sound, "joint break sound");
     if (a.controller) { sound(a.controller->engine_sound, "engine sound"); sound(a.controller->jump_sound, "jump sound"); sound(a.controller->boost_sound, "boost sound"); }
+    if (a.weapon) { sound(a.weapon->fire_sound, "fire sound"); sound(a.weapon->reload_sound, "reload sound"); }
+    if (a.health) { sound(a.health->hit_sound, "hit sound"); sound(a.health->death_sound, "down sound"); }
+    if (a.weapon && !(a.controller && a.controller->mode == ControlMode::soldier)) warn("a weapon is only used by a Soldier player controller");
     if (a.pickup) sound(a.pickup->sound, "pickup sound");
     if (a.trigger) sound(a.trigger->sound, "trigger sound");
     if (a.audio) {

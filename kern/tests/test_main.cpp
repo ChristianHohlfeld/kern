@@ -13,6 +13,7 @@
 #include "kern/studio/studio.h"
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
+#include "kern/logic/logic.h"
 
 #include <algorithm>
 #include <memory>
@@ -1374,6 +1375,332 @@ TEST(game_orbit_camera_mouse_sense) {
   f.world->stop();
 }
 
+namespace {
+game::ActorId add_soldier(game::Level& l, Vec3 at) {
+  game::Actor body;
+  body.name = "Soldier";
+  body.transform.position = at;
+  body.mesh = game::MeshComponent{};
+  body.mesh->shape = game::Shape::capsule;
+  body.mesh->radius = 0.35f;
+  body.mesh->height = 1.45f;
+  body.body = game::BodyComponent{};
+  body.body->mass = 80;
+  body.controller = game::ControllerComponent{};
+  body.controller->mode = game::ControlMode::soldier;
+  body.controller->camera = game::CameraMode::first_person;
+  body.controller->max_speed = 5.5f;
+  body.controller->boost_speed = 8.1f;
+  body.controller->jump_speed = 3.6f;
+  body.weapon = game::WeaponComponent{};
+  body.health = game::HealthComponent{};
+  const game::ActorId id = l.add(body).id;
+  game::Actor head;
+  head.name = "Head";
+  head.parent = id;
+  head.transform.position = {0, 0, 0.83f};
+  head.mesh = game::MeshComponent{};
+  head.mesh->shape = game::Shape::sphere;
+  head.mesh->radius = 0.17f;
+  head.tags.push_back("head");
+  l.add(head);
+  return id;
+}
+game::ActorId add_dummy(game::Level& l, Vec3 at) {
+  game::Actor body;
+  body.name = "Target Dummy";
+  body.transform.position = at;
+  body.mesh = game::MeshComponent{};
+  body.mesh->shape = game::Shape::capsule;
+  body.mesh->radius = 0.32f;
+  body.mesh->height = 1.45f;
+  game::HealthComponent h;
+  h.regen_delay = 3;
+  h.regen_rate = 40;
+  h.respawn_delay = 3;
+  body.health = h;
+  const game::ActorId id = l.add(body).id;
+  game::Actor head;
+  head.name = "Head";
+  head.parent = id;
+  head.transform.position = {0, 0, 0.88f};
+  head.mesh = game::MeshComponent{};
+  head.mesh->shape = game::Shape::sphere;
+  head.mesh->radius = 0.17f;
+  head.tags.push_back("head");
+  l.add(head);
+  return id;
+}
+}  // namespace
+
+TEST(game_soldier_moves_shoots_and_respawns) {
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {20, 20, 0.5f};
+  const game::ActorId me = add_soldier(l, {0, 0, 0.8f});
+  const game::ActorId dummy = add_dummy(l, {10, 0, 0.725f});
+  CHECK(f.world->start(l, game::SimMode::play));
+  CHECK(f.world->player() == me);
+  CHECK(f.world->physics().body_type(f.world->actor_body(me)) == physics::BodyType::kinematic);
+  const f32 dt = 1.0f / 60;
+  Camera cam;
+  game::PlayInput in;
+  auto tick = [&](int n) { for (int i = 0; i < n; ++i) { f.world->step(dt, in); f.world->update_camera(cam, dt, in); in.look_x = in.look_y = 0; } };
+  tick(30);
+  const game::Hud& hud = f.world->hud();
+  CHECK(hud.soldier);
+  CHECK(hud.ammo == 30 && hud.magazine == 30 && hud.reserve == 120);
+  CHECK(std::fabs(hud.health - 100) < 0.01f);
+  CHECK(std::fabs(f.world->health_of(dummy) - 100) < 0.01f);
+  // First-person camera at eye height looking along +X.
+  CHECK(std::fabs(cam.eye.z - 1.62f) < 0.12f);
+  CHECK(cam.target.x > cam.eye.x + 9);
+  // Walk, sprint, crouch.
+  in.move_x = 1;  // strafe right (-Y), away from the dummy's line
+  tick(60);
+  CHECK(hud.speed > 5.0f && hud.speed < 6.0f);
+  in.boost = true;
+  in.move_x = 0;
+  in.move_y = 1;
+  // Sprint needs forward input; walk backwards first so we stay in front of the dummy.
+  in.move_y = -1;
+  tick(20);
+  CHECK(hud.speed < 6.0f);  // no sprint backwards
+  in.move_y = 0;
+  in.boost = false;
+  in.crouch = true;
+  tick(40);
+  const Vec3 crouch_eye = cam.eye;
+  CHECK(crouch_eye.z < 1.25f);
+  in.crouch = false;
+  tick(40);
+  CHECK(cam.eye.z > 1.5f);
+  // Jump buffer: pressing jump just before landing still jumps after landing.
+  in.jump = true;
+  tick(1);
+  in.jump = false;
+  f32 peak = 0;
+  for (int i = 0; i < 80; ++i) { tick(1); peak = std::max(peak, cam.eye.z); }
+  CHECK(peak > 1.62f + 0.25f);
+  // Face the dummy again (yaw back to +X from wherever strafing left us).
+  const Vec3 me_at = f.world->physics().pose(f.world->actor_body(me)).position;
+  // Aim at the chest: eye 1.62 m, chest 1.0 m, distance from the dummy.
+  const f32 dist = 10 - me_at.x;
+  const f32 yaw_to = std::atan2(0 - me_at.y, dist) / 0.0174532925f;
+  in.look_x = -yaw_to;
+  in.look_y = std::atan2(0.62f, dist) / 0.0174532925f;
+  tick(1);
+  tick(30);  // settle spread
+  in.fire = true;
+  tick(1);
+  in.fire = false;
+  CHECK(!f.world->shots().empty());
+  CHECK(hud.ammo == 29);
+  const f32 after_body = f.world->health_of(dummy);
+  CHECK(after_body < 100 && after_body > 50);  // 24 damage, no headshot
+  CHECK(f.world->shots().back().hit == dummy && !f.world->shots().back().head);
+  CHECK(hud.hit_age < 0.1f);
+  // Headshot: aim down the sights (tight spread) at the head (1.6 m).
+  in.look_y = -std::atan2(0.62f, dist) / 0.0174532925f + std::atan2(0.02f, dist) / 0.0174532925f;
+  tick(1);
+  in.aim = true;  // (aiming lowers the look sensitivity)
+  tick(30);
+  CHECK(hud.aiming && hud.fov < 50);
+  CHECK(hud.spread < 0.3f);
+  in.fire = true;
+  tick(1);
+  in.fire = false;
+  in.aim = false;
+  CHECK(f.world->shots().back().head);
+  CHECK(f.world->health_of(dummy) < after_body - 50);  // 24 * 2.5
+  // Automatic fire until it is down.
+  in.fire = true;
+  for (int i = 0; i < 60 && f.world->health_of(dummy) > 0; ++i) tick(1);
+  in.fire = false;
+  CHECK(f.world->health_of(dummy) == 0);
+  CHECK(hud.hit_kill);
+  CHECK(hud.score >= 10);
+  tick(200);  // 3 s respawn
+  CHECK(std::fabs(f.world->health_of(dummy) - 100) < 0.01f);
+  // Reload: 2 s refills the magazine from the reserve.
+  const i32 mag = hud.ammo;
+  CHECK(mag < 30);
+  in.reload = true;
+  tick(1);
+  in.reload = false;
+  CHECK(hud.reload >= 0);
+  tick(130);
+  CHECK(hud.ammo == 30 && hud.reserve == 120 - (30 - mag));
+  // The player dies, respawns with full health and spawn protection.
+  f.world->damage(me, 250, 0, false, {0, 0, 0});
+  CHECK(f.world->health_of(me) == 0);
+  tick(10);
+  CHECK(hud.respawn_in > 0);
+  tick(200);
+  CHECK(std::fabs(f.world->health_of(me) - 100) < 0.01f);
+  f.world->damage(me, 50, 0, false, {0, 0, 0});
+  CHECK(std::fabs(f.world->health_of(me) - 100) < 0.01f);  // protected
+  tick(160);
+  f.world->damage(me, 50, 0, false, {0, 0, 0});
+  CHECK(f.world->health_of(me) < 100);
+  // Regeneration after 5 s.
+  const f32 hurt = f.world->health_of(me);
+  tick(60 * 7);
+  CHECK(f.world->health_of(me) > hurt + 10);
+}
+
+namespace {
+struct FakeLogicHost : logic::Host {
+  f64 t = 0;
+  u32 seed = 1;
+  std::vector<std::string> printed, errors;
+  f64 time() const override { return t; }
+  void print(const std::string& text, bool) override { printed.push_back(text); }
+  void error(const std::string& text) override { errors.push_back(text); }
+  u32 random() override { seed = seed * 1664525u + 1013904223u; return seed; }
+};
+logic::Graph logic_graph(const char* text) {
+  json::Value j;
+  std::string err;
+  CHECK(json::parse(text, j, &err));
+  logic::Graph g;
+  CHECK(logic::graph_from_json(j, g, &err));
+  if (!err.empty()) std::printf("graph: %s\n", err.c_str());
+  return g;
+}
+}  // namespace
+
+TEST(logic_flow_variables_and_latent_nodes) {
+  FakeLogicHost host;
+  logic::Runtime rt(host);
+  // Begin Play -> For 1..5 { Add to Sum (Index) } -> Print "Sum " + Sum -> Delay 1 -> Print "later"
+  const logic::Graph g = logic_graph(R"({"variables":[{"name":"Sum","type":"float","value":0}],
+    "nodes":[{"id":1,"type":"event.begin"},
+      {"id":2,"type":"flow.for","values":{"first":1,"last":5}},
+      {"id":3,"type":"var.add","params":{"variable":"Sum"}},
+      {"id":4,"type":"debug.print"},
+      {"id":5,"type":"text.append","values":{"a":"Sum "}},
+      {"id":6,"type":"var.get","params":{"variable":"Sum"}},
+      {"id":7,"type":"flow.delay","values":{"duration":1}},
+      {"id":8,"type":"debug.print","values":{"text":"later"}}],
+    "links":[[1,"then",2,"exec"],[2,"body",3,"exec"],[2,"index",3,"amount"],[2,"completed",4,"exec"],
+      [6,"value",5,"b"],[5,"result",4,"text"],[4,"then",7,"exec"],[7,"completed",8,"exec"]]})");
+  CHECK(std::none_of(logic::check(g).begin(), logic::check(g).end(), [](const logic::Issue& i) { return i.error; }));
+  logic::Instance* inst = rt.add(g, 0, "Level");
+  rt.begin();
+  CHECK(inst->get("Sum").as_number() == 15);
+  CHECK(host.printed.size() == 1 && host.printed[0] == "Sum 15");
+  for (int i = 0; i < 59; ++i) { host.t += 1.0 / 60; rt.tick(1.0f / 60); }
+  CHECK(host.printed.size() == 1);
+  host.t += 2.0 / 60;
+  rt.tick(1.0f / 60);
+  CHECK(host.printed.size() == 2 && host.printed[1] == "later");
+  // JSON round trip.
+  logic::Graph back;
+  CHECK(logic::graph_from_json(logic::graph_to_json(g), back));
+  CHECK(back == g);
+}
+
+TEST(logic_sequence_gates_switch_and_events) {
+  FakeLogicHost host;
+  logic::Runtime rt(host);
+  const logic::Graph g = logic_graph(R"({"variables":[{"name":"Log","type":"text","value":""},{"name":"Open","type":"bool","value":false}],
+    "nodes":[{"id":1,"type":"event.custom","params":{"name":"Go"}},
+      {"id":2,"type":"flow.sequence","params":{"count":"3"}},
+      {"id":3,"type":"var.set","params":{"variable":"Log"}},{"id":4,"type":"text.append"},{"id":5,"type":"var.get","params":{"variable":"Log"}},
+      {"id":6,"type":"flow.do_once"},
+      {"id":7,"type":"var.set","params":{"variable":"Log"}},{"id":8,"type":"text.append","values":{"b":"once,"}},{"id":9,"type":"var.get","params":{"variable":"Log"}},
+      {"id":10,"type":"flow.switch_text","params":{"cases":"x, y"}},
+      {"id":11,"type":"var.set","params":{"variable":"Log"}},{"id":12,"type":"text.append","values":{"b":"Y"}},{"id":13,"type":"var.get","params":{"variable":"Log"}},
+      {"id":14,"type":"flow.branch"},{"id":15,"type":"math.compare","params":{"op":">"},"values":{"b":2}},
+      {"id":16,"type":"debug.print","values":{"text":"big"}}],
+    "links":[[1,"then",2,"exec"],[2,"then0",3,"exec"],[5,"value",4,"a"],[1,"text",4,"b"],[4,"result",3,"value"],
+      [2,"then1",6,"exec"],[6,"completed",7,"exec"],[9,"value",8,"a"],[8,"result",7,"value"],
+      [2,"then2",10,"exec"],[1,"text",10,"selection"],[10,"case1",11,"exec"],[13,"value",12,"a"],[12,"result",11,"value"],
+      [11,"then",14,"exec"],[1,"value",15,"a"],[15,"result",14,"condition"],[14,"true",16,"exec"]]})");
+  logic::Instance* inst = rt.add(g, 0, "Level");
+  rt.begin();
+  rt.call("Go", 0, {{"text", logic::Value::text("a")}});
+  CHECK(inst->get("Log").as_text() == "aonce,");
+  rt.call("Go", 0, {{"text", logic::Value::text("y")}, {"value", logic::Value::number(3)}});
+  CHECK(inst->get("Log").as_text() == "aonce,yY");
+  CHECK(host.printed.size() == 1 && host.printed[0] == "big");
+  rt.call("Other");
+  CHECK(inst->get("Log").as_text() == "aonce,yY");
+  CHECK(host.errors.empty());
+}
+
+TEST(logic_state_machine_timers_events_conditions) {
+  FakeLogicHost host;
+  logic::Runtime rt(host);
+  const logic::Graph g = logic_graph(R"({"variables":[{"name":"Armed","type":"bool","value":false},{"name":"Entered","type":"float","value":0}],
+    "machines":[{"id":20,"name":"Door","states":[{"id":21,"name":"Closed","initial":true},{"id":22,"name":"Opening"},{"id":23,"name":"Open"},{"id":24,"name":"Locked"}],
+      "transitions":[{"id":30,"from":21,"to":22,"trigger":"event","event":"Use"},{"id":31,"from":22,"to":23,"trigger":"timer","seconds":0.5},
+                     {"id":32,"from":23,"to":21,"trigger":"timer","seconds":2},{"id":33,"from":0,"to":24,"trigger":"condition","variable":"Armed"}]}],
+    "nodes":[{"id":1,"type":"event.state_enter","params":{"machine":"Door","state":"any"}},{"id":2,"type":"var.add","params":{"variable":"Entered"}},
+      {"id":3,"type":"event.state_enter","params":{"machine":"Door","state":"Open"}},{"id":4,"type":"debug.print","values":{"text":"open!"}}],
+    "links":[[1,"then",2,"exec"],[3,"then",4,"exec"]]})");
+  logic::Instance* inst = rt.add(g, 7, "Door");
+  rt.begin();
+  CHECK(inst->state("Door") == "Closed");
+  CHECK(inst->get("Entered").as_number() == 1);
+  auto run = [&](f64 seconds) { for (int i = 0; i < static_cast<int>(seconds * 60 + 0.5); ++i) { host.t += 1.0 / 60; rt.tick(1.0f / 60); } };
+  run(1);
+  CHECK(inst->state("Door") == "Closed");
+  rt.call("Use", 7);
+  CHECK(inst->state("Door") == "Opening");
+  run(0.6);
+  CHECK(inst->state("Door") == "Open");
+  CHECK(host.printed.size() == 1);
+  run(2.1);
+  CHECK(inst->state("Door") == "Closed");
+  inst->set("Armed", logic::Value::boolean(true));
+  run(0.05);
+  CHECK(inst->state("Door") == "Locked");
+  CHECK(inst->get("Entered").as_number() == 5);
+}
+
+TEST(logic_checks_and_infinite_loops) {
+  FakeLogicHost host;
+  // Errors: unknown type, missing variable, wrong wire types.
+  const logic::Graph bad = logic_graph(R"({"nodes":[{"id":1,"type":"event.begin"},{"id":2,"type":"no.such"},{"id":3,"type":"var.get","params":{"variable":"Nope"}},
+    {"id":4,"type":"flow.branch"},{"id":5,"type":"vector.length"}],"links":[[1,"then",4,"exec"],[5,"result",4,"exec"]]})");
+  const auto issues = logic::check(bad);
+  int errors = 0;
+  for (const auto& i : issues) errors += i.error ? 1 : 0;
+  CHECK(errors >= 3);
+  // While(true) is stopped by the step budget and reported.
+  logic::Runtime rt(host);
+  rt.budget = 5000;
+  const logic::Graph loop = logic_graph(R"({"variables":[{"name":"N","type":"float","value":0}],"nodes":[{"id":1,"type":"event.begin"},
+    {"id":2,"type":"flow.while","values":{"condition":true}},{"id":3,"type":"var.add","params":{"variable":"N"}}],
+    "links":[[1,"then",2,"exec"],[2,"body",3,"exec"]]})");
+  logic::Instance* inst = rt.add(loop, 0, "Loop");
+  rt.begin();
+  CHECK(inst->disabled());
+  CHECK(!host.errors.empty() && host.errors.back().find("infinite loop") != std::string::npos);
+  CHECK(inst->get("N").as_number() > 100);
+}
+
+TEST(logic_tween_and_every) {
+  FakeLogicHost host;
+  logic::Runtime rt(host);
+  const logic::Graph g = logic_graph(R"({"variables":[{"name":"A","type":"float","value":0},{"name":"Ticks","type":"float","value":0},{"name":"Done","type":"bool","value":false}],
+    "nodes":[{"id":1,"type":"event.begin"},{"id":2,"type":"flow.tween","params":{"ease":"linear"},"values":{"duration":1}},
+      {"id":3,"type":"var.set","params":{"variable":"A"}},{"id":4,"type":"var.set","params":{"variable":"Done"},"values":{"value":true}},
+      {"id":5,"type":"event.every","params":{"seconds":"0.25"}},{"id":6,"type":"var.add","params":{"variable":"Ticks"}}],
+    "links":[[1,"then",2,"play"],[2,"update",3,"exec"],[2,"alpha",3,"value"],[2,"finished",4,"exec"],[5,"then",6,"exec"]]})");
+  logic::Instance* inst = rt.add(g, 0, "T");
+  rt.begin();
+  for (int i = 0; i < 30; ++i) { host.t += 1.0 / 60; rt.tick(1.0f / 60); }
+  CHECK(inst->get("A").as_number() > 0.4 && inst->get("A").as_number() < 0.6);
+  CHECK(!inst->get("Done").as_bool());
+  for (int i = 0; i < 40; ++i) { host.t += 1.0 / 60; rt.tick(1.0f / 60); }
+  CHECK(inst->get("A").as_number() == 1);
+  CHECK(inst->get("Done").as_bool());
+  CHECK(std::fabs(inst->get("Ticks").as_number() - 4) <= 1);
+}
+
 TEST(game_character_mover) {
   GameFixture f;
   game::Level l = game::basic_level();
@@ -2253,6 +2580,109 @@ TEST(net_client_server) {
   CHECK(!clients[1]->connected());
 }
 
+TEST(game_shooting_range_template) {
+  GameFixture f;
+  const game::Level l = game::shooting_range_level();
+  CHECK(game::validate(l).empty() || std::none_of(game::validate(l).begin(), game::validate(l).end(), [](const game::Issue& i) { return i.error; }));
+  CHECK(f.world->start(l, game::SimMode::play));
+  const game::Actor* p = f.world->level().find(f.world->player());
+  CHECK(p && p->controller && p->controller->mode == game::ControlMode::soldier);
+  int dummies = 0;
+  for (const game::Actor& a : l.actors) if (a.health && !a.controller) { ++dummies; CHECK(std::fabs(f.world->health_of(a.id) - 100) < 0.01f); }
+  CHECK(dummies == 8);
+  Camera cam;
+  game::PlayInput in;
+  for (int i = 0; i < 60; ++i) { f.world->step(1.0f / 60, in); f.world->update_camera(cam, 1.0f / 60, in); }
+  CHECK(f.world->hud().soldier && f.world->hud().ammo == 30);
+  CHECK(cam.eye.z > 1.4f && cam.eye.z < 1.8f);  // standing on the range floor
+  // Shoot straight down the range: the near dummy (Target Dummy 3 at x = -12, y = 0) is in line... aim at its chest.
+  const Vec3 me = f.world->physics().pose(f.world->actor_body(f.world->player())).position;
+  in.look_x = f.world->camera_yaw() - std::atan2(0 - me.y, -12 - me.x) / 0.0174532925f;
+  in.look_y = std::atan2(cam.eye.z - 1.0f, -12 - me.x) / 0.0174532925f - f.world->camera_pitch();
+  f.world->update_camera(cam, 1.0f / 60, in);
+  in.look_x = in.look_y = 0;
+  in.aim = true;
+  for (int i = 0; i < 30; ++i) { f.world->step(1.0f / 60, in); f.world->update_camera(cam, 1.0f / 60, in); }
+  in.fire = true;
+  for (int i = 0; i < 90; ++i) { f.world->step(1.0f / 60, in); f.world->update_camera(cam, 1.0f / 60, in); }
+  CHECK(f.world->hud().score >= 10);  // at least one dummy down
+}
+
+TEST(net_game_soldier_replication) {
+  Renderer renderer;
+  game::NightWindows windows;
+  ShaderExtension* ext[1] = {&windows};
+  RendererOptions o;
+  renderer.init(o, Span<ShaderExtension* const>(ext, 1));
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  add_soldier(l, {0, 0, 0.8f});
+  const game::ActorId dummy = add_dummy(l, {12, 0, 0.725f});
+  net::LoopbackNetwork hub(5);
+  hub.simulator().settings.latency_ms = 40;
+  hub.simulator().settings.jitter_ms = 5;
+  auto ts = hub.create(), t1 = hub.create();
+  game::GameWorld sw(renderer, &windows), cw(renderer, &windows);
+  game::NetGame server(sw), client(cw);
+  CHECK(server.host(l, *ts));
+  CHECK(client.join(l, *t1, ts->address()));
+  f64 time = 0;
+  const f32 dt = 1.0f / 60;
+  game::PlayInput host_in, in;
+  Camera cam;
+  auto frame = [&]() {
+    time += dt;
+    hub.advance_time(time);
+    server.update(time, dt, host_in);
+    client.update(time, dt, in);
+    if (client.playing()) cw.update_camera(cam, dt, in);
+    in.look_x = in.look_y = 0;
+    sw.sound_cues().clear();
+    cw.sound_cues().clear();
+  };
+  for (int i = 0; i < 180; ++i) frame();
+  CHECK(client.playing());
+  const game::ActorId pawn = client.local_pawn();
+  CHECK(pawn != 0 && pawn != sw.player());
+  CHECK(cw.hud().soldier);
+  CHECK(cw.hud().ammo == 30 && cw.hud().reserve == 120);
+  CHECK(std::fabs(cw.hud().health - 100) < 0.5f);
+  // The client's first-person eye sits at the pawn's eye height.
+  const Vec3 feet = sw.physics().pose(sw.actor_body(pawn)).position - Vec3{0, 0, 0.725f};
+  CHECK(std::fabs(cam.eye.z - (feet.z + 1.62f)) < 0.15f);
+  // Aim at the dummy's chest from the client and fire a burst.
+  const Vec3 eye = feet + Vec3{0, 0, 1.62f};
+  const Vec3 d = Vec3{12, 0, 1.0f} - eye;
+  const f32 want_yaw = std::atan2(d.y, d.x) / 0.0174532925f;
+  const f32 want_pitch = std::atan2(-d.z, std::sqrt(d.x * d.x + d.y * d.y)) / 0.0174532925f;
+  in.look_x = cw.camera_yaw() - want_yaw;
+  in.look_y = want_pitch - cw.camera_pitch();
+  frame();
+  CHECK(std::fabs(cw.camera_yaw() - want_yaw) < 0.5f);
+  in.aim = true;
+  for (int i = 0; i < 40; ++i) frame();
+  cw.shots().clear();
+  in.fire = true;
+  for (int i = 0; i < 12; ++i) frame();
+  in.fire = false;
+  for (int i = 0; i < 30; ++i) frame();
+  CHECK(sw.health_of(dummy) < 100);                    // the server applied the client's hits
+  CHECK(cw.hud().ammo < 30 && cw.hud().ammo >= 25);     // ammo replicated back
+  CHECK(cw.hud().hit_age < 1.0f);                       // hit marker on the client
+  CHECK(!cw.shots().empty());                           // tracers reached the client
+  bool any_hit = false;
+  for (const game::ShotEvent& e : cw.shots()) any_hit |= e.hit == dummy;
+  CHECK(any_hit);
+  // The host shoots the client's pawn: the client sees its own damage.
+  sw.damage(pawn, 30, sw.player(), false, sw.physics().pose(sw.actor_body(sw.player())).position);
+  for (int i = 0; i < 30; ++i) frame();
+  CHECK(cw.hud().health < 75);
+  CHECK(cw.hud().damage_age < 1.0f);
+  server.stop();
+  client.stop();
+  renderer.shutdown();
+}
+
 TEST(net_game_server_and_clients) {
   Renderer renderer;
   game::NightWindows windows;
@@ -2738,6 +3168,60 @@ TEST(studio_audio_integration) {
   // The level saves and loads its sounds.
   const std::string text = f.s->level_text();
   CHECK(text.find("\"sounds\"") != std::string::npos && text.find("Blip") != std::string::npos);
+}
+
+TEST(studio_soldier_input_and_hud) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"new","template":"shootingRange"})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  f.frames(20);
+  json::Value st = f.s->status();
+  CHECK(st["hud"]["soldier"].is_object());
+  CHECK(st["hud"]["soldier"]["ammo"].as_number() == 30);
+  // The capturing click does not fire; the next one does.
+  f.s->pointer(0, 0, 400, 300, 0, 1, 0, 0);
+  f.s->pointer(0, 2, 400, 300, 0, 0, 0, 0);
+  f.frames(5);
+  CHECK(f.s->status()["hud"]["soldier"]["ammo"].as_number() == 30);
+  f.s->pointer(0, 0, 400, 300, 0, 1, 0, 0);
+  f.frames(12);
+  f.s->pointer(0, 2, 400, 300, 0, 0, 0, 0);
+  const f64 after_burst = f.s->status()["hud"]["soldier"]["ammo"].as_number();
+  CHECK(after_burst < 30 && after_burst > 20);
+  // Right mouse aims (zoom).
+  f.s->pointer(0, 0, 400, 300, 2, 2, 0, 0);
+  f.frames(20);
+  st = f.s->status();
+  CHECK(st["hud"]["soldier"]["aiming"].as_bool());
+  CHECK(st["hud"]["soldier"]["fov"].as_number() < 50);
+  f.s->pointer(0, 2, 400, 300, 2, 0, 0, 0);
+  f.frames(20);
+  CHECK(!f.s->status()["hud"]["soldier"]["aiming"].as_bool());
+  // R reloads; Ctrl+R does not restart a soldier game.
+  f.s->key("r", "KeyR", true, 0, false);
+  f.frames(2);
+  f.s->key("r", "KeyR", false, 0, false);
+  CHECK(f.s->status()["hud"]["soldier"]["reload"].as_number() >= 0);
+  f.frames(140);
+  CHECK(f.s->status()["hud"]["soldier"]["ammo"].as_number() == 30);
+  // Gamepad: left stick walks, RT fires, right stick turns.
+  const f32 yaw0 = f.s->world().camera_yaw();
+  Mat4 a, b;
+  CHECK(f.s->world().actor_matrix(f.s->world().player(), a));
+  CHECK(f.cmd(R"({"cmd":"gamepad","connected":true,"lx":0,"ly":1,"rx":0.8,"ry":0,"lt":0,"rt":1,"a":false,"b":false,"x":false,"y":false,"lb":false,"rb":false,"l3":false,"start":false})")["ok"].as_bool());
+  f.frames(30);
+  CHECK(f.cmd(R"({"cmd":"gamepad","connected":false})")["ok"].as_bool());
+  f.frames(2);
+  CHECK(f.s->world().actor_matrix(f.s->world().player(), b));
+  CHECK(distance(a.translation(), b.translation()) > 0.5f);
+  CHECK(std::fabs(f.s->world().camera_yaw() - yaw0) > 5);
+  CHECK(f.s->status()["hud"]["soldier"]["ammo"].as_number() < 30);
+  // Touch: look deltas and the fire button.
+  const f32 yaw1 = f.s->world().camera_yaw();
+  f.cmd(R"({"cmd":"gameInput","lookX":40,"lookY":0})");
+  f.frames(2);
+  CHECK(std::fabs(f.s->world().camera_yaw() - yaw1) > 5);
+  f.cmd(R"({"cmd":"stop"})");
 }
 
 TEST(studio_multiplayer_play) {

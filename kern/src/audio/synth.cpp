@@ -387,6 +387,10 @@ const std::vector<BuiltinSound>& builtin_sounds() {
       {"checkpoint", "Checkpoint", "Gameplay", false},
       {"lose", "Game over", "Gameplay", false},
       {"laser", "Laser", "Gameplay", false},
+      {"gunshot", "Gunshot", "Combat", false},
+      {"reload", "Reload", "Combat", false},
+      {"hit", "Hit marker", "Combat", false},
+      {"down", "Down", "Combat", false},
       {"explosion", "Explosion", "Physics", false},
       {"impact", "Impact", "Physics", false},
       {"impact_light", "Light impact", "Physics", false},
@@ -480,6 +484,61 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
     a.lowpass = 5000;
     a.resonance = 0.4f;
     out = synthesize(a, rate);
+  } else if (name == "gunshot") {
+    // Crack (bright noise, fast decay) + body (low thump) + room tail.
+    SynthPatch crack = patch(Wave::noise, 12000, 0.0003f, 0.004f, 0.07f, 0.95f);
+    crack.highpass = 900;
+    crack.punch = 0.6f;
+    crack.seed = 29;
+    out = synthesize(crack, rate);
+    SynthPatch body = patch(Wave::sine, 95, 0.0005f, 0.01f, 0.13f, 0.85f);
+    body.slide = -1.8f;
+    add(out, synthesize(body, rate));
+    SynthPatch tail = patch(Wave::pink, 12000, 0.004f, 0.05f, 0.45f, 0.32f);
+    tail.lowpass = 1600;
+    tail.lowpass_sweep = -1.6f;
+    tail.seed = 31;
+    add(out, synthesize(tail, rate));
+  } else if (name == "reload") {
+    // Magazine out, magazine in, bolt.
+    SynthPatch c = patch(Wave::noise, 7000, 0.0004f, 0.003f, 0.035f, 0.55f);
+    c.highpass = 1800;
+    c.seed = 51;
+    const Buffer click = synthesize(c, rate);
+    SynthPatch m = patch(Wave::square, 420, 0.0005f, 0.005f, 0.05f, 0.18f);
+    m.slide = -2;
+    m.lowpass = 2400;
+    const Buffer metal = synthesize(m, rate);
+    mix_into(out, click, 0.0f, rate, 0.8f);
+    mix_into(out, metal, 0.0f, rate, 0.6f);
+    mix_into(out, click, 0.55f, rate, 1.0f);
+    mix_into(out, metal, 0.56f, rate, 0.8f);
+    SynthPatch slide = patch(Wave::noise, 5000, 0.01f, 0.05f, 0.08f, 0.35f);
+    slide.lowpass = 3000;
+    slide.lowpass_sweep = 1.5f;
+    slide.seed = 53;
+    mix_into(out, synthesize(slide, rate), 0.95f, rate, 0.8f);
+    mix_into(out, click, 1.08f, rate, 1.0f);
+    mix_into(out, metal, 1.09f, rate, 1.0f);
+  } else if (name == "hit") {
+    SynthPatch a = patch(Wave::square, 1760, 0.0005f, 0.004f, 0.045f, 0.3f);
+    a.lowpass = 6000;
+    out = synthesize(a, rate);
+    SynthPatch t = patch(Wave::noise, 6000, 0.0004f, 0.003f, 0.02f, 0.35f);
+    t.highpass = 2500;
+    t.seed = 61;
+    add(out, synthesize(t, rate));
+  } else if (name == "down") {
+    SynthPatch t = patch(Wave::sine, 160, 0.001f, 0.02f, 0.35f, 0.7f);
+    t.slide = -1.4f;
+    out = synthesize(t, rate);
+    SynthPatch n = patch(Wave::noise, 3000, 0.002f, 0.02f, 0.22f, 0.5f);
+    n.lowpass = 700;
+    n.seed = 67;
+    add(out, synthesize(n, rate));
+    SynthPatch b = patch(Wave::triangle, midi_hz(64), 0.005f, 0.1f, 0.2f, 0.25f);
+    b.slide = -0.5f;
+    mix_into(out, synthesize(b, rate), 0.05f, rate);
   } else if (name == "explosion") {
     SynthPatch n = patch(Wave::pink, 12000, 0.002f, 0.12f, 1.4f, 0.9f);
     n.lowpass = 1800;

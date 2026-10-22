@@ -190,6 +190,138 @@ Level orb_run_level() {
   return l;
 }
 
+Level shooting_range_level() {
+  Level l;
+  l.name = "Shooting Range";
+  l.world.title = "Shooting Range";
+  l.world.time_of_day = 0.38f;
+  l.world.goal = GameGoal::score;
+  l.world.score_target = 150;
+  l.world.kill_z = -20;
+  l.world.ambience = "builtin:wind";
+  l.world.ambience_volume = 0.3f;
+  l.world.reverb = 0.25f;
+
+  Actor floor = make("Floor", {0, 0, -0.25f});
+  floor.mesh = box_mesh({120, 60, 0.5f}, {0.46f, 0.47f, 0.42f}, 0.95f);
+  floor.mesh->material.tiling = 0.25f;
+  l.add(floor);
+  // Walls around the range.
+  const struct { const char* name; Vec3 at, size; } walls[] = {
+      {"Wall North", {0, 30, 2}, {120, 1, 4}}, {"Wall South", {0, -30, 2}, {120, 1, 4}},
+      {"Wall West", {-60, 0, 2}, {1, 60, 4}},  {"Backstop", {60, 0, 4}, {1, 60, 8}}};
+  for (const auto& w : walls) {
+    Actor a = make(w.name, w.at);
+    a.folder = "Walls";
+    a.mesh = box_mesh(w.size, {0.62f, 0.6f, 0.55f}, 0.9f);
+    l.add(a);
+  }
+  // Firing line: a low counter and lane markers.
+  Actor counter = make("Firing Line", {-38, 0, 0.5f});
+  counter.folder = "Firing Line";
+  counter.mesh = box_mesh({0.6f, 24, 1}, {0.35f, 0.3f, 0.25f}, 0.7f);
+  l.add(counter);
+  for (int i = -2; i <= 2; ++i) {
+    char name[32];
+    std::snprintf(name, sizeof name, "Lane %d", i + 3);
+    Actor m = make(name, {-10, i * 5.0f, 0.01f});
+    m.folder = "Firing Line";
+    m.mesh = box_mesh({56, 0.12f, 0.02f}, {0.9f, 0.85f, 0.3f}, 0.6f);
+    m.mesh->collision = false;
+    l.add(m);
+  }
+  // Target dummies at 10 .. 60 m (head tagged for headshots).
+  const Vec3 dummies[] = {{-28, -5, 0}, {-22, 5, 0}, {-12, 0, 0}, {0, -10, 0}, {6, 8, 0}, {14, -3, 0}, {22, 12, 0}, {30, 0, 3}};
+  int k = 0;
+  for (const Vec3& d : dummies) {
+    char name[32];
+    std::snprintf(name, sizeof name, "Target Dummy %d", ++k);
+    Actor t = make(name, d + Vec3{0, 0, 0.725f}, {0, 0, 180});
+    t.folder = "Targets";
+    t.mesh = round_mesh(Shape::capsule, 0.32f, 1.45f, {0.85f, 0.35f, 0.25f}, 0.7f);
+    HealthComponent h;
+    h.regen_delay = 3;
+    h.regen_rate = 40;
+    h.respawn_delay = 3;
+    t.health = h;
+    t.tags.push_back("target");
+    const ActorId id = l.add(t).id;
+    Actor head = make("Head", {0, 0, 0.88f});
+    head.parent = id;
+    head.folder = "Targets";
+    head.mesh = round_mesh(Shape::sphere, 0.17f, 0.34f, {0.95f, 0.85f, 0.75f}, 0.6f);
+    head.tags.push_back("head");
+    l.add(head);
+  }
+  // A platform for the far target and a ramp up to it.
+  Actor deck = make("Tower Deck", {30, 0, 1.5f});
+  deck.folder = "Tower";
+  deck.mesh = box_mesh({6, 6, 3}, {0.4f, 0.42f, 0.46f}, 0.7f, 0.3f);
+  l.add(deck);
+  Actor ramp = make("Tower Ramp", {22.5f, -1.75f, 1.5f}, {0, -20, 0});
+  ramp.folder = "Tower";
+  ramp.mesh = box_mesh({9, 2.5f, 0.3f}, {0.4f, 0.42f, 0.46f}, 0.7f, 0.3f);
+  l.add(ramp);
+  // Cover: concrete blocks and loose crates (Box3D bodies the shots push around).
+  const Vec3 cover[] = {{-20, -12, 0.75f}, {-6, 12, 0.75f}, {4, -4, 0.75f}, {16, 6, 0.75f}};
+  k = 0;
+  for (const Vec3& c : cover) {
+    char name[32];
+    std::snprintf(name, sizeof name, "Cover %d", ++k);
+    Actor a = make(name, c);
+    a.folder = "Cover";
+    a.mesh = box_mesh({1.2f, 3.5f, 1.5f}, {0.58f, 0.58f, 0.56f}, 0.95f);
+    l.add(a);
+  }
+  k = 0;
+  for (int i = 0; i < 6; ++i) {
+    char name[32];
+    std::snprintf(name, sizeof name, "Crate %d", ++k);
+    Actor c = make(name, {-16.0f + (i % 3) * 0.9f, 16.0f, 0.4f + (i / 3) * 0.8f});
+    c.folder = "Crates";
+    c.mesh = box_mesh({0.8f, 0.8f, 0.8f}, {0.72f, 0.52f, 0.3f}, 0.75f);
+    c.body = body(Motion::dynamic, 15);
+    l.add(c);
+  }
+  Actor barrel = make("Barrel", {-8, -18, 0.5f});
+  barrel.folder = "Crates";
+  barrel.mesh = round_mesh(Shape::cylinder, 0.35f, 1.0f, {0.25f, 0.45f, 0.75f}, 0.4f);
+  barrel.body = body(Motion::dynamic, 25);
+  l.add(barrel);
+
+  // The player: a Soldier with a rifle (first person; replicated in multiplayer automatically).
+  Actor soldier = make("Soldier", {-44, 0, 0.725f});
+  soldier.mesh = round_mesh(Shape::capsule, 0.35f, 1.45f, {0.32f, 0.42f, 0.3f}, 0.8f);
+  soldier.body = body(Motion::dynamic, 80);
+  soldier.body->allow_sleep = false;
+  ControllerComponent c;
+  c.mode = ControlMode::soldier;
+  c.camera = CameraMode::first_person;
+  c.max_speed = 5.5f;
+  c.boost_speed = 8.1f;
+  c.jump_speed = 3.6f;
+  c.camera_fov = 72;
+  soldier.controller = c;
+  soldier.weapon = WeaponComponent{};
+  soldier.health = HealthComponent{};
+  const ActorId sid = l.add(soldier).id;
+  Actor shead = make("Head", {0, 0, 0.83f});
+  shead.parent = sid;
+  shead.mesh = round_mesh(Shape::sphere, 0.17f, 0.34f, {0.85f, 0.7f, 0.55f}, 0.6f);
+  shead.tags.push_back("head");
+  l.add(shead);
+  Actor gun = make("Rifle", {0.35f, -0.22f, 0.35f});
+  gun.parent = sid;
+  gun.mesh = box_mesh({0.75f, 0.07f, 0.12f}, {0.12f, 0.12f, 0.13f}, 0.5f, 0.4f);
+  gun.mesh->collision = false;
+  l.add(gun);
+
+  l.camera.position = {-52, -14, 9};
+  l.camera.yaw = 28;
+  l.camera.pitch = -18;
+  return l;
+}
+
 Level physics_lab_level() {
   Level l;
   l.name = "Physics Lab";

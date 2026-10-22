@@ -153,6 +153,40 @@ game::PlayInput Studio::play_input() const {
   in.up = clamp(in.up + touch_.up, -1.0f, 1.0f);
   in.jump = in.jump || touch_.jump;
   in.boost = in.boost || touch_.boost;
+  // Shooter keys and mouse buttons (while the mouse is captured).
+  in.fire = (play_buttons_ & 1) || touch_.fire;
+  in.aim = (play_buttons_ & 4) || touch_.aim;
+  in.reload = held("KeyR") || touch_.reload;
+  in.crouch = held("KeyC") || held("ControlLeft") || touch_.crouch;
+  in.interact = held("KeyF") || touch_.interact;
+  in.look_x += touch_look_x_ * prefs_.mouse_sensitivity;
+  in.look_y += touch_look_y_ * prefs_.mouse_sensitivity * (prefs_.invert_y ? -1.0f : 1.0f);
+  // Gamepad on top.
+  if (pad_connected_ && pad_.gamepad) {
+    // Move stick: radial deadzone .10 and a 1.28 power curve (SpawnCity).
+    const f32 mx = pad_.move_x, my = pad_.move_y, m = std::sqrt(mx * mx + my * my);
+    if (m > 0.10f) {
+      const f32 k = std::pow(clamp((m - 0.10f) / 0.90f, 0.0f, 1.0f), 1.28f) / m;
+      in.move_x = clamp(in.move_x + mx * k, -1.0f, 1.0f);
+      in.move_y = clamp(in.move_y + my * k, -1.0f, 1.0f);
+    }
+    in.look_stick_x = pad_.look_stick_x;
+    in.look_stick_y = pad_.look_stick_y * (prefs_.invert_y ? -1.0f : 1.0f);
+    if (!soldier_pawn()) {
+      // Other controllers: the right stick turns the camera at a fixed rate.
+      in.look_x += pad_.look_stick_x * 3.2f;
+      in.look_y += in.look_stick_y * 2.4f;
+    }
+    in.gamepad = true;
+    in.fire = in.fire || pad_.fire;
+    in.aim = in.aim || pad_.aim;
+    in.jump = in.jump || pad_.jump;
+    in.crouch = in.crouch || pad_.crouch;
+    in.reload = in.reload || pad_.reload;
+    in.interact = in.interact || pad_.interact;
+    in.boost = in.boost || pad_.boost;
+    in.up = clamp(in.up + pad_.up, -1.0f, 1.0f);
+  }
   return in;
 }
 
@@ -293,10 +327,13 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
         a.set("viewport", index);
         push_ui(std::move(a));
       }
+      else if (button >= 0 && button < 8) play_buttons_ |= 1u << button;  // the capturing click does not fire
       v.drag = Drag::look;
     } else if (type == move && (buttons || mouse_captured_)) {
       if (v.drag == Drag::look || buttons) look(dx, dy);
     } else if (type == up || type == cancel) {
+      if (type == cancel || button < 0 || button >= 8) play_buttons_ = 0;
+      else play_buttons_ &= ~(1u << button);
       v.drag = Drag::none;
     } else if (type == wheel) {
       play_zoom_ += wheel_delta;  // zooms the play camera
@@ -492,6 +529,7 @@ void Studio::frame(f64 now_ms) {
       play_camera_ = c;
     }
     look_dx_ = look_dy_ = play_zoom_ = 0;
+    touch_look_x_ = touch_look_y_ = 0;
     for (const std::string& e : world_->events()) report(e, e.rfind("Game lost", 0) == 0 ? "warn" : "info");
     world_->events().clear();
   } else {

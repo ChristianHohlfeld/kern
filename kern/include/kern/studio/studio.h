@@ -419,6 +419,11 @@ class Studio {
   std::unordered_set<std::string> keys_;  // KeyboardEvent.code held
   u32 modifiers_ = 0;
   f32 look_dx_ = 0, look_dy_ = 0, play_zoom_ = 0;
+  game::PlayInput pad_;                   // gamepad (standard mapping), from the page
+  bool pad_connected_ = false, pad_start_ = false;
+  u32 play_buttons_ = 0;                  // mouse buttons held while the game has the mouse
+  f32 touch_look_x_ = 0, touch_look_y_ = 0;  // degrees this frame from touch look
+  bool soldier_pawn() const;
   game::PlayInput touch_;                 // on-screen joystick and buttons (exported games on touch devices)
   f64 now_ = 0, last_frame_ = -1;
   f32 fps_ = 0;
