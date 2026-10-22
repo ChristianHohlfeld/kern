@@ -1,0 +1,3 @@
+generated/
+kern/examples/*/*.wasm
+node_modules/

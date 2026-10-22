@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install wasi-sdk 25
+        run: |
+          curl -sSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-linux.tar.gz | tar xz -C /tmp
+          echo "WASI_SDK=/tmp/wasi-sdk-25.0-x86_64-linux" >> "$GITHUB_ENV"
+      - name: Native unit tests (ASan/UBSan)
+        run: CXX=g++ CC=gcc kern/tests/run.sh
+      - name: Build the editor and the example games
+        run: |
+          set -euo pipefail
+          tools/build_editor.sh
+          kern/build.sh --app kern/examples/hello/hello.wasm kern/examples/hello/hello.cpp
+          kern/build.sh --app kern/examples/orbrun/orbrun.wasm kern/examples/orbrun/orbrun.cpp
+          kern/build.sh --app --world kern/examples/scenegame/scenegame.wasm kern/examples/scenegame/scenegame.cpp
+          for f in kern/web/kern.mjs kern/web/app.mjs kern/web/editor/editor.mjs kern/web/editor/player.mjs; do node --check "$f"; done
+      - name: Browser end-to-end test
+        run: |
+          set -euo pipefail
+          npm install --prefix /tmp/e2e --no-audit --no-fund playwright@1.56.0
+          /tmp/e2e/node_modules/.bin/playwright install --with-deps chromium
+          python3 -m http.server 8771 --bind 127.0.0.1 >/tmp/http.log 2>&1 &
+          sleep 1
+          mkdir -p artifacts/e2e
+          NODE_PATH=/tmp/e2e/node_modules KERN_E2E_SHOTS=artifacts/e2e node kern/tests/e2e/editor_e2e.mjs http://127.0.0.1:8771
+      - name: Keep the editor and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kern-editor
+          path: |
+            generated/editor3d.html
+            artifacts/e2e/
+          if-no-files-found: warn
