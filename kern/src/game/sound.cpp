@@ -22,6 +22,7 @@ std::string engine_sound_for(const ControllerComponent& c) {
     case ControlMode::rolling:
     case ControlMode::character:
     case ControlMode::soldier: return "";
+    case ControlMode::walker: return "builtin:servo";
   }
   return "";
 }

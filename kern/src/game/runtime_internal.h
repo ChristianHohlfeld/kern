@@ -39,6 +39,9 @@ struct GameWorld::SimJoint {
   JointKind kind = JointKind::hinge;
   std::size_t index = 0;          // into the actor's joints
   bool broken = false;
+  // Hinge servo: the motor holds servo_target (radians) at servo_gain x error, servo_torque N*m.
+  bool servo = false;
+  f32 servo_target = 0, servo_gain = 18, servo_torque = 1;
 };
 
 class GameWorld::LogicHost : public logic::Host {

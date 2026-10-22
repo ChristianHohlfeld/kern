@@ -693,8 +693,7 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
     const char* rows[][2] = {
         {"Right mouse + WASD / QE", "Fly (Unreal fly mode); wheel while flying changes speed, Shift = faster, Z / C zoom"},
         {"Left click", "Select (Shift adds, Ctrl toggles); click empty space to deselect"},
-        {"Left drag on an actor", "Move it over the surfaces under the cursor (snaps to the grid)"},
-        {"Left drag on empty space", "Marquee select (Shift adds, Ctrl toggles)"},
+        {"Left drag", "Marquee select (Shift adds, Ctrl toggles); actors move with the gizmo (W / E / R)"},
         {"Right + left mouse", "Move up / down and sideways while flying"},
         {"Middle mouse drag", "Pan"},
         {"Alt + left / right / middle", "Orbit / dolly / pan around the selection"},

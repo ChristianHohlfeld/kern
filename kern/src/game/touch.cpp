@@ -164,6 +164,9 @@ void TouchControls::layout() {
       upper.push_back(make_button("crouch", "CROUCH", 60, dark));
       upper.push_back(make_button("interact", "USE", 54, blue));
       break;
+    case ControlMode::walker:
+      low.push_back(make_button("jump", "QUACK", 64, amber));
+      break;
     case ControlMode::character:
       if (jump_) low.push_back(make_button("jump", "JUMP", 64, dark));
       upper.push_back(make_button("interact", "USE", 54, blue));

@@ -181,11 +181,9 @@ const vpCenter = async (page, i = 0) => {
     check(st.selection.length === 1 && st.selection[0] === id, `pressing an actor selects it (${JSON.stringify(st.selection)} / ${id})`);
     const p1 = await pos();
     const cam1 = (await status(page)).camera.position;
-    check(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) > 0.5, `left-dragging an actor moves it (${Math.hypot(p1[0] - p0[0], p1[1] - p0[1]).toFixed(2)} m)`);
+    check(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) < 1e-4, "left-dragging an actor does not move it (the gizmo moves actors)");
     check(Math.hypot(cam1[0] - cam0[0], cam1[1] - cam0[1], cam1[2] - cam0[2]) < 1e-4, "left-dragging never moves the camera");
-    await page.keyboard.press("Control+z");
-    check(await until(async () => { const p = await pos(); return Math.hypot(p[0] - p0[0], p[1] - p0[1]) < 1e-3; }), "undo puts the dragged actor back");
-    // Shift + drag always draws a marquee (as does dragging empty space).
+    // Dragging always draws a marquee (Shift adds to the selection).
     await page.keyboard.down("Shift");
     await page.mouse.move(vr.left + 8, vr.top + 30);
     await page.mouse.down();
@@ -383,7 +381,12 @@ const vpCenter = async (page, i = 0) => {
 
   // Help.
   await page.keyboard.press("F1");
-  check(await until(async () => (await page.locator(".dialog .keys tr").count()) > 10), "F1 shows the controls");
+  {
+    const shown = await until(async () => (await page.locator(".dialog .keys tr").count()) > 10);
+    const why = shown ? "" : await page.evaluate(() => `focus=${document.activeElement?.tagName}#${document.activeElement?.id}.${document.activeElement?.className} ` +
+      `dialogs=${document.querySelectorAll(".dialog").length} logic=${!document.getElementById("logicEditor")?.hidden} locked=${!!document.pointerLockElement}`);
+    check(shown, "F1 shows the controls" + (why ? ` (${why})` : ""));
+  }
   await page.keyboard.press("Escape");
 
   // Multiplayer in the editor: a listen server and a local client in the next viewport.

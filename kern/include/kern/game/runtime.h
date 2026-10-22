@@ -338,6 +338,8 @@ class GameWorld {
   Mat4 animated_local(const Actor& a, f32 time) const;
   void fixed_step(const PlayInput& input, f32 dt);
   void drive_player(const PlayInput& input, f32 dt);
+  void drive_walker(const PlayInput& input, f32 dt);
+  void drive_servos(f32 dt);
   void drive_traffic(f32 dt);
   void handle_events();
   void collect(ActorId pickup);
@@ -462,6 +464,12 @@ class GameWorld {
     f32 client_next_fire = 0;                    // replicas: predicted fire timing (camera kick)
     PlayInput prev_input;                        // input actions: edges for logic events
     f32 teleport_until = 0;                      // teleporters: no instant return trip
+    // walker gait
+    f32 walk_speed = 0, walk_turn = 0, gait_amp = 0, gait_phase = 0, quack = 0;
+    f32 leg_ik[4] = {0, 0, 0, 0};
+    i32 gait_half = 0, swing_side = 0;
+    Vec3 foot_plant[2], foot_lift[2], foot_land;
+    bool feet_valid = false;
   };
   struct HealthState {
     f32 hp = 100, armor = 0, last_damage = -1e9f;

@@ -24,7 +24,7 @@ constexpr const char* kShapeNames[] = {"box", "sphere", "cylinder", "cone", "cap
 constexpr const char* kMotionNames[] = {"static", "kinematic", "dynamic"};
 constexpr const char* kColliderNames[] = {"auto", "box", "sphere", "capsule", "hull"};
 constexpr const char* kJointNames[] = {"hinge", "slider", "ball", "fixed", "distance", "wheel", "motor", "parallel", "noCollision"};
-constexpr const char* kControlNames[] = {"hovercar", "rolling", "character", "flyer", "vehicle", "soldier"};
+constexpr const char* kControlNames[] = {"hovercar", "rolling", "character", "flyer", "vehicle", "soldier", "walker"};
 constexpr const char* kWeaponNames[] = {"rifle", "pistol", "shotgun", "sniper"};
 constexpr const char* kCameraNames[] = {"chase", "firstPerson", "topDown"};
 constexpr const char* kTriggerNames[] = {"goal", "hazard", "checkpoint", "message", "launch", "teleport", "damage", "event"};
@@ -451,6 +451,11 @@ json::Value actor_to_json(const Actor& a) {
       x.set("breakForce", num(j.break_force));
       x.set("breakTorque", num(j.break_torque));
       x.set("breakSound", j.break_sound);
+      if (j.servo) {
+        x.set("servo", true);
+        x.set("servoTarget", num(j.servo_target));
+        x.set("servoGain", num(j.servo_gain));
+      }
       list.push(std::move(x));
     }
     c.set("joints", std::move(list));
@@ -459,6 +464,7 @@ json::Value actor_to_json(const Actor& a) {
     const ControllerComponent& k = *a.controller;
     json::Value x = json::Value::object();
     x.set("mode", control_mode_name(k.mode));
+    if (k.mode == ControlMode::walker) x.set("balance", num(k.balance));
     x.set("maxSpeed", num(k.max_speed));
     x.set("acceleration", num(k.acceleration));
     x.set("turnRate", num(k.turn_rate));
@@ -692,6 +698,9 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
         jr.number("breakForce", j.break_force, 0, 1e12);
         jr.number("breakTorque", j.break_torque, 0, 1e12);
         jr.string("breakSound", j.break_sound);
+        jr.boolean("servo", j.servo);
+        jr.number("servoTarget", j.servo_target, -3600, 3600);
+        jr.number("servoGain", j.servo_gain, 0, 1000);
         if (!jr.ok) return false;
         a.joints.push_back(j);
       }
@@ -699,6 +708,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       ControllerComponent k;
       Reader kr{*x, error};
       kr.enumeration("mode", kControlNames, k.mode);
+      kr.number("balance", k.balance, 0, 1);
       kr.number("maxSpeed", k.max_speed, 0, 1000);
       kr.number("acceleration", k.acceleration, 0, 1000);
       kr.number("turnRate", k.turn_rate, 0, 3600);

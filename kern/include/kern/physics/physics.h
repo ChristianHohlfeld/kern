@@ -218,6 +218,8 @@ class World {
   Vec3 joint_force(Joint joint) const;
   /// Motor of a revolute (rad/s, N*m), prismatic (m/s, N), distance (m/s, N) or spherical joint (torque only).
   void set_joint_motor(Joint joint, bool enable, f32 speed, f32 max_force);
+  /// Revolute joints: angle of B relative to A (radians, from the reference angle); 0 for others.
+  f32 joint_angle(Joint joint) const;
   Vec3 joint_torque(Joint joint) const;
   /// Touching contact points of a body (for debug views).
   void contact_points(Body body, std::vector<ContactPoint>& out) const;

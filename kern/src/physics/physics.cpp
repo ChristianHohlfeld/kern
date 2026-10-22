@@ -391,6 +391,12 @@ void World::destroy_joint(Joint joint, bool wake_bodies) {
 
 bool World::joint_valid(Joint joint) const { return valid() && joint.valid() && b3Joint_IsValid(joint_id(joint)); }
 
+f32 World::joint_angle(Joint joint) const {
+  if (!joint_valid(joint)) return 0;
+  const b3JointId id = joint_id(joint);
+  return b3Joint_GetType(id) == b3_revoluteJoint ? b3RevoluteJoint_GetAngle(id) : 0.0f;
+}
+
 void World::set_joint_motor(Joint joint, bool enable, f32 speed, f32 max_force) {
   if (!joint_valid(joint)) return;
   const b3JointId id = joint_id(joint);

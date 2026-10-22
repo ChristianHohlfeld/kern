@@ -398,14 +398,9 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
           }
         } else if (v.drag == Drag::fly && persp) begin_drag(v, Drag::pedestal);
         else {
-          // Left button: click selects; dragging an actor slides it over the surfaces
-          // under the cursor; dragging empty space (or with Shift / Ctrl) draws a marquee.
-          Vec3 hit;
-          const ActorId id = (mods & (shift | ctrl)) || play_ != PlayState::editing ? 0 : pick(index, x, y, &hit);
-          if (id) {
-            if (!selected(id)) select({id});
-            begin_surface_drag(v, hit);
-          } else begin_drag(v, Drag::marquee);
+          // Left button (as in Unreal): a click selects, a drag draws a marquee. Actors move only
+          // with the gizmo (W / E / R), never by dragging them directly.
+          begin_drag(v, Drag::marquee);
         }
       } else if (button == 2) {
         if ((mods & alt) && persp) begin_drag(v, Drag::dolly);

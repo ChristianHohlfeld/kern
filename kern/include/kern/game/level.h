@@ -121,12 +121,17 @@ struct JointComponent {
   f32 spring_hertz = 4, spring_damping = 0.5f;
   f32 length = 0;               // distance joint rest length, 0 = the distance at start
   f32 break_force = 0, break_torque = 0;  // N / N*m, 0 = unbreakable
+  // Hinge servo (a position-controlled motor, like a Dynamixel): the motor drives toward
+  // `servo_target` (degrees) at `servo_gain` x the error per second, with max_motor_force N*m.
+  bool servo = false;
+  f32 servo_target = 0, servo_gain = 18;
   std::string break_sound = "builtin:break";  // played when the joint breaks ("" = silent)
 };
 
 /// soldier: a first-person shooter player (Box3D character mover, crouch, sprint,
 /// aim, a weapon from its WeaponComponent, health from its HealthComponent).
-enum class ControlMode : u8 { hovercar, rolling, character, flyer, vehicle, soldier };
+/// walker: an articulated robot that walks on its own servos (a gait from the move input).
+enum class ControlMode : u8 { hovercar, rolling, character, flyer, vehicle, soldier, walker };
 const char* control_mode_name(ControlMode m);
 enum class CameraMode : u8 { chase, first_person, top_down };
 const char* camera_mode_name(CameraMode m);
@@ -151,6 +156,8 @@ struct ControllerComponent {
   f32 eye_height = 1.62f;       // m above the feet standing (crouching: 60 %)
   f32 look_sensitivity = 1;     // mouse / touch / gamepad look scale
   bool head_bob = true;
+  // walker
+  f32 balance = 1;              // 0..1: a gyro that helps the trunk stay upright (0 = servos only)
 };
 
 enum class WeaponKind : u8 { rifle, pistol, shotgun, sniper };

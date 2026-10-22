@@ -36,6 +36,7 @@ kern/
   web/app.mjs            Host für C++-Spiele (Frame-Loop, Größe, Eingabe, Kontextverlust)
   web/studio/            Studio-Seite (index.html, studio.css, studio.mjs), Spiel-Host (game.mjs, play.html)
   docs/studio.md         Dokumentation von Studio, Komponenten, Format und Protokoll
+  docs/physics.md        Box3D richtig benutzen: Regeln, No-Gos und Messungen (vor Physik-Änderungen lesen)
   examples/              Beispielspiele
   tests/                 C++-Unit-Tests (Host-Build mit ASan/UBSan), tests/e2e: Browser-Test von Studio
   build.sh               WebAssembly-Build (--app, --physics, --game, --studio)

@@ -101,6 +101,7 @@ const ICONS = {
   target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
   health: '<path d="M4 6h16v13H4z"/><path d="M12 9v7M8.5 12.5h7"/>',
   ammo: '<path d="M6 20V9l2-4 2 4v11zM14 20V9l2-4 2 4v11z"/>',
+  duck: '<path d="M7 10a4 4 0 1 1 7 2.6c2.5.4 5 1.4 6 3.4-1 3-4.5 4-8 4s-6.5-1.5-6.5-4.5c0-1.6.9-2.8 2.2-3.6"/><path d="M11 9h4.5"/><circle cx="9.5" cy="8" r=".6"/><path d="M9 20v1.5M13 20v1.5"/>',
   jumppad: '<ellipse cx="12" cy="18" rx="8" ry="2.5"/><path d="M12 15V4M8 8l4-4 4 4"/>',
   teleport: '<ellipse cx="7" cy="18" rx="4" ry="1.5"/><ellipse cx="17" cy="18" rx="4" ry="1.5"/><path d="M7 15c0-6 10-6 10 0M15 13l2 2 2-2"/>',
   barrel: '<ellipse cx="12" cy="5.5" rx="6" ry="2"/><path d="M6 5.5v13c0 1.1 2.7 2 6 2s6-.9 6-2v-13M6 10h12M6 15h12"/>',

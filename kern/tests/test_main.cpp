@@ -3201,7 +3201,7 @@ TEST(studio_gizmo_translate_and_undo) {
   CHECK(f.s->level().actors.size() == n + 1);
 }
 
-TEST(studio_left_mouse_selects_and_places_on_surfaces) {
+TEST(studio_left_mouse_selects_and_never_drags_actors) {
   StudioFixture f;
   f.cmd(R"({"cmd":"new","template":"basic"})");
   f.frames(1);
@@ -3234,47 +3234,17 @@ TEST(studio_left_mouse_selects_and_places_on_surfaces) {
   CHECK_NEAR(v.camera.position.x, cam_before.position.x, 1e-5f);
   CHECK_NEAR(v.camera.yaw, cam_before.yaw, 1e-5f);
   const std::size_t steps = f.s->history().size();
-  // Dragging the actor onto the other cube stacks it on top.
-  f32 tx, ty;
-  Aabb bb;
-  CHECK(f.s->world().actor_bounds(b, bb));
-  CHECK(f.s->to_screen(v, Vec3{center(b).x, center(b).y, bb.max.z}, tx, ty));
-  for (int k = 1; k <= 10; ++k) {
-    if (k == 1) f.s->pointer(0, 0, sx, sy, 0, 1, 0, 0);
-    f.s->pointer(0, 1, sx + (tx - sx) * k / 10, sy + (ty - sy) * k / 10, -1, 1, 0, 0);
-  }
-  f.s->pointer(0, 2, tx, ty, 0, 0, 0, 0);
+  // Dragging from an actor does not move it (as in Unreal, actors move with the gizmo only):
+  // it draws a marquee.
+  f.s->pointer(0, 0, sx, sy, 0, 1, 0, 0);
+  CHECK(v.drag == studio::Drag::marquee);
+  for (int k = 1; k <= 10; ++k) f.s->pointer(0, 1, sx + 12.0f * k, sy + 4.0f * k, -1, 1, 0, 0);
+  f.s->pointer(0, 2, sx + 120, sy + 40, 0, 0, 0, 0);
   f.frames(1);
-  Aabb ab;
-  CHECK(f.s->world().actor_bounds(a, ab));
-  CHECK_NEAR(ab.min.z, bb.max.z, 0.05f);
-  CHECK(std::fabs(center(a).x - center(b).x) < 0.8f);
-  CHECK(f.s->history().size() == steps + 1);
+  CHECK_NEAR(f.s->level().find(a)->transform.position.x, a0.x, 1e-5f);
+  CHECK_NEAR(f.s->level().find(a)->transform.position.y, a0.y, 1e-5f);
+  CHECK(f.s->history().size() == steps);
   CHECK_NEAR(v.camera.position.x, cam_before.position.x, 1e-5f);
-  // Back onto the ground: the bottom rests on it.
-  f32 gx, gy;
-  CHECK(f.s->to_screen(v, center(a), sx, sy));
-  CHECK(f.s->to_screen(v, Vec3{1, -3, 0}, gx, gy));
-  f.s->pointer(0, 0, sx, sy, 0, 1, 0, 0);
-  for (int k = 1; k <= 10; ++k) f.s->pointer(0, 1, sx + (gx - sx) * k / 10, sy + (gy - sy) * k / 10, -1, 1, 0, 0);
-  f.s->pointer(0, 2, gx, gy, 0, 0, 0, 0);
-  f.frames(1);
-  CHECK(f.s->world().actor_bounds(a, ab));
-  CHECK_NEAR(ab.min.z, 0.0f, 0.05f);
-  // Undo twice returns to the start.
-  f.s->key("z", "KeyZ", true, 2, false);
-  f.s->key("z", "KeyZ", true, 2, false);
-  CHECK_NEAR(f.s->level().find(a)->transform.position.x, a0.x, 1e-4f);
-  CHECK_NEAR(f.s->level().find(a)->transform.position.z, a0.z, 1e-4f);
-  // Escape cancels a drag in progress.
-  f.frames(1);
-  CHECK(f.s->to_screen(v, center(a), sx, sy));
-  f.s->pointer(0, 0, sx, sy, 0, 1, 0, 0);
-  f.s->pointer(0, 1, sx + 80, sy + 30, -1, 1, 0, 0);
-  CHECK(std::fabs(f.s->level().find(a)->transform.position.x - a0.x) > 0.1f || std::fabs(f.s->level().find(a)->transform.position.y - a0.y) > 0.1f);
-  f.s->key("Escape", "Escape", true, 0, false);
-  f.s->pointer(0, 2, sx + 80, sy + 30, 0, 0, 0, 0);
-  CHECK_NEAR(f.s->level().find(a)->transform.position.x, a0.x, 1e-4f);
   // Dragging empty space draws a marquee and selects what is inside.
   f.s->deselect();
   f.s->pointer(0, 0, 2, 2, 0, 1, 0, 0);
@@ -3711,6 +3681,26 @@ TEST(soldier_art_in_play) {
   f.cmd(R"({"cmd":"stop"})");
   f.frames(2);
   CHECK(f.s->world().art_stats().decals == 0);  // a fresh range every run
+}
+
+TEST(micro_duck_builds_from_its_mjcf) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
+  const game::ActorId duck = f.s->spawn("micro_duck", Vec3{4, 4, 0});
+  CHECK(duck != 0);
+  const game::Actor* a = f.s->level().find(duck);
+  CHECK(a && a->controller && a->controller->mode == game::ControlMode::walker);
+  u32 servos = 0;
+  for (const game::Actor& x : f.s->level().actors) for (const game::JointComponent& j : x.joints) servos += j.servo ? 1 : 0;
+  CHECK(servos == 14);
+  CHECK(f.s->level().world.substeps >= 16);  // long servo chains get the sub-steps they need
+  // Standing still, every servo joint holds (Box3D: scale and sub-steps per docs/physics.md).
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  f.frames(30);
+  Mat4 m;
+  CHECK(f.s->world().actor_matrix(duck, m));
+  CHECK(m.translation().z > .2f);
+  f.cmd(R"({"cmd":"stop"})");
 }
 
 TEST(studio_player_presets_and_gameplay_blocks) {

@@ -999,6 +999,11 @@ void GameWorld::create_joints(const Actor& a) {
     js.damping_ratio = j.spring_damping;
     js.enable_limit = j.enable_limit;
     js.enable_motor = j.enable_motor;
+    if (j.servo) {
+      // Servo chains (small robots) need stiff joints: the default softness lets light links stretch.
+      js.constraint_hertz = min_of(240.0f, max_hertz);
+      js.constraint_damping_ratio = 2;
+    }
     switch (j.kind) {
       case JointKind::hinge:
         js.type = physics::JointType::revolute;
@@ -1079,6 +1084,12 @@ void GameWorld::create_joints(const Actor& a) {
     sj->joint = physics_.create_joint(js);
     if (!sj->joint.valid()) { events_.push_back("Joint on \"" + a.name + "\" rejected: " + last_error()); continue; }
     physics_.set_joint_thresholds(sj->joint, j.break_force, j.break_torque);
+    if (j.servo && j.kind == JointKind::hinge) {
+      sj->servo = true;
+      sj->servo_target = j.servo_target * kDeg;
+      sj->servo_gain = j.servo_gain;
+      sj->servo_torque = j.max_motor_force;
+    }
     joints_.push_back(std::move(sj));
   }
 }
@@ -1142,7 +1153,8 @@ physics::Body GameWorld::create_body(const BodyPlan& plan) {
     if (owner->body && owner->body->mass > 0 && plan.motion == Motion::dynamic) physics_.set_mass(body, owner->body->mass);
     physics::MotionLocks locks;
     if (owner->body) for (int i = 0; i < 3; ++i) { locks.linear[i] = owner->body->lock_linear[i]; locks.angular[i] = owner->body->lock_angular[i]; }
-    if (owner->controller && owner->controller->mode != ControlMode::rolling) locks.angular[0] = locks.angular[1] = true;  // vehicles, characters and flyers stay upright
+    if (owner->controller && owner->controller->mode != ControlMode::rolling && owner->controller->mode != ControlMode::walker)
+      locks.angular[0] = locks.angular[1] = true;  // vehicles, characters and flyers stay upright
     physics_.set_motion_locks(body, locks);
   }
   return body;
@@ -1436,6 +1448,7 @@ void GameWorld::fixed_step(const PlayInput& input, f32 h) {
       logic_inputs(*pawn, in);
       const Actor* pa = level_.find(pawn->actor);
       if (pa && pa->controller && pa->controller->mode == ControlMode::soldier) drive_soldier(in, h);
+      else if (pa && pa->controller && pa->controller->mode == ControlMode::walker) drive_walker(in, h);
       else drive_player(in, h);
     }
   pw_ = local_ ? local_ : &idle_pawn_;
@@ -1454,6 +1467,7 @@ void GameWorld::fixed_step(const PlayInput& input, f32 h) {
     (void)m;
   }
   drive_traffic(h);
+  drive_servos(h);
   grab_.update(h);
   physics_.step(h, clamp(level_.world.substeps, 1, 16));
   sim_time_ += h;
@@ -1665,6 +1679,7 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
       if (hs > c.max_speed) physics_.apply_force_to_center(body, Vec3{v.x, v.y, 0} * (-(hs - c.max_speed) / hs * 4 * m));
       break;
     }
+    case ControlMode::walker: break;  // drive_walker
     case ControlMode::soldier:
     case ControlMode::character: {
       if (pw_->use_mover) {
