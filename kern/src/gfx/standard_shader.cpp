@@ -1,0 +1,237 @@
+#include <cstdio>
+
+#include "kern/gfx/shader.h"
+
+namespace kern {
+
+const char* const kGlslToneMap = R"GLSL(
+vec3 linearToSrgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+vec3 srgbToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+vec3 rrtOdt(vec3 v) {
+  vec3 a = v * (v + 0.0245786) - 0.000090537;
+  vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+  return a / b;
+}
+// three.js r16x ACESFilmicToneMapping: exposure / 0.6, RRT+ODT fit.
+vec3 acesFilmic(vec3 c) {
+  const mat3 inM = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 outM = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  c *= uExposure / 0.6;
+  c = inM * c;
+  c = rrtOdt(c);
+  c = outM * c;
+  return clamp(c, 0.0, 1.0);
+}
+// Colour grade on tone-mapped rgb: saturation, soft S-curve, warm highlights / cool shadows.
+vec3 gradeColor(vec3 rgb) {
+  float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+  rgb = mix(vec3(luma), rgb, 1.14);
+  rgb = mix(rgb, rgb * rgb * (3.0 - 2.0 * rgb), 0.22);
+  rgb += vec3(0.016, 0.006, -0.014) * smoothstep(0.35, 1.0, luma) + vec3(-0.006, 0.0, 0.012) * (1.0 - smoothstep(0.0, 0.3, luma));
+  return rgb;
+}
+)GLSL";
+
+namespace {
+
+void append_hook(std::string& out, Span<ShaderExtension* const> extensions, const char* (ShaderExtension::*hook)() const) {
+  for (ShaderExtension* e : extensions) {
+    const char* code = (e->*hook)();
+    if (!code || !*code) continue;
+    out += "// --- ";
+    out += e->name();
+    out += "\n";
+    out += code;
+    out += "\n";
+  }
+}
+
+constexpr const char* kVertexHead = R"GLSL(#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPosition;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec3 aColor;
+layout(location=3) in vec2 aUV;
+layout(location=4) in vec4 iModel0;
+layout(location=5) in vec4 iModel1;
+layout(location=6) in vec4 iModel2;
+layout(location=7) in vec4 iModel3;
+layout(location=8) in vec4 iTint;
+layout(location=9) in vec3 iNormal0;
+layout(location=10) in vec3 iNormal1;
+layout(location=11) in vec3 iNormal2;
+layout(location=12) in vec4 aJoints;
+layout(location=13) in vec4 aWeights;
+)GLSL";
+
+constexpr const char* kVertexUniforms = R"GLSL(
+uniform int uSkinEnabled;
+uniform mat4 uBones[32];
+uniform mat4 uViewProjection;
+out vec3 vWorld, vNormal, vColor;
+out vec2 vUV;
+out float vOpacity;
+)GLSL";
+
+constexpr const char* kVertexMainHead = R"GLSL(
+void main() {
+  mat4 model = mat4(iModel0, iModel1, iModel2, iModel3);
+  vec4 local = vec4(aPosition, 1.0);
+  vec3 localNormal = aNormal;
+  if (uSkinEnabled == 1) {
+    mat4 skin = aWeights.x * uBones[int(aJoints.x)] + aWeights.y * uBones[int(aJoints.y)]
+              + aWeights.z * uBones[int(aJoints.z)] + aWeights.w * uBones[int(aJoints.w)];
+    local = skin * local;
+    localNormal = mat3(skin) * localNormal;
+  }
+  vec4 p = model * local;
+  vWorld = p.xyz;
+  vNormal = normalize(mat3(iNormal0, iNormal1, iNormal2) * localNormal);
+  vColor = aColor * iTint.rgb;
+  vOpacity = iTint.a;
+  vUV = aUV;
+)GLSL";
+
+constexpr const char* kFragmentHead = R"GLSL(#version 300 es
+precision highp float;
+precision highp sampler2DShadow;
+in vec3 vWorld, vNormal, vColor;
+in vec2 vUV;
+in float vOpacity;
+uniform vec4 uMaterial;
+uniform vec3 uSunDirection, uSunColor, uSkyColor, uGroundColor, uEye, uFogColor;
+uniform vec3 uEnvZenith, uEnvHorizon, uEnvGround;
+uniform float uFogDensity, uExposure, uAlphaCutoff, uEnvIntensity, uSunShadowBias;
+uniform sampler2D uTexture;
+uniform sampler2DShadow uSunShadowMap;
+uniform mat4 uSunShadowProjection;
+uniform int uSunShadowEnabled, uHasTexture, uUnlit, uLinearColor, uGrade, uPointLightCount;
+uniform vec2 uPbr;
+uniform vec4 uPointPosRange[6], uPointColorIntensity[6];
+layout(location=0) out vec4 outColor;
+layout(location=1) out vec4 outHdr;
+)GLSL";
+
+constexpr const char* kFragmentFunctions = R"GLSL(
+// Diffuse sky irradiance: the PMREM of a zenith/horizon gradient dome over a ground disc.
+vec3 envIrradiance(vec3 n) {
+  vec3 sky = mix(uEnvHorizon, uEnvZenith, 0.35);
+  float w = clamp(n.z * 0.5 + 0.5, 0.0, 1.0);
+  return mix(uEnvGround, sky, smoothstep(0.0, 1.0, w));
+}
+vec3 skyReflection(vec3 r, float sharpness) {
+  return mix(uEnvHorizon, uEnvZenith, clamp(r.z, 0.0, 1.0) * sharpness);
+}
+)GLSL";
+
+constexpr const char* kFragmentMainHead = R"GLSL(
+void main() {
+  vec4 texel = uHasTexture == 1 ? texture(uTexture, vUV) : vec4(1.0);
+  float alpha = clamp(vOpacity * uMaterial.a * texel.a, 0.0, 1.0);
+  if (alpha < uAlphaCutoff) discard;
+)GLSL";
+
+constexpr const char* kFragmentBase = R"GLSL(
+  vec3 rawBase = max(vec3(0.0), vColor * uMaterial.rgb * texel.rgb);
+  vec3 base = linearInput ? rawBase : srgbToLinear(rawBase);
+  vec3 n = normalize(vNormal), sun = normalize(uSunDirection);
+  float surfaceGlass = 0.0;
+)GLSL";
+
+constexpr const char* kFragmentLighting = R"GLSL(
+  float ndl = max(dot(n, sun), 0.0);
+  vec3 hemis = mix(uGroundColor, uSkyColor, clamp(n.z * 0.5 + 0.5, 0.0, 1.0));
+  float shadow = 1.0;
+  if (uSunShadowEnabled == 1 && ndl > 0.0) {
+    vec4 clip = uSunShadowProjection * vec4(vWorld, 1.0);
+    vec3 uvz = clip.xyz / clip.w * 0.5 + 0.5;
+    if (uvz.x > 0.0 && uvz.x < 1.0 && uvz.y > 0.0 && uvz.y < 1.0 && uvz.z > 0.0)
+      shadow = texture(uSunShadowMap, vec3(uvz.xy, uvz.z - uSunShadowBias));
+  }
+  vec3 point = vec3(0.0);
+  if (uUnlit != 1) {
+    for (int i = 0; i < 6; i++) {
+      if (i >= uPointLightCount) break;
+      vec3 delta = uPointPosRange[i].xyz - vWorld;
+      float d2 = max(dot(delta, delta), 0.04);
+      float radius = max(0.1, uPointPosRange[i].w);
+      float attenuation = pow(max(0.0, 1.0 - d2 / (radius * radius)), 2.0) / (1.0 + d2 / (radius * radius));
+      float diffuse = max(dot(n, delta * inversesqrt(d2)), 0.0);
+      point += uPointColorIntensity[i].rgb * (uPointColorIntensity[i].a * 0.12) * attenuation * diffuse;
+    }
+  }
+  const float PI = 3.141592653589793;
+  float rough = clamp(uPbr.x, 0.04, 1.0), metal = clamp(uPbr.y, 0.0, 1.0);
+  vec3 rgb = uUnlit == 1 ? base
+    : base * (1.0 - metal) * ((uSunColor * ndl * shadow + hemis + point * PI) / PI + envIrradiance(n) * uEnvIntensity);
+  if (uUnlit != 1 && (metal > 0.0 || rough < 0.95)) {
+    vec3 V = normalize(uEye - vWorld), R = reflect(-V, n);
+    float NdV = clamp(dot(n, V), 0.0, 1.0);
+    vec3 F0 = mix(vec3(0.04), base, metal);
+    vec3 F = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - NdV, 5.0);
+    vec3 envR = mix(envIrradiance(R), skyReflection(R, 1.0), 1.0 - rough);
+    rgb += F * envR * uEnvIntensity;
+    vec3 H = normalize(sun + V);
+    float a2 = rough * rough * rough * rough;
+    float NdH = clamp(dot(n, H), 0.0, 1.0);
+    float d = a2 / (PI * pow(NdH * NdH * (a2 - 1.0) + 1.0, 2.0));
+    rgb += F * uSunColor * ndl * shadow * min(d, 40.0) * 0.25;
+  }
+  if (surfaceGlass > 0.0) {
+    // Glass mirrors the sky (smooth PBR glass plus a Fresnel term), so panes read light, not black.
+    vec3 V = normalize(uEye - vWorld);
+    float fr = pow(1.0 - abs(dot(V, n)), 3.0);
+    vec3 skyRefl = skyReflection(reflect(-V, n), 0.6) * uEnvIntensity;
+    rgb = mix(rgb, skyRefl, surfaceGlass * (0.45 + 0.4 * fr));
+    rgb += surfaceGlass * mix(vec3(0.05, 0.07, 0.09), vec3(0.32, 0.4, 0.5), fr);
+  }
+  outHdr = vec4(max(rgb, vec3(0.0)), alpha);
+  rgb = acesFilmic(rgb);
+  if (uGrade == 1) rgb = gradeColor(rgb);
+  rgb = linearToSrgb(clamp(rgb, 0.0, 1.0));
+  // FogExp2 after the colour-space conversion, as three.js applies it.
+  float fog = 1.0 - exp(-pow(uFogDensity * length(vWorld - uEye), 2.0));
+  rgb = mix(rgb, uFogColor, clamp(fog, 0.0, 1.0));
+  outColor = vec4(clamp(rgb, 0.0, 1.0), alpha);
+}
+)GLSL";
+
+}  // namespace
+
+ShaderSource build_standard_shader(Span<ShaderExtension* const> extensions) {
+  ShaderSource s;
+  s.vertex.reserve(6000);
+  s.fragment.reserve(16000);
+
+  s.vertex += kVertexHead;
+  for (ShaderExtension* e : extensions) {
+    const Span<const ExtensionAttribute> attrs = e->attributes();
+    for (std::size_t i = 0; i < attrs.size; ++i) {
+      char line[160];
+      const u32 size = attrs[i].size;
+      std::snprintf(line, sizeof line, "layout(location=%u) in %s %s;\n", e->attribute_base + static_cast<u32>(i),
+                    size == 1 ? "float" : size == 2 ? "vec2" : size == 3 ? "vec3" : "vec4", attrs[i].glsl);
+      s.vertex += line;
+    }
+  }
+  s.vertex += kVertexUniforms;
+  append_hook(s.vertex, extensions, &ShaderExtension::vertex_declarations);
+  s.vertex += kVertexMainHead;
+  append_hook(s.vertex, extensions, &ShaderExtension::vertex);
+  s.vertex += "  gl_Position = uViewProjection * p;\n}\n";
+
+  s.fragment += kFragmentHead;
+  s.fragment += kGlslToneMap;
+  s.fragment += kFragmentFunctions;
+  append_hook(s.fragment, extensions, &ShaderExtension::fragment_declarations);
+  s.fragment += kFragmentMainHead;
+  append_hook(s.fragment, extensions, &ShaderExtension::fragment_discard);
+  s.fragment += "  bool linearInput = uLinearColor == 1;\n";
+  append_hook(s.fragment, extensions, &ShaderExtension::fragment_input);
+  s.fragment += kFragmentBase;
+  append_hook(s.fragment, extensions, &ShaderExtension::fragment_surface);
+  s.fragment += kFragmentLighting;
+  return s;
+}
+
+}  // namespace kern
