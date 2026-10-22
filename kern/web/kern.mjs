@@ -21,7 +21,7 @@ const MD = Object.freeze({
   EXT0: 17, EXT1: 19, TRANSFORMS: 21, TINTS: 23, TEXTURE: 25, FLAGS: 26, ALPHA_MODE: 27, COLOR: 28,
   ALPHA_CUTOFF: 32, ROUGHNESS: 33, METALNESS: 34, PARAMS: 35, WORDS: 43,
 });
-const MF = Object.freeze({ VISIBLE: 1, UNLIT: 2, DOUBLE_SIDED: 4, CAST_SHADOW: 8, FRUSTUM_CULLED: 16, VIEWMODEL: 32, LINEAR_COLORS: 64 });
+const MF = Object.freeze({ VISIBLE: 1, UNLIT: 2, DOUBLE_SIDED: 4, CAST_SHADOW: 8, FRUSTUM_CULLED: 16, VIEWMODEL: 32, LINEAR_COLORS: 64, WELD: 128 });
 const ID = Object.freeze({ WIDTH: 0, HEIGHT: 1, SHADOWS: 2, SHADOW_RESOLUTION: 3, SHADOW_EXTENT: 4, SHADOW_BIAS: 5, BLOOM: 6, BLOOM_FORCED: 7, GRADE: 8, WORDS: 9 });
 const RP = Object.freeze({ CLEAR: 0, HAS_VIEWPORT: 4, X: 5, Y: 6, W: 7, H: 8, PAGE_HIDDEN: 9, WORDS: 10 });
 const RS = Object.freeze({ DRAW_CALLS: 0, SHADOW_DRAW_CALLS: 1, SHADOW_RESOLUTION: 2, SHADOW_REUSED: 3, TRIANGLES: 4, INSTANCES: 5, CULLED: 6, CPU_MS: 7, GPU_MS: 8, BLOOM: 9, VISIBLE: 10, SLOTS: 11 });
@@ -87,6 +87,7 @@ export class KernModule {
     this.pinned = new Map(); // object slot -> restore function (host-owned textures)
     this.timer = null;
     this.drawBufferLists = new Map();
+    this.heightSampler = null;  // (x, y) => ground height, used by the geometry builders
   }
 
   // ---- linear memory views (refreshed after memory growth) ----
@@ -162,6 +163,7 @@ export class KernModule {
     const loc = slot => self.locations[slot] ?? null;
     const env = {
       now: () => performance.now(),
+      terrain_height: (x, y) => (self.heightSampler ? Number(self.heightSampler(x, y)) : 0),
       log: (level, ptr, length) => {
         const text = self.string(ptr, length);
         if (self.logSink) self.logSink(level, text);
@@ -610,6 +612,20 @@ export class KernRenderer {
     span(MD.INDICES, 4, indices); u32[d + MD.INDEX_BYTES] = indices?.BYTES_PER_ELEMENT ?? 4;
     span(MD.JOINTS, 5, joints); span(MD.WEIGHTS, 6, weights); span(MD.BONES, 7, bones);
     span(MD.EXT0, 8, ext[0]); span(MD.EXT1, 9, ext[1]); span(MD.TRANSFORMS, 10, transforms); span(MD.TINTS, 11, tints);
+    const material = this.writeMaterial(d, input);
+    if (input.weld === true) u32[d + MD.FLAGS] |= MF.WELD;
+
+    return this.commitMesh(id, kid => e.kern_mesh_upsert(kid, this.descPtr), {
+      material, visible: input.visible !== false, skinned: Boolean(bones?.length), instanceCount: transforms ? transforms.length / 16 : 1,
+    });
+  }
+
+  /**
+   * Writes the material, flags and texture words of a mesh descriptor at word
+   * offset `d` (the geometry words are left untouched). Returns the material.
+   */
+  writeMaterial(d, input) {
+    const u32 = this.kern.u32, f32 = this.kern.f32, i32 = this.kern.refresh().i32;
     const texture = input.texture;
     u32[d + MD.TEXTURE] = texture?.kernTexture ? texture.id : Number.isInteger(texture) ? texture : 0;
     const material = { color: [1, 1, 1, 1], alphaMode: "opaque", unlit: false, doubleSided: false, ...input.material };
@@ -629,20 +645,60 @@ export class KernRenderer {
     f32[d + MD.ROUGHNESS] = Number.isFinite(material.roughness) ? material.roughness : 1;
     f32[d + MD.METALNESS] = Number.isFinite(material.metalness) ? material.metalness : 0;
     i32.set(this.materialParams(material), d + MD.PARAMS);
+    return material;
+  }
 
+  /** Runs `create(kid)` for mesh `id` (new or replaced) and keeps the id bookkeeping consistent. */
+  commitMesh(id, create, info) {
+    const e = this.kern.exports;
     const existing = this.meshes.get(id);
     const kid = existing ? existing.kid : e.kern_mesh_alloc_id();
-    if (!e.kern_mesh_upsert(kid, this.descPtr)) {
+    if (!create(kid)) {
       if (!existing) e.kern_mesh_release_id(kid);
-      throw kern.fail(`mesh ${id}`);
+      throw this.kern.fail(`mesh ${id}`);
     }
     const record = existing ?? { id, kid };
-    record.material = material;
-    record.visible = input.visible !== false;
-    record.skinned = Boolean(bones?.length);
-    record.instanceCount = transforms ? transforms.length / 16 : 1;
+    Object.assign(record, info);
     if (!existing) { this.meshes.set(id, record); this.byKid ??= new Map(); this.byKid.set(kid, record); }
     return record;
+  }
+
+  /** Material-only descriptor (for meshes built inside the engine). Returns the descriptor address. */
+  materialDescriptor(input) {
+    const d = this.descPtr >> 2;
+    this.kern.u32.fill(0, d, d + MD.WORDS);
+    this.writeMaterial(d, input);
+    return this.descPtr;
+  }
+
+  // ---- geometry builders (run inside the engine) ----
+
+  /** Starts an incremental footprint extrusion job (see kern/include/kern/geo/buildings.h). */
+  beginBuildings(stream, options) { return this.beginGeoJob("kern_geo_buildings_begin", stream, options); }
+  /** Starts an incremental road ribbon job (see kern/include/kern/geo/roads.h). */
+  beginRoads(stream, options) { return this.beginGeoJob("kern_geo_roads_begin", stream, options); }
+
+  beginGeoJob(entry, stream, options) {
+    if (this.disposed) throw Error("renderer disposed");
+    if (!(stream instanceof Float64Array) || !(options instanceof Float64Array)) throw Error("geometry job needs Float64Array stream and options");
+    this.staging.reset(Staging.size(stream) + Staging.size(options));
+    const sp = this.staging.put(stream), op = this.staging.put(options);
+    const id = this.kern.exports[entry](sp, stream.length, op);
+    if (!id) throw this.kern.fail("geometry job");
+    return new KernGeoJob(this, id);
+  }
+
+  /**
+   * Builds a terrain tile from the module's height sampler (kern.heightSampler)
+   * and uploads it as mesh `id`. Returns {minHeight, maxHeight, bytes}.
+   */
+  upsertTerrainTile(id, { x0, y0, step = 5, cells = 32, albedo = [.369, .478, .243], material = {} } = {}) {
+    const desc = this.materialDescriptor({ material });
+    const out = this.resultPtr;
+    this.commitMesh(id, kid => this.kern.exports.kern_geo_terrain_tile(kid, x0, y0, step, cells, albedo[0], albedo[1], albedo[2], desc, out),
+      { material, visible: true, skinned: false, instanceCount: 1 });
+    const s = this.kern.f64, o = out >> 3;
+    return { minHeight: s[o], maxHeight: s[o + 1], bytes: s[o + 2] };
   }
 
   /** Replaces the instance streams; returns false when nothing changed. */
@@ -783,6 +839,63 @@ export class KernRenderer {
     kern.renderer = null;
     this.canvas.removeEventListener?.("webglcontextlost", this.onLost);
     this.canvas.removeEventListener?.("webglcontextrestored", this.onRestored);
+  }
+}
+
+/** An incremental geometry job running inside the engine. */
+export class KernGeoJob {
+  constructor(renderer, id) { this.renderer = renderer; this.kern = renderer.kern; this.id = id; this.freed = false; }
+
+  /** Advances the job for at most `budgetMs`. Returns true when finished; throws on failure. */
+  step(budgetMs = 4) {
+    const state = this.kern.exports.kern_geo_step(this.id, budgetMs);
+    if (state < 0) throw this.kern.fail("geometry job");
+    return state === 1;
+  }
+
+  /** Runs to completion, yielding to the page between slices. Returns false when cancelled. */
+  async run({ yieldFrame = null, budgetMs = 4, cancelled = () => false } = {}) {
+    while (!this.step(budgetMs)) {
+      if (yieldFrame) await yieldFrame();
+      if (cancelled()) return false;
+    }
+    return true;
+  }
+
+  stats() {
+    const out = this.renderer.resultPtr;
+    this.kern.exports.kern_geo_stats(this.id, out);
+    const s = this.kern.f64, o = out >> 3;
+    return { processed: s[o], built: s[o + 1], skipped: s[o + 2], triangles: s[o + 3], chunks: s[o + 4] };
+  }
+
+  chunk(index) {
+    const out = this.renderer.resultPtr;
+    if (!this.kern.exports.kern_geo_chunk(this.id, index, out)) return null;
+    const s = this.kern.f64, o = out >> 3;
+    return { x: s[o], y: s[o + 1], items: s[o + 2], triangles: s[o + 3], hash: s[o + 4] };
+  }
+
+  /**
+   * Welds chunk `index` and uploads it as mesh `id`. `extraKey` names the
+   * extension stream that receives the builder's per-vertex record (e.g. "facade").
+   * Returns {bytesBefore, bytesAfter}.
+   */
+  commit(index, id, { material = {}, extraKey = null, visible = true } = {}) {
+    const r = this.renderer;
+    const slot = extraKey ? r.extensionAttributes.findIndex(a => a.key === extraKey) : 0;
+    const desc = r.materialDescriptor({ material, visible });
+    const out = r.resultPtr + 64;
+    r.commitMesh(id, kid => this.kern.exports.kern_geo_commit(this.id, index, kid, desc, Math.max(0, slot), out),
+      { material, visible, skinned: false, instanceCount: 1 });
+    const s = this.kern.f64, o = out >> 3;
+    return { bytesBefore: s[o], bytesAfter: s[o + 1] };
+  }
+
+  free() {
+    if (this.freed) return;
+    this.freed = true;
+    this.kern.exports.kern_geo_free(this.id);
   }
 }
 

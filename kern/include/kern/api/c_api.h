@@ -21,6 +21,9 @@ class Renderer;
 
 /// The process-wide renderer used by the C API.
 Renderer& c_api_renderer();
+struct MeshInput;
+/// Reads the material / flags / texture words of a KERN_MD_* descriptor.
+void read_material(const u32* descriptor, MeshInput& input);
 }  // namespace kern
 
 /// Games linked into the module may provide their shader extensions by
@@ -61,6 +64,7 @@ enum KernMeshFlags : kern::u32 {
   KERN_MF_FRUSTUM_CULLED = 1u << 4,
   KERN_MF_VIEWMODEL = 1u << 5,
   KERN_MF_LINEAR_COLORS = 1u << 6,
+  KERN_MF_WELD = 1u << 7,  // weld a triangle soup into an indexed mesh before upload
 };
 
 // ---- renderer init descriptor (u32 words; f32 where noted) ----

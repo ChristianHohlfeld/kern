@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <vector>
 
+#include "kern/geo/mesh_data.h"
 #include "kern/gfx/renderer.h"
 
 using namespace kern;
@@ -37,6 +38,31 @@ Vec3 vec3_at(const f32* f, u32 slot) { return {f[slot], f[slot + 1], f[slot + 2]
 void store3(f32* f, u32 slot, Vec3 v) { f[slot] = v.x; f[slot + 1] = v.y; f[slot + 2] = v.z; }
 
 std::vector<u32> g_index_scratch;
+
+}  // namespace
+
+namespace kern {
+void read_material(const u32* d, MeshInput& in) {
+  in.texture = d[KERN_MD_TEXTURE];
+  const u32 flags = d[KERN_MD_FLAGS];
+  in.visible = flags & KERN_MF_VISIBLE;
+  Material& m = in.material;
+  m.unlit = flags & KERN_MF_UNLIT;
+  m.double_sided = flags & KERN_MF_DOUBLE_SIDED;
+  m.cast_shadow = flags & KERN_MF_CAST_SHADOW;
+  m.frustum_culled = flags & KERN_MF_FRUSTUM_CULLED;
+  m.viewmodel = flags & KERN_MF_VIEWMODEL;
+  m.linear_colors = flags & KERN_MF_LINEAR_COLORS;
+  m.alpha = static_cast<AlphaMode>(min_of<u32>(d[KERN_MD_ALPHA_MODE], 2));
+  m.color = {f32_at(d, KERN_MD_COLOR), f32_at(d, KERN_MD_COLOR + 1), f32_at(d, KERN_MD_COLOR + 2), f32_at(d, KERN_MD_COLOR + 3)};
+  m.alpha_cutoff = f32_at(d, KERN_MD_ALPHA_CUTOFF);
+  m.roughness = f32_at(d, KERN_MD_ROUGHNESS);
+  m.metalness = f32_at(d, KERN_MD_METALNESS);
+  for (u32 i = 0; i < kMaxMaterialParams; ++i) m.params[i] = static_cast<i32>(d[KERN_MD_PARAMS + i]);
+}
+}  // namespace kern
+
+namespace {
 
 void write_pick(const PickHit& hit, const PickStats& stats, bool found, f64* out) {
   for (u32 i = 0; i < KERN_PK_SLOTS; ++i) out[i] = 0;
@@ -121,23 +147,38 @@ KERN_EXPORT(kern_mesh_upsert) i32 kern_mesh_upsert(u32 id, const u32* d) {
   in.extension[1] = span_at<f32>(d, KERN_MD_EXT1);
   in.transforms = span_at<f32>(d, KERN_MD_TRANSFORMS);
   in.tints = span_at<f32>(d, KERN_MD_TINTS);
-  in.texture = d[KERN_MD_TEXTURE];
-  const u32 flags = d[KERN_MD_FLAGS];
-  in.visible = flags & KERN_MF_VISIBLE;
-  Material& m = in.material;
-  m.unlit = flags & KERN_MF_UNLIT;
-  m.double_sided = flags & KERN_MF_DOUBLE_SIDED;
-  m.cast_shadow = flags & KERN_MF_CAST_SHADOW;
-  m.frustum_culled = flags & KERN_MF_FRUSTUM_CULLED;
-  m.viewmodel = flags & KERN_MF_VIEWMODEL;
-  m.linear_colors = flags & KERN_MF_LINEAR_COLORS;
-  m.alpha = static_cast<AlphaMode>(min_of<u32>(d[KERN_MD_ALPHA_MODE], 2));
-  m.color = {f32_at(d, KERN_MD_COLOR), f32_at(d, KERN_MD_COLOR + 1), f32_at(d, KERN_MD_COLOR + 2), f32_at(d, KERN_MD_COLOR + 3)};
-  m.alpha_cutoff = f32_at(d, KERN_MD_ALPHA_CUTOFF);
-  m.roughness = f32_at(d, KERN_MD_ROUGHNESS);
-  m.metalness = f32_at(d, KERN_MD_METALNESS);
-  for (u32 i = 0; i < kMaxMaterialParams; ++i) m.params[i] = static_cast<i32>(d[KERN_MD_PARAMS + i]);
-  const bool ok = R().upsert(id, in);
+  read_material(d, in);
+  bool ok;
+  if ((d[KERN_MD_FLAGS] & KERN_MF_WELD) && in.indices.empty() && in.bones.empty() && !in.positions.empty()) {
+    // Lossless welding of a triangle soup inside the engine (no JS-side packing).
+    MeshData soup;
+    soup.positions.assign(in.positions.begin(), in.positions.end());
+    const std::size_t p = in.positions.size;
+    if (in.normals.size == p) soup.normals.assign(in.normals.begin(), in.normals.end());
+    if (in.colors.size == p) soup.colors.assign(in.colors.begin(), in.colors.end()); else soup.colors.assign(p, 1.0f);
+    if (in.uvs.size == p / 3 * 2) soup.uvs.assign(in.uvs.begin(), in.uvs.end()); else soup.uvs.assign(p / 3 * 2, 0.0f);
+    u32 slot = kMaxExtensionAttributes;
+    for (u32 a = 0; a < kMaxExtensionAttributes; ++a)
+      if (!in.extension[a].empty() && slot == kMaxExtensionAttributes) slot = a;
+    if (slot < kMaxExtensionAttributes && in.extension[slot].size % (p / 3) == 0) {
+      soup.extra_size = static_cast<u32>(in.extension[slot].size / (p / 3));
+      soup.extra.assign(in.extension[slot].begin(), in.extension[slot].end());
+    }
+    if (soup.normals.empty()) {
+      ok = R().upsert(id, in);  // flat normals are generated per face; welding would not merge anything
+    } else {
+      weld(soup);
+      MeshInput welded = soup.as_input(slot < kMaxExtensionAttributes ? slot : 0);
+      welded.transforms = in.transforms;
+      welded.tints = in.tints;
+      welded.material = in.material;
+      welded.texture = in.texture;
+      welded.visible = in.visible;
+      ok = R().upsert(id, welded);
+    }
+  } else {
+    ok = R().upsert(id, in);
+  }
   if (g_index_scratch.capacity() > (1u << 22)) std::vector<u32>().swap(g_index_scratch);
   return ok ? 1 : 0;
 }
