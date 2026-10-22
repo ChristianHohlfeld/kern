@@ -411,6 +411,7 @@ export class KernRenderer {
     this.envGround = [.105, .127, .084];
     this.skySun = null; this.skyMoon = null; this.night = 0;
     this.sky = { clouds: true, blastDir: [0, 0, -1], blastAge: -1, wind: [.012, .004] };
+    this.pointLights = { count: 0 };  // mirror of the engine state (count of active lights)
 
     const e = kern.exports;
     const scratchBytes = 64 * 4 + 16 * 8 + LI_SLOTS * 4 + SK_SLOTS * 4 + PK_SLOTS * 8 + 64;
@@ -427,6 +428,7 @@ export class KernRenderer {
     u32[d + ID.WIDTH] = Math.max(1, Math.round(width));
     u32[d + ID.HEIGHT] = Math.max(1, Math.round(height));
     const shadow = shadows && shadows !== false ? shadows : null;
+    this.shadowsEnabled = Boolean(shadow);
     u32[d + ID.SHADOWS] = shadow ? 1 : 0;
     u32[d + ID.SHADOW_RESOLUTION] = shadow?.resolution ?? 512;
     f32[d + ID.SHADOW_EXTENT] = shadow?.extent ?? 120;
@@ -527,12 +529,14 @@ export class KernRenderer {
     f32.set(frame.posRange, o);
     f32.set(frame.colorIntensity, o + n);
     if (!this.kern.exports.kern_point_lights_set(frame.count, this.pointPtr, this.pointPtr + n * 4)) throw this.kern.fail("point lights");
+    this.pointLights.count = frame.count;
   }
 
   setShadows(options = null) {
     if (this.disposed) throw Error("renderer disposed");
     const o = options && options !== false ? options : null;
     if (!this.kern.exports.kern_shadows_set(o ? 1 : 0, o?.resolution ?? 512, o?.extent ?? 120, o?.bias ?? .0012)) throw this.kern.fail("shadows");
+    this.shadowsEnabled = Boolean(o);
   }
 
   invalidate({ shadows = false } = {}) { this.kern.exports.kern_invalidate(shadows ? 1 : 0); }
@@ -828,6 +832,18 @@ export class KernRenderer {
     const s = this.kern.f64, o = this.resultPtr >> 3;
     return { vertices: s[o], triangles: s[o + 1], instances: s[o + 2], visible: s[o + 3] === 1,
       worldBounds: { center: [s[o + 4], s[o + 5], s[o + 6]], radius: s[o + 7] } };
+  }
+
+  /** Copy of a mesh's CPU stream ("positions", "normals", "colors", "uvs", "transforms", "tints", "indices"). */
+  meshStream(id, name) {
+    const record = this.meshes.get(id);
+    const which = ["positions", "normals", "colors", "uvs", "transforms", "tints", "indices"].indexOf(name);
+    if (!record || which < 0) return null;
+    const e = this.kern.exports, countPtr = this.resultPtr;
+    const ptr = e.kern_mesh_stream(record.kid, which, countPtr);
+    const count = this.kern.u32[countPtr >> 2];
+    const Type = which === 6 ? Uint32Array : Float32Array;
+    return new Type(this.kern.memory.buffer, ptr, count).slice();
   }
 
   dispose() {

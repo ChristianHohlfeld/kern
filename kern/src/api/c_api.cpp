@@ -206,6 +206,18 @@ KERN_EXPORT(kern_mesh_info) i32 kern_mesh_info(u32 id, f64* out) {
   return 1;
 }
 
+/// Read access to a live mesh's CPU streams (tools and tests): 0 positions,
+/// 1 normals, 2 colors, 3 uvs, 4 transforms, 5 tints (f32), 6 indices (u32).
+KERN_EXPORT(kern_mesh_stream) const void* kern_mesh_stream(u32 id, u32 stream, u32* count) {
+  *count = 0;
+  const Mesh* m = R().mesh(id);
+  if (!m) return nullptr;
+  const std::vector<f32>* f[6] = {&m->positions, &m->normals, &m->colors, &m->uvs, &m->transforms, &m->tints};
+  if (stream < 6) { *count = static_cast<u32>(f[stream]->size()); return f[stream]->data(); }
+  if (stream == 6) { *count = static_cast<u32>(m->indices.size()); return m->indices.data(); }
+  return nullptr;
+}
+
 // ---- textures ----
 KERN_EXPORT(kern_texture_external) u32 kern_texture_external(u32 handle) { return R().register_external_texture(handle); }
 KERN_EXPORT(kern_texture_create) u32 kern_texture_create(const u8* rgba, i32 w, i32 h, i32 mipmaps, i32 repeat) {
