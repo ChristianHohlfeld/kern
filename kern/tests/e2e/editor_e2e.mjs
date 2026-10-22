@@ -9,12 +9,13 @@
 import {createRequire} from "node:module";
 import fs from "node:fs";
 import path from "node:path";
+import {pathToFileURL} from "node:url";
 import os from "node:os";
 
 // ESM ignores NODE_PATH; fall back to require() for a global Playwright install.
 const {chromium} = await import("playwright").catch(() => createRequire(import.meta.url)("playwright"));
 const base = process.argv[2] || "http://127.0.0.1:8771";
-const shots = process.env.KERN_E2E_SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), "kern-e2e-"));
+const shots = process.env.KERN_E2E_SHOTS ? path.resolve(process.env.KERN_E2E_SHOTS) : fs.mkdtempSync(path.join(os.tmpdir(), "kern-e2e-"));
 let failures = 0, checks = 0;
 const annotate = text => { if (process.env.GITHUB_ACTIONS) console.log("::error::" + String(text).replace(/\r?\n/g, " ").slice(0, 900)); };
 const check = (ok, what) => { checks++; if (!ok) { failures++; console.log("FAIL", what); annotate("e2e: " + what); } else console.log("ok  ", what); };
@@ -184,7 +185,7 @@ async function viewInk(page) {
   const gp = await g.newPage();
   const gerr = [];
   gp.on("pageerror", e => gerr.push(e.message));
-  await gp.goto("file://" + gamePath);
+  await gp.goto(pathToFileURL(gamePath).href);
   await gp.waitForFunction(() => window.KernPlayer, null, {timeout: 60000});
   await gp.waitForTimeout(800);
   const gh = await gp.evaluate(() => window.KernPlayer.status.views[0].hud);
