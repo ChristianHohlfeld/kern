@@ -992,6 +992,14 @@ json::Value Studio::status() {
   s.set("paused", paused_);
   s.set("captured", mouse_captured_);
   if (logic_open_ && world_->running()) s.set("logicTrace", logic_trace_json());
+  if (logic::Runtime* rt = world_->running() ? world_->logic_runtime() : nullptr) {
+    json::Value lg = json::Value::object();
+    u32 compiled = 0;
+    for (const auto& i : rt->instances()) compiled += i->compiled() ? 1 : 0;
+    lg.set("graphs", static_cast<u32>(rt->instances().size()));
+    lg.set("compiled", compiled);
+    s.set("logic", std::move(lg));
+  }
   if (play_ != PlayState::editing) {
     json::Value hud = hud_json(world_->hud(), world_->player() != 0 && play_ == PlayState::playing);
     s.set("hud", std::move(hud));

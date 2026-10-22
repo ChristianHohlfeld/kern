@@ -175,6 +175,33 @@ export class KernModule {
       terrain_height: (x, y) => (self.heightSampler ? Number(self.heightSampler(x, y)) : 0),
       status: (ptr, length) => self.statusSink?.(self.string(ptr, length)),
       pointer_lock: lock => self.pointerLockSink?.(lock !== 0),
+      // Kern Logic JIT: the engine hands over a WebAssembly module generated from a graph;
+      // the browser compiles it to machine code, it links against the engine's memory and node
+      // functions, and its run function goes into the engine's function table (direct calls).
+      logic_jit: (ptr, length, id) => {
+        const table = self.exports?.__indirect_function_table;
+        if (!table || typeof WebAssembly.compile !== "function") return 0;
+        const bytes = new Uint8Array(self.memory.buffer, ptr, length).slice();
+        const imports = {env: {memory: self.memory, call_node: self.exports.kern_logic_call_node, read_pin: self.exports.kern_logic_read_pin, trace: self.exports.kern_logic_trace}};
+        WebAssembly.compile(bytes)
+          .then(module => WebAssembly.instantiate(module, imports))
+          .then(instance => {
+            const slot = self.freeTableSlots?.length ? self.freeTableSlots.pop() : table.grow(1);
+            table.set(slot, instance.exports.run);
+            self.exports.kern_logic_jit_ready(id, slot);
+          })
+          .catch(error => {
+            console.warn("[kern] logic JIT failed, the graph keeps running in the interpreter:", error);
+            self.exports.kern_logic_jit_ready(id, -1);
+          });
+        return 1;
+      },
+      logic_jit_release: slot => {
+        const table = self.exports?.__indirect_function_table;
+        if (!table || slot < 0) return;
+        try { table.set(slot, null); } catch { return; }
+        (self.freeTableSlots ||= []).push(slot);
+      },
       log: (level, ptr, length) => {
         const text = self.string(ptr, length);
         if (self.logSink) self.logSink(level, text);

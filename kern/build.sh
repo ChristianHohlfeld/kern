@@ -124,7 +124,7 @@ mkdir -p "$(dirname "$out")"
 "$CXX" "${target[@]}" "${opt[@]}" "${features[@]}" "${lto[@]}" \
   "${cpp_objects[@]}" "${objects[@]}" \
   -mexec-model=reactor \
-  -Wl,--gc-sections -Wl,--strip-debug -Wl,-z,stack-size=1048576 \
+  -Wl,--gc-sections -Wl,--strip-debug -Wl,-z,stack-size=1048576 -Wl,--export-table -Wl,--growable-table \
   -Wl,--initial-memory=33554432 -Wl,--max-memory=2147483648 \
   ${lto[@]:+-Wl,--thinlto-jobs=$jobs -Wl,--thinlto-cache-dir=$cache_root/thinlto} \
   -o "$out"

@@ -14,6 +14,7 @@
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
 #include "kern/logic/logic.h"
+#include "logic_cases.h"
 
 #include <algorithm>
 #include <memory>
@@ -1774,6 +1775,51 @@ TEST(game_logic_graphs_drive_the_world) {
   for (const std::string& e : f.world->events()) printed |= e == "Logic: Cube";
   CHECK(printed);
   CHECK(!props.empty());  // the door's moves (a body-less actor) replicate as transform changes
+}
+
+TEST(logic_tier_cases_interpreter) {
+  for (const logic_cases::Case& c : logic_cases::cases()) {
+    logic_cases::Host host;
+    logic::Runtime rt(host);
+    const logic::Graph g = logic_cases::parse(c);
+    CHECK(!g.nodes.empty());
+    logic::Instance* inst = rt.add(g, 0, c.name);
+    const std::string r = logic_cases::play(rt, host, inst);
+    if (std::string(c.name) == "math_loops") {
+      CHECK(inst->get("Sum").as_number() == 315);
+      CHECK(inst->get("Odd").as_int() == 10);
+      CHECK(inst->get("Flag").as_bool());
+      CHECK(std::fabs(inst->get("Avg").as_number() - (std::sqrt(315.0) + (14 - std::sqrt(315.0)) * 0.25)) < 1e-9);
+    }
+    if (std::string(c.name) == "gates_and_sequences") {
+      // Log = ((0*10+1)*10+1)... once per Go: 6 Go calls -> 111111
+      CHECK(inst->get("Log").as_number() == 111111);
+      CHECK(inst->get("Once").as_int() == 1);
+      CHECK(inst->get("N").as_int() == 2);
+      CHECK(inst->get("Gate").as_int() == 3);   // opened after the first 3 calls
+      CHECK(inst->get("Flips").as_int() == 303);
+    }
+    if (std::string(c.name) == "while_nested") {
+      CHECK(inst->get("I").as_int() == 7);
+      CHECK(inst->get("Total").as_number() == 6.0 * (1 + 2 + 3 + 4 + 5 + 6 + 7));
+    }
+    if (std::string(c.name) == "mixed_cpp_nodes") {
+      CHECK(inst->get("Count").as_int() == 6);
+      CHECK(inst->get("Text").as_text() == "n=6");
+      CHECK(inst->get("Done").as_bool());
+    }
+    if (std::string(c.name) == "state_machine") CHECK(inst->state("M") == "A" || inst->state("M") == "B");
+    if (std::string(c.name) == "infinite_loop") CHECK(inst->disabled());
+    CHECK(!r.empty());
+  }
+  // The generated programs exist and the WebAssembly module is well-formed (magic, version, sections).
+  logic_cases::Host host;
+  logic::Runtime rt(host);
+  logic::Instance* inst = rt.add(logic_cases::parse(logic_cases::cases()[0]), 0, "m");
+  const std::vector<u8> wasm = logic::compile_wasm(*inst);
+  CHECK(wasm.size() > 64 && wasm[0] == 0 && wasm[1] == 'a' && wasm[2] == 's' && wasm[3] == 'm');
+  const std::string cpp = logic::generate_cpp(*inst, "m");
+  CHECK(cpp.find("register_native_graph") != std::string::npos && cpp.find("switch (pc)") != std::string::npos);
 }
 
 TEST(game_character_mover) {
@@ -4228,6 +4274,21 @@ TEST(app_input_and_args) {
 App* kern_create_app() { return nullptr; }
 
 int main(int argc, char** argv) {
+  // kern_tests --emit-logic <dir>: writes the logic cases as generated C++ (run.sh compiles them
+  // into logic_native_test) and the interpreter's results as the expectation.
+  if (argc > 2 && std::strcmp(argv[1], "--emit-logic") == 0) {
+    std::string expected;
+    for (const logic_cases::Case& c : logic_cases::cases()) {
+      logic_cases::Host host;
+      logic::Runtime rt(host);
+      logic::Instance* inst = rt.add(logic_cases::parse(c), 0, c.name);
+      const std::string src = logic::generate_cpp(*inst, c.name);
+      if (FILE* f = std::fopen((std::string(argv[2]) + "/logic_" + c.name + ".cpp").c_str(), "wb")) { std::fwrite(src.data(), 1, src.size(), f); std::fclose(f); }
+      expected += std::string("== ") + c.name + "\n" + logic_cases::play(rt, host, inst);
+    }
+    if (FILE* f = std::fopen((std::string(argv[2]) + "/logic_expected.txt").c_str(), "wb")) { std::fwrite(expected.data(), 1, expected.size(), f); std::fclose(f); }
+    return 0;
+  }
   // kern_tests [name-substring] runs a subset.
   const char* filter = argc > 1 ? argv[1] : nullptr;
   for (const Test& t : registry()) {

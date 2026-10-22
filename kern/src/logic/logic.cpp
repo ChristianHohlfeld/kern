@@ -548,9 +548,168 @@ std::vector<Issue> check(const Graph& g, const Library& lib) {
 // ---------------------------------------------------------------------------
 // instances
 
+namespace {
+std::vector<Instance*>& instance_registry() {
+  static std::vector<Instance*> r{nullptr};  // ids start at 1
+  return r;
+}
+bool numeric(PinType t) { return t == PinType::boolean || t == PinType::integer || t == PinType::number; }
+f64 to_type(f64 v, PinType t) {
+  if (t == PinType::boolean) return v != 0 ? 1.0 : 0.0;
+  if (t == PinType::integer) return std::isfinite(v) ? std::trunc(v) : 0.0;
+  return v;
+}
+Value from_slot(f64 v, PinType t) {
+  if (t == PinType::boolean) return Value::boolean(v != 0);
+  if (t == PinType::integer) return Value::integer(static_cast<i64>(v));
+  return Value::number(v);
+}
+std::unordered_map<u64, NativeGraphFn>& native_registry() {
+  static std::unordered_map<u64, NativeGraphFn> r;
+  return r;
+}
+}  // namespace
+
+void register_native_graph(u64 hash, NativeGraphFn fn) { native_registry()[hash] = fn; }
+
+u64 graph_hash(const Graph& g) {
+  // FNV-1a of the graph without positions and comments (moving a node keeps the code valid).
+  Graph copy = g;
+  for (Node& n : copy.nodes) { n.x = n.y = 0; n.comment.clear(); }
+  for (StateMachine& m : copy.machines) for (State& st : m.states) st.x = st.y = 0;
+  const std::string text = json::stringify(graph_to_json(copy));
+  u64 h = 1469598103934665603ull;
+  for (unsigned char ch : text) { h ^= ch; h *= 1099511628211ull; }
+  return h;
+}
+
+Instance::~Instance() {
+  auto& reg = instance_registry();
+  if (id_ > 0 && static_cast<std::size_t>(id_) < reg.size()) reg[static_cast<std::size_t>(id_)] = nullptr;
+  if (jit_fn_ >= 0) rt_.host().jit_release(jit_fn_);
+}
+
+Instance* Runtime::instance_by_id(i32 id) {
+  auto& reg = instance_registry();
+  return id > 0 && static_cast<std::size_t>(id) < reg.size() ? reg[static_cast<std::size_t>(id)] : nullptr;
+}
+
+void Runtime::jit_ready(i32 id, i32 function) {
+  Instance* inst = instance_by_id(id);
+  if (!inst) return;
+  inst->jit_pending_ = false;
+  if (function >= 0) inst->jit_fn_ = function;
+}
+
+i32* Instance::counters() { return rt_.counters_; }
+
+void Instance::trace_node(int node) {
+  if (node < 0 || static_cast<std::size_t>(node) >= nodes_.size() || !rt_.tracing || rt_.trace_.size() >= 4096) return;
+  rt_.trace_.push_back({name_, nodes_[static_cast<std::size_t>(node)].node->id, rt_.host().time()});
+}
+
+int Instance::var_slot(std::string_view name) const {
+  auto it = var_slots_.find(std::string(name));
+  return it == var_slots_.end() ? -1 : it->second;
+}
+
+int Instance::out_slot(int node, int out) const {
+  const CNode& c = nodes_[static_cast<std::size_t>(node)];
+  if (!c.def || !inline_node(node)) return -1;
+  // Only inline exec nodes keep outputs in slots (events and pure nodes do not).
+  const std::string& t = c.def->type;
+  if (t != "flow.for" && t != "flow.do_n" && t != "flow.flip_flop" && t != "var.set" && t != "var.add") return -1;
+  int ordinal = 0;
+  for (int i = 0; i < static_cast<int>(c.out.size()); ++i) {
+    if (c.out[static_cast<std::size_t>(i)].type == PinType::exec) continue;
+    if (i == out) return ordinal < 4 ? node_slot(node) + 4 + ordinal : -1;
+    ++ordinal;
+  }
+  return -1;
+}
+
+std::pair<int, int> Instance::exec_target(int node, int ordinal) const {
+  const CNode& c = nodes_[static_cast<std::size_t>(node)];
+  if (ordinal < 0 || static_cast<std::size_t>(ordinal) >= c.exec_out.size()) return {-1, 0};
+  return {c.exec_out[static_cast<std::size_t>(ordinal)], c.exec_out_entry[static_cast<std::size_t>(ordinal)]};
+}
+
+bool Instance::inline_pure(int node) const {
+  const CNode& c = nodes_[static_cast<std::size_t>(node)];
+  if (!c.def || c.def->kind != NodeKind::pure) return false;
+  static const char* kInline[] = {"math.add", "math.sub", "math.mul", "math.div", "math.mod", "math.min", "math.max", "math.clamp", "math.abs", "math.negate",
+                                  "math.lerp", "math.sqrt", "math.floor", "math.round", "math.compare", "logic.and", "logic.or", "logic.xor", "logic.not",
+                                  "value.float", "value.int", "value.bool"};
+  for (const char* t : kInline) if (c.def->type == t) return true;
+  if (c.def->type == "logic.select") return numeric(c.out[0].type);
+  if (c.def->type == "var.get") return var_slot(c.node->param("variable")) >= 0;
+  return false;
+}
+
+bool Instance::inline_node(int node) const {
+  const CNode& c = nodes_[static_cast<std::size_t>(node)];
+  if (!c.def) return false;
+  if (c.def->kind == NodeKind::pure) return inline_pure(node);
+  if (c.def->kind == NodeKind::event) return !c.def->run;  // plain events just continue
+  const std::string& t = c.def->type;
+  if (t == "flow.branch" || t == "flow.sequence" || t == "flow.for" || t == "flow.while" || t == "flow.do_once" || t == "flow.do_n" || t == "flow.gate" ||
+      t == "flow.flip_flop")
+    return true;
+  if (t == "var.set" || t == "var.add") return var_slot(c.node->param("variable")) >= 0;
+  return false;
+}
+
+int Instance::call_node(int node, int entry) {
+  if (node < 0 || static_cast<std::size_t>(node) >= nodes_.size() || disabled_) return kStop;
+  CNode& c = nodes_[static_cast<std::size_t>(node)];
+  if (!c.def) return kStop;
+  ++rt_.executed_;
+  Context ctx(rt_, *this, node, entry);
+  ctx.compiled_ = true;
+  const int r = c.def->run ? c.def->run(ctx) : 0;
+  if (rt_.tracing && rt_.trace_.size() < 4096) rt_.trace_.push_back({name_, c.node->id, rt_.host().time()});
+  // Continuations (Sequence-like C++ nodes, loops) go onto the generated code's stack, last first.
+  for (auto it = ctx.continuations_.rbegin(); it != ctx.continuations_.rend(); ++it) {
+    if (stack_[0] >= CodeLayout::kStack) break;
+    stack_[static_cast<std::size_t>(1 + 2 * stack_[0])] = it->first;
+    stack_[static_cast<std::size_t>(2 + 2 * stack_[0])] = it->second;
+    ++stack_[0];
+  }
+  return r;
+}
+
+f64 Instance::read_pin(int node, int pin) {
+  if (node < 0 || static_cast<std::size_t>(node) >= nodes_.size()) return 0;
+  Context ctx(rt_, *this, node, 0);
+  ctx.compiled_ = true;
+  return ctx.in(static_cast<std::size_t>(pin)).as_number();
+}
+
+void Instance::enter_compiled() {}
+
 Instance::Instance(Runtime& rt, const Graph& graph, ActorRef self, std::string name) : rt_(rt), graph_(graph), self_(self), name_(std::move(name)) {
   const Library& lib = rt.lib();
-  for (const Variable& v : graph_.variables) vars_[v.name] = Value::from_json(v.value, v.type);
+  auto& reg = instance_registry();
+  id_ = static_cast<i32>(reg.size());
+  reg.push_back(this);
+  // Slots: numeric variables first, then 8 per node. Sizes never change afterwards.
+  int numeric_vars = 0;
+  for (const Variable& v : graph_.variables) numeric_vars += numeric(v.type) ? 1 : 0;
+  node_slot_base_ = numeric_vars;
+  slots_.assign(static_cast<std::size_t>(numeric_vars) + graph_.nodes.size() * CodeLayout::kNodeSlots, 0.0);
+  stack_.assign(1 + 2 * CodeLayout::kStack, 0);
+  {
+    int k = 0;
+    for (const Variable& v : graph_.variables) {
+      const Value init = Value::from_json(v.value, v.type);
+      if (numeric(v.type)) {
+        var_slots_[v.name] = k;
+        slots_[static_cast<std::size_t>(k++)] = to_type(init.as_number(), v.type);
+      } else {
+        vars_[v.name] = init;
+      }
+    }
+  }
   nodes_.resize(graph_.nodes.size());
   for (std::size_t i = 0; i < graph_.nodes.size(); ++i) {
     CNode& c = nodes_[i];
@@ -604,14 +763,33 @@ Instance::Instance(Runtime& rt, const Graph& graph, ActorRef self, std::string n
     }
   }
   for (const StateMachine& m : graph_.machines) machines_.push_back({&m, 0, 0});
+  // Exec targets as a flat table generated code reads after calling a C++ node.
+  exec_table_offset_.assign(nodes_.size(), 0);
+  for (std::size_t i = 0; i < nodes_.size(); ++i) {
+    exec_table_offset_[i] = static_cast<int>(exec_table_.size());
+    for (std::size_t k = 0; k < nodes_[i].exec_out.size(); ++k) {
+      exec_table_.push_back(nodes_[i].exec_out[k]);
+      exec_table_.push_back(nodes_[i].exec_out_entry[k]);
+    }
+  }
+  exec_table_.push_back(-1);  // never empty (a stable address)
 }
 
 Value Instance::get(std::string_view variable) const {
+  if (const int k = var_slot(variable); k >= 0) {
+    const Variable* v = graph_.variable(variable);
+    return from_slot(slots_[static_cast<std::size_t>(k)], v ? v->type : PinType::number);
+  }
   auto it = vars_.find(std::string(variable));
   return it == vars_.end() ? Value() : it->second;
 }
 
 bool Instance::set(std::string_view variable, const Value& v) {
+  if (const int k = var_slot(variable); k >= 0) {
+    const Variable* var = graph_.variable(variable);
+    slots_[static_cast<std::size_t>(k)] = to_type(v.as_number(), var ? var->type : PinType::number);
+    return true;
+  }
   auto it = vars_.find(std::string(variable));
   if (it == vars_.end()) return false;
   it->second = v.converted(it->second.type);
@@ -656,8 +834,15 @@ Instance* Runtime::add(const Graph& graph, ActorRef self, std::string name) {
       host_.error(inst->name() + ": " + i.text);
       inst->disabled_ = true;
     }
+  Instance* added = inst.get();
   instances_.push_back(std::move(inst));
-  return instances_.back().get();
+  if (!added->disabled_) {
+    // Code compiled into the binary (exported from Studio) wins; else the host's JIT.
+    auto native = native_registry().find(graph_hash(graph));
+    if (native != native_registry().end()) added->native_ = native->second;
+    else if (jit) added->jit_pending_ = host_.jit_compile(compile_wasm(*added), added->id_);
+  }
+  return added;
 }
 
 void Runtime::remove(ActorRef self) {
@@ -806,7 +991,44 @@ void Runtime::check_transitions(Instance& inst, const std::string* event) {
   }
 }
 
+bool Runtime::run_compiled(Instance& inst, int node, int entry) {
+  counters_[1] = static_cast<i32>(min_of<u64>(budget, 0x7fffffff));
+  counters_[2] = tracing ? 1 : 0;
+  if (executed_ - tick_start_ > budget) counters_[0] = counters_[1] + 1;
+  int r;
+  if (inst.native_) r = inst.native_(&inst, node, entry);
+  else {
+#if defined(__wasm__)
+    // The JIT put the module's run function into the indirect function table: a direct call.
+    using RunFn = int (*)(int, int);
+    r = reinterpret_cast<RunFn>(static_cast<uintptr_t>(inst.jit_fn_))(node, entry);
+#else
+    r = 0;
+#endif
+  }
+  executed_ += static_cast<u64>(counters_[0] > 0 ? counters_[0] : 0);
+  counters_[0] = 0;
+  if (r == 1) {
+    if (!inst.disabled_) host_.error(inst.name() + ": more than " + std::to_string(budget) + " nodes ran in one step - infinite loop? The graph is stopped.");
+    inst.disabled_ = true;
+  } else if (r == 2) {
+    host_.error(inst.name() + ": the graph nests deeper than " + std::to_string(CodeLayout::kStack) + " loops / sequences - stopped.");
+    inst.disabled_ = true;
+  }
+  return true;
+}
+
 void Runtime::run_from(Instance& inst, int start, int entry) {
+  if (inst.compiled()) {
+    if (++depth_ > 64) {
+      --depth_;
+      host_.error(inst.name() + ": events nest more than 64 deep - the chain is stopped");
+      return;
+    }
+    run_compiled(inst, start, entry);
+    --depth_;
+    return;
+  }
   if (++depth_ > 64) {  // events raised from handlers raising events...
     --depth_;
     host_.error(inst.name() + ": events nest more than 64 deep - the chain is stopped");
@@ -839,6 +1061,9 @@ Context::Context(Runtime& rt, Instance& inst, int node, int entry) : rt_(rt), in
 
 Value Context::pull(int node, int pin) {
   Instance::CNode& src = inst_.nodes_[static_cast<std::size_t>(node)];
+  // Outputs of inline nodes live in slots (generated code writes them there).
+  if (const int s = inst_.out_slot(node, pin); s >= 0 && src.def->kind != NodeKind::pure)
+    return from_slot(inst_.slots_[static_cast<std::size_t>(s)], src.out[static_cast<std::size_t>(pin)].type).converted(src.out[static_cast<std::size_t>(pin)].type);
   if (src.def && src.def->kind == NodeKind::pure && src.def->run) {
     if (eval_depth_ > 48 || rt_.over_budget(inst_)) return src.outputs[static_cast<std::size_t>(pin)];
     Context c(rt_, inst_, node, 0);
@@ -864,7 +1089,10 @@ Value Context::in(std::string_view pin) {
 
 void Context::out(std::size_t index, Value v) {
   Instance::CNode& c = inst_.nodes_[static_cast<std::size_t>(node_)];
-  if (index < c.outputs.size()) c.outputs[index] = v.converted(c.out[index].type);
+  if (index >= c.outputs.size()) return;
+  c.outputs[index] = v.converted(c.out[index].type);
+  const int s = inst_.out_slot(node_, static_cast<int>(index));
+  if (s >= 0) inst_.slots_[static_cast<std::size_t>(s)] = c.outputs[index].as_number();
 }
 
 void Context::out(std::string_view pin, Value v) {
@@ -898,6 +1126,7 @@ void Context::cancel_waits() {
   auto& v = rt_.pending_;
   v.erase(std::remove_if(v.begin(), v.end(), [&](const Runtime::Pending& p) { return p.inst == &inst_ && p.node == node_; }), v.end());
 }
+
 
 void Context::then(int exec_output) {
   const Instance::CNode& c = inst_.nodes_[static_cast<std::size_t>(node_)];

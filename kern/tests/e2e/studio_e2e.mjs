@@ -377,6 +377,7 @@ const vpCenter = async (page, i = 0) => {
     await cmd(page, {cmd: "spawn", item: "rolling_ball"});
     await cmd(page, {cmd: "play", mode: "play"});
     check(await until(async () => (await status(page)).hud?.message === "Hello from Logic", 60000), "Play runs the graph");
+    check(await until(async () => (await status(page)).logic?.compiled >= 1, 30000), "the graph is compiled to machine code (JIT)");
     await cmd(page, {cmd: "stop"});
   }
 

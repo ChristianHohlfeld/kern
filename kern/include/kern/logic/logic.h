@@ -243,7 +243,36 @@ class Host {
   virtual u32 random() = 0;
   /// The game world behind this host (gameplay nodes), or null.
   virtual void* game() { return nullptr; }
+  /// Native code: the host compiles the WebAssembly module of an instance (asynchronously)
+  /// and calls jit_ready(id, function) when it is linked. False: no compiler here (interpreter).
+  virtual bool jit_compile(const std::vector<u8>& module, i32 id);
+  virtual void jit_release(i32 function);
 };
+
+/// The platform's compiler for generated WebAssembly (the browser's, through kern.mjs).
+/// False where there is none (native builds): graphs then run in the interpreter or as
+/// C++ compiled into the binary.
+bool platform_jit_compile(const std::vector<u8>& module, i32 id);
+void platform_jit_release(i32 function);
+
+/// Generated code (WebAssembly from the JIT, or C++ exported from Studio) works on this
+/// layout: f64 slots for numeric variables and node state, an i32 continuation stack,
+/// and per node a table of exec targets. Everything else calls back into the C++ nodes.
+struct CodeLayout {
+  static constexpr int kNodeSlots = 8;   // per node: 4 state + 4 data outputs
+  static constexpr int kStack = 512;     // continuation entries (pc, entry)
+};
+
+/// Compiles an instance's graph to a WebAssembly module (the JIT's input).
+std::vector<u8> compile_wasm(const class Instance& inst);
+/// The graph as C++ source: compiled into a game (build.sh) it replaces the interpreter
+/// for graphs with the same content (matched by hash). `name` becomes the function name.
+std::string generate_cpp(const class Instance& inst, const std::string& name);
+/// Content hash of a graph (what generated C++ registers under).
+u64 graph_hash(const Graph& g);
+/// Code compiled into the binary: a generated function for a graph hash.
+using NativeGraphFn = int (*)(void* inst, int pc, int entry);
+void register_native_graph(u64 hash, NativeGraphFn fn);
 
 struct NodeState {           // per node instance: Do Once, Gate, Flip Flop, loops, latent waits
   f64 time = 0, a = 0, b = 0;
@@ -258,6 +287,9 @@ class Runtime;
 class Instance {
  public:
   Instance(Runtime& rt, const Graph& graph, ActorRef self, std::string name);
+  ~Instance();
+  Instance(const Instance&) = delete;
+  Instance& operator=(const Instance&) = delete;
   ActorRef self() const { return self_; }
   const std::string& name() const { return name_; }
   const Graph& graph() const { return graph_; }
@@ -267,10 +299,49 @@ class Instance {
   std::string state(std::string_view machine) const;
   bool set_state(std::string_view machine, std::string_view state);
   bool disabled() const { return disabled_; }
+  /// Runs as machine code (JIT-compiled WebAssembly or generated C++) instead of the interpreter.
+  bool compiled() const { return jit_fn_ >= 0 || native_ != nullptr; }
+  const char* tier() const { return native_ ? "native C++" : jit_fn_ >= 0 ? "compiled (WebAssembly)" : jit_pending_ ? "compiling" : "interpreter"; }
+  i32 id() const { return id_; }
+
+  // ---- generated code support (compiled modules and exported C++ call these) ----
+  /// Runs the C++ function of node `node` (returns the exec output ordinal, kStop or kSuspend).
+  int call_node(int node, int entry);
+  /// Input `pin` (index) of node `node`, as a number.
+  f64 read_pin(int node, int pin);
+  /// Whether node `node` is generated inline (else generated code calls call_node).
+  bool inline_node(int node) const;
+  bool inline_pure(int node) const;
+  f64* slots() { return slots_.data(); }
+  i32* stack() { return stack_.data(); }
+  i32* exec_table() { return exec_table_.data(); }
+  int var_slot(std::string_view name) const;
+  int node_slot(int node) const { return node_slot_base_ + node * CodeLayout::kNodeSlots; }
+  /// Data output index -> slot (inline nodes with outputs other generated code / C++ read), -1 none.
+  int out_slot(int node, int out) const;
+  std::size_t node_count() const { return nodes_.size(); }
+  const Node& node_at(int i) const { return *nodes_[static_cast<std::size_t>(i)].node; }
+  const NodeDef* def_at(int i) const { return nodes_[static_cast<std::size_t>(i)].def; }
+  const std::vector<PinDef>& inputs_at(int i) const { return nodes_[static_cast<std::size_t>(i)].in; }
+  const std::vector<PinDef>& outputs_at(int i) const { return nodes_[static_cast<std::size_t>(i)].out; }
+  struct SourceRef { int node = -1, pin = -1; };
+  SourceRef source_of(int node, int input) const {
+    const auto& s = nodes_[static_cast<std::size_t>(node)].data_in[static_cast<std::size_t>(input)];
+    return {s.node, s.pin};
+  }
+  const Value& literal_of(int node, int input) const { return nodes_[static_cast<std::size_t>(node)].literal[static_cast<std::size_t>(input)]; }
+  std::pair<int, int> exec_target(int node, int ordinal) const;
+  int exec_outputs(int node) const { return static_cast<int>(nodes_[static_cast<std::size_t>(node)].exec_out.size()); }
+  int exec_table_offset(int node) const { return exec_table_offset_[static_cast<std::size_t>(node)]; }
+  /// Generated code ran node `node` (the editor's live view).
+  void trace_node(int node);
+  /// Shared counters the generated code checks: [0] nodes run this step, [1] limit, [2] tracing.
+  i32* counters();
 
  private:
   friend class Runtime;
   friend class Context;
+  void enter_compiled();              // copies interpreter state into the slots (tier switch)
   struct CNode {                     // compiled node
     const NodeDef* def = nullptr;
     const Node* node = nullptr;
@@ -295,8 +366,18 @@ class Instance {
   std::string name_;
   std::vector<CNode> nodes_;
   std::unordered_map<u32, int> index_;  // node id -> compiled index
-  std::unordered_map<std::string, Value> vars_;
+  std::unordered_map<std::string, Value> vars_;   // non-numeric variables
+  std::unordered_map<std::string, int> var_slots_; // numeric variables live in slots
   std::vector<Machine> machines_;
+  std::vector<f64> slots_;            // fixed size: generated code holds absolute addresses
+  std::vector<i32> stack_;            // [0] = depth, then (pc, entry) pairs
+  std::vector<i32> exec_table_;       // per node: (target, entry) per exec output
+  std::vector<int> exec_table_offset_;
+  int node_slot_base_ = 0;
+  i32 id_ = 0;
+  i32 jit_fn_ = -1;                   // table index of the compiled run function
+  bool jit_pending_ = false;
+  NativeGraphFn native_ = nullptr;
   bool disabled_ = false;
   bool begun_ = false;
 };
@@ -340,6 +421,11 @@ class Runtime {
   /// Node executions in one tick before the runtime assumes an infinite loop.
   u32 budget = 200000;
   u64 executed() const { return executed_; }
+  /// The host linked the native code of instance `id` (`function` = table index, < 0 failed).
+  static void jit_ready(i32 id, i32 function);
+  static Instance* instance_by_id(i32 id);
+  /// Compile graphs to native code (on by default where the host can).
+  bool jit = true;
 
  private:
   friend class Context;
@@ -362,6 +448,8 @@ class Runtime {
   std::vector<Trace> trace_;
   u64 executed_ = 0, tick_start_ = 0, serial_ = 0;
   int depth_ = 0;
+  i32 counters_[4] = {0, 200000, 0, 0};  // generated code: nodes run, limit, tracing
+  bool run_compiled(Instance& inst, int node, int entry);
 };
 
 /// What a node function sees while it runs.
@@ -392,6 +480,8 @@ class Context {
   /// Exec output ordinal by pin id (for returning from run()).
   int exec(std::string_view pin) const;
   NodeState& state() { return inst_.nodes_[node_].state; }
+  /// State slot k (0..3) of this node: shared with generated code (loops, gates, flip flops).
+  f64& slot(int k) { return inst_.slots_[static_cast<std::size_t>(inst_.node_slot(node_) + k)]; }
   /// Latent: resume this node after `seconds` with entry kResume (or `entry`).
   int wait(f64 seconds, int entry = kResume);
   /// Cancels this node's pending waits (Retriggerable Delay).
@@ -404,11 +494,13 @@ class Context {
 
  private:
   friend class Runtime;
+  friend class Instance;
   Runtime& rt_;
   Instance& inst_;
   int node_;
   int entry_;
   std::vector<std::pair<int, int>> continuations_;  // (node, entry) to run after the chain, LIFO
+  bool compiled_ = false;                           // continuations go to the instance's stack
   int eval_depth_ = 0;
   Value pull(int node, int pin);
 };

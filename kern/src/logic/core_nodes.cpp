@@ -175,16 +175,18 @@ void add_flow(Library& lib) {
     d.inputs = {exec_in(), data("first", "First Index", PinType::integer, 0), data("last", "Last Index", PinType::integer, 9)};
     d.outputs = {exec_out("body", "Loop Body"), data("index", "Index", PinType::integer), exec_out("completed", "Completed")};
     d.keywords = "repeat for each count";
+    // State in slots (index, last): the same in the interpreter and in generated code.
     d.run = [](Context& c) {
-      NodeState& s = c.state();
+      f64& index = c.slot(0);
+      f64& last = c.slot(1);
       if (c.entry() != Context::kResume) {
-        s.index = c.in_int("first");
-        s.last = c.in_int("last");
+        index = static_cast<f64>(c.in_int("first"));
+        last = static_cast<f64>(c.in_int("last"));
       } else {
-        ++s.index;
+        index += 1;
       }
-      if (s.index > s.last) return c.exec("completed");
-      c.out("index", Value::integer(s.index));
+      if (index > last) return c.exec("completed");
+      c.out("index", Value::integer(static_cast<i64>(index)));
       c.loop_back(Context::kResume);
       return c.exec("body");
     };
@@ -206,11 +208,12 @@ void add_flow(Library& lib) {
     d.inputs = {exec_in(), exec_in("reset", "Reset"), data("closed", "Start Closed", PinType::boolean, false)};
     d.outputs = {exec_out("completed", "Completed")};
     d.run = [](Context& c) {
-      NodeState& s = c.state();
-      if (c.entry() == 1) { s.flag = false; s.flag2 = true; return kStop; }
-      if (!s.flag2) { s.flag2 = true; s.flag = c.in_bool("closed"); }
-      if (s.flag) return kStop;
-      s.flag = true;
+      f64& closed = c.slot(0);
+      f64& started = c.slot(1);
+      if (c.entry() == 1) { closed = 0; started = 1; return kStop; }
+      if (started == 0) { started = 1; closed = c.in_bool("closed") ? 1 : 0; }
+      if (closed != 0) return kStop;
+      closed = 1;
       return 0;
     };
     lib.add(std::move(d));
@@ -220,10 +223,11 @@ void add_flow(Library& lib) {
     d.inputs = {exec_in(), data("n", "N", PinType::integer, 3), exec_in("reset", "Reset")};
     d.outputs = {exec_out("exit", "Exit"), data("counter", "Counter", PinType::integer)};
     d.run = [](Context& c) {
-      NodeState& s = c.state();
-      if (c.entry() == 1) { s.counter = 0; return kStop; }
-      if (s.counter >= c.in_int("n")) return kStop;
-      c.out("counter", Value::integer(++s.counter));
+      f64& counter = c.slot(0);
+      if (c.entry() == 1) { counter = 0; return kStop; }
+      if (counter >= static_cast<f64>(c.in_int("n"))) return kStop;
+      counter += 1;
+      c.out("counter", Value::integer(static_cast<i64>(counter)));
       return 0;
     };
     lib.add(std::move(d));
@@ -233,13 +237,14 @@ void add_flow(Library& lib) {
     d.inputs = {exec_in("enter", "Enter"), exec_in("open", "Open"), exec_in("close", "Close"), exec_in("toggle", "Toggle"), data("closed", "Start Closed", PinType::boolean, false)};
     d.outputs = {exec_out("exit", "Exit")};
     d.run = [](Context& c) {
-      NodeState& s = c.state();
-      if (!s.flag2) { s.flag2 = true; s.flag = !c.in_bool("closed"); }
+      f64& open = c.slot(0);
+      f64& started = c.slot(1);
+      if (started == 0) { started = 1; open = c.in_bool("closed") ? 0 : 1; }
       switch (c.entry()) {
-        case 0: return s.flag ? 0 : kStop;
-        case 1: s.flag = true; return kStop;
-        case 2: s.flag = false; return kStop;
-        case 3: s.flag = !s.flag; return kStop;
+        case 0: return open != 0 ? 0 : kStop;
+        case 1: open = 1; return kStop;
+        case 2: open = 0; return kStop;
+        case 3: open = open != 0 ? 0 : 1; return kStop;
         default: return kStop;
       }
     };
@@ -250,10 +255,10 @@ void add_flow(Library& lib) {
     d.inputs = {exec_in()};
     d.outputs = {exec_out("a", "A"), exec_out("b", "B"), data("is_a", "Is A", PinType::boolean)};
     d.run = [](Context& c) {
-      NodeState& s = c.state();
-      s.flag = !s.flag;
-      c.out("is_a", Value::boolean(s.flag));
-      return s.flag ? 0 : 1;
+      f64& a = c.slot(0);
+      a = a != 0 ? 0 : 1;
+      c.out("is_a", Value::boolean(a != 0));
+      return a != 0 ? 0 : 1;
     };
     lib.add(std::move(d));
   }

@@ -55,6 +55,7 @@ export class LogicEditor {
         <button class="lg-btn lg-addmachine" title="Add a state machine">+ State Machine</button>
         <div class="lg-spacer"></div>
         <button class="lg-btn lg-templates" title="Ready-made graphs">Templates ▾</button>
+        <button class="lg-btn lg-cpp" title="Download this graph as C++ source: compiled into a game (build.sh) it runs as native code">Export C++</button>
         <button class="lg-btn lg-help" title="How it works">?</button>
         <div class="lg-status"></div>
       </div>
@@ -98,13 +99,23 @@ export class LogicEditor {
       ], r.left, r.bottom + 2);
     };
     $(".lg-help").onclick = () => this.showHelp();
+    $(".lg-cpp").onclick = () => {
+      const r = this.cmd({cmd: "logicExportCpp"});
+      if (!r?.text) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([r.text], {type: "text/x-c++src"}));
+      a.download = r.file || "logic.cpp";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      this.studio.toast("C++ source downloaded: add it to your game's build (kern/build.sh ... " + (r.file || "logic.cpp") + ") and the graph runs as native code.");
+    };
     this.initCanvas();
   }
 
   showHelp() {
     this.studio.toast("Events (red) start chains, white wires say what runs next, coloured wires carry values. " +
       "Right-click: add nodes · drag a pin: wire it · Alt+click a pin: break wires · Del: delete · Ctrl+C/V/D: copy, paste, duplicate · F: frame all · Ctrl+Z: undo. " +
-      "Graphs run as compiled C++ on the server / host; everything they change reaches every player.", [], 14000);
+      "Graphs are compiled to machine code when you press Play (WebAssembly, linked straight into the engine) and run on the server / host; everything they change reaches every player. Export C++ gives the same program as C++ source.", [], 16000);
   }
 
   // ---- render ---------------------------------------------------------------
@@ -882,6 +893,11 @@ export class LogicEditor {
       }
     }
     this.renderSide(this.data);
+    // While playing: how the graph runs (compiled to machine code once the browser has compiled it).
+    if (trace?.tier) {
+      this.el.status.className = "lg-status " + (trace.disabled ? "bad" : "good");
+      this.el.status.textContent = trace.disabled ? "Stopped (see Problems)" : trace.tier === "compiled (WebAssembly)" ? "Running · compiled to machine code" : "Running · " + trace.tier;
+    }
   }
 }
 

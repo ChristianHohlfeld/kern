@@ -64,6 +64,12 @@ jobs:
           kern/build.sh --app kern/examples/hello/hello.wasm kern/examples/hello/hello.cpp
           kern/build.sh --app kern/examples/orbrun/orbrun.wasm kern/examples/orbrun/orbrun.cpp
           for f in kern/web/kern.mjs kern/web/app.mjs kern/web/studio/*.mjs tools/net_relay.mjs; do node --check "$f"; done
+      - name: Logic JIT (graphs compiled to WebAssembly must match the interpreter)
+        run: |
+          set -euo pipefail
+          export WASI_SDK=/home/runner/wasi-sdk
+          kern/build.sh /tmp/logic_test.wasm kern/tests/logic_wasm_test.cpp -Ikern/tests
+          node kern/tests/logic_wasm_test.mjs /tmp/logic_test.wasm
       - name: Assemble the site
         run: |
           set -euo pipefail

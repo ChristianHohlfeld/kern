@@ -315,6 +315,7 @@ json::Value Studio::logic_trace_json() const {
     for (const logic::StateMachine& m : inst->graph().machines) states.set(m.name, inst->state(m.name));
     o.set("states", std::move(states));
     o.set("disabled", inst->disabled());
+    o.set("tier", inst->tier());
   }
   return o;
 }
@@ -462,6 +463,29 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
       if (std::find(ids.begin(), ids.end(), l.from) != ids.end() && std::find(ids.begin(), ids.end(), l.to) != ids.end()) part.links.push_back(l);
     json::Value r = ok_result();
     r.set("text", json::stringify(logic::graph_to_json(part)));
+    return r;
+  }
+  if (name == "logicExportCpp") {
+    // The graph as C++ source (compiled into a game it replaces the interpreter / JIT for this graph).
+    const logic::Graph* g = graph_of(level_, logic_owner_);
+    if (!g) return fail_result("this actor has no logic yet");
+    struct Quiet : logic::Host {
+      f64 time() const override { return 0; }
+      void print(const std::string&, bool) override {}
+      void error(const std::string&) override {}
+      u32 random() override { return 4; }
+      bool jit_compile(const std::vector<u8>&, i32) override { return false; }
+    } host;
+    logic::Runtime rt(host);
+    rt.jit = false;
+    const game::Actor* a = logic_owner_ ? level_.find(logic_owner_) : nullptr;
+    const std::string name = (level_.name.empty() ? std::string("Level") : level_.name) + "_" + (a ? a->name : std::string("Level"));
+    logic::Instance* inst = rt.add(*g, static_cast<logic::ActorRef>(logic_owner_), name);
+    json::Value r = ok_result();
+    r.set("text", logic::generate_cpp(*inst, name));
+    std::string file;
+    for (char ch : name) file += std::isalnum(static_cast<unsigned char>(ch)) ? static_cast<char>(std::tolower(static_cast<unsigned char>(ch))) : '_';
+    r.set("file", "logic_" + file + ".cpp");
     return r;
   }
   if (name == "logicCompile") {
