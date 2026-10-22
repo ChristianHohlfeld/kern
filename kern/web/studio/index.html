@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Kern Studio</title>
+<link rel="stylesheet" href="./studio.css">
+</head>
+<body>
+<div id="app" class="booting">
+  <header id="titlebar">
+    <div class="brand" title="Kern Studio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h3.2v7.4L14.7 3h4L11.9 10.6 19.2 21h-4.1l-5.4-7.9-1.5 1.6V21H5z"/></svg></div>
+    <nav id="menubar" role="menubar"></nav>
+    <div class="doc-tab"><span id="levelName">Untitled</span><i id="dirtyDot" title="Unsaved changes"></i></div>
+    <div class="spacer"></div>
+    <div id="fps" class="mono dim"></div>
+  </header>
+
+  <div id="toolbar" role="toolbar">
+    <div class="group">
+      <button class="tb icon" data-ui="save" title="Save (Ctrl+S)" data-icon="save"></button>
+      <button class="tb icon" data-cmd='{"cmd":"undo"}' id="undoBtn" title="Undo (Ctrl+Z)" data-icon="undo"></button>
+      <button class="tb icon" data-cmd='{"cmd":"redo"}' id="redoBtn" title="Redo (Ctrl+Y)" data-icon="redo"></button>
+    </div>
+    <div class="group">
+      <button class="tb add" id="addBtn" title="Place an actor"><span data-icon="plus"></span>Add<span data-icon="caret"></span></button>
+    </div>
+    <div class="group seg" id="tools">
+      <button class="tb icon" data-tool="select" title="Select (Q)" data-icon="cursor"></button>
+      <button class="tb icon" data-tool="translate" title="Move (W)" data-icon="move"></button>
+      <button class="tb icon" data-tool="rotate" title="Rotate (E)" data-icon="rotate"></button>
+      <button class="tb icon" data-tool="scale" title="Scale (R)" data-icon="scale"></button>
+    </div>
+    <div class="group">
+      <button class="tb icon" id="spaceBtn" title="World / local coordinates (Ctrl+`)" data-icon="globe"></button>
+      <div class="snap" title="Grid snap ([ and ])"><button class="tb icon toggle" id="snapGrid" data-icon="grid"></button><select id="gridSize"></select></div>
+      <div class="snap" title="Rotation snap"><button class="tb icon toggle" id="snapRot" data-icon="angle"></button><select id="rotStep"></select></div>
+      <div class="snap" title="Scale snap"><button class="tb icon toggle" id="snapScale" data-icon="scaleSnap"></button><select id="scaleStep"></select></div>
+      <div class="snap" title="Camera speed (wheel while flying)"><span class="tb icon static" data-icon="camera"></span><select id="camSpeed"></select></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="group play" id="playGroup">
+      <button class="tb playbtn" id="playBtn" title="Play in the viewport (Alt+P)"><span data-icon="play"></span></button>
+      <button class="tb icon" id="simBtn" title="Simulate physics (Alt+S)" data-icon="simulate"></button>
+      <button class="tb icon" id="pauseBtn" title="Pause (Pause)" data-icon="pause"></button>
+      <button class="tb icon" id="stepBtn" title="Advance one frame (.)" data-icon="step"></button>
+      <button class="tb icon" id="stopBtn" title="Stop (Esc)" data-icon="stop"></button>
+      <button class="tb icon" id="ejectBtn" title="Eject / possess (F8)" data-icon="eject"></button>
+    </div>
+    <div class="spacer"></div>
+    <div class="group">
+      <button class="tb icon" id="layoutBtn" title="Viewport layout" data-icon="layout"></button>
+      <button class="tb icon" data-ui="packageGame" title="Package the game as one HTML file" data-icon="package"></button>
+    </div>
+  </div>
+
+  <main id="main">
+    <section id="viewArea">
+      <canvas id="gl" tabindex="-1"></canvas>
+      <div id="viewports"></div>
+    </section>
+    <div class="splitter v" id="sideSplit"></div>
+    <aside id="side">
+      <section id="outlinerPanel" class="panel">
+        <div class="panel-head"><span>Outliner</span><div class="spacer"></div>
+          <button class="ph icon" id="newFolderBtn" title="New folder for the selection" data-icon="folderPlus"></button>
+        </div>
+        <div class="search"><span data-icon="search"></span><input id="outlinerFilter" placeholder="Search actors" spellcheck="false"></div>
+        <div class="outliner-cols"><span class="c-eye" data-icon="eye"></span><span class="c-name">Label</span><span class="c-type">Type</span></div>
+        <div id="outliner" tabindex="0"></div>
+        <div class="panel-foot" id="outlinerFoot"></div>
+      </section>
+      <div class="splitter h" id="panelSplit"></div>
+      <section id="detailsPanel" class="panel">
+        <div class="panel-head tabs">
+          <button class="tab active" data-tab="details">Details</button>
+          <button class="tab" data-tab="world">World Settings</button>
+        </div>
+        <div id="details" class="props"></div>
+        <div id="worldSettings" class="props" hidden></div>
+      </section>
+    </aside>
+  </main>
+
+  <section id="drawer" hidden>
+    <div class="drawer-head tabs">
+      <button class="tab active" data-dtab="place">Place Actors</button>
+      <button class="tab" data-dtab="textures">Textures</button>
+      <button class="tab" data-dtab="log">Output Log</button>
+      <div class="spacer"></div>
+      <div class="search small"><span data-icon="search"></span><input id="drawerFilter" placeholder="Search" spellcheck="false"></div>
+      <button class="ph icon" id="drawerClose" title="Close (Ctrl+Space)" data-icon="close"></button>
+    </div>
+    <div class="drawer-body">
+      <div id="placePane" class="dpane"></div>
+      <div id="texturePane" class="dpane" hidden></div>
+      <div id="logPane" class="dpane" hidden><div id="log" class="mono"></div></div>
+    </div>
+  </section>
+
+  <footer id="statusbar">
+    <button class="sb" id="drawerBtn" title="Content drawer (Ctrl+Space)"><span data-icon="drawer"></span>Content Drawer</button>
+    <button class="sb" id="logBtn"><span data-icon="log"></span>Output Log</button>
+    <div class="cmdline"><span>Cmd</span><input id="console" placeholder="Enter console command (help)" spellcheck="false" autocomplete="off"></div>
+    <div id="statusText" class="dim"></div>
+    <div class="spacer"></div>
+    <div id="simStats" class="mono dim"></div>
+    <div id="selInfo" class="dim"></div>
+  </footer>
+
+  <div id="menuLayer"></div>
+  <div id="dialogLayer"></div>
+  <div id="toast" hidden></div>
+  <div id="engineNotice" role="alert"></div>
+  <div id="splash"><div class="brand big"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h3.2v7.4L14.7 3h4L11.9 10.6 19.2 21h-4.1l-5.4-7.9-1.5 1.6V21H5z"/></svg></div><div>Kern Studio</div><small>Starting the engine</small></div>
+  <input type="file" id="fileOpen" accept=".klevel,.json,application/json" hidden>
+  <input type="file" id="fileTexture" accept="image/png,image/jpeg,image/webp" hidden>
+</div>
+<script type="module">
+import {startStudio} from "./studio.mjs";
+startStudio({url: new URL("../../../generated/kern_studio.wasm", import.meta.url)}).catch(error => {
+  const n = document.getElementById("engineNotice");
+  n.style.display = "block";
+  n.textContent = "Kern Studio failed to start: " + error.message;
+  console.error(error);
+});
+</script>
+</body>
+</html>

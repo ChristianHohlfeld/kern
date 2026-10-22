@@ -227,7 +227,7 @@ class World {
 };
 
 /// Drags a dynamic body with a spring: a kinematic "mouse" body and a motor
-/// joint (the same technique as the Box3D samples and the previous Editor3D).
+/// joint (the same technique as the Box3D samples).
 class MouseGrab {
  public:
   bool begin(World& world, Body body, Vec3 point, f32 stiffness_hertz = 7.5f);

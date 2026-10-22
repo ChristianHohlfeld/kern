@@ -1,0 +1,572 @@
+// Kern Studio viewports: cameras with Unreal-style navigation, picking,
+// selection by click and marquee, playing in the viewport, and rendering.
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+
+#include "internal.h"
+#include "kern/studio/studio.h"
+
+namespace kern::studio {
+
+namespace {
+
+constexpr f32 kSpeeds[8] = {1, 2.5f, 5, 10, 20, 40, 80, 160};  // m/s per camera speed setting
+
+enum PointerType : u32 { down = 0, move = 1, up = 2, cancel = 3, wheel = 4, leave = 5 };
+enum Mods : u32 { shift = 1, ctrl = 2, alt = 4 };
+
+/// Orthographic view direction (from the camera into the scene) and up vector.
+void ortho_basis(ViewType t, Vec3& dir, Vec3& up) {
+  switch (t) {
+    case ViewType::top: dir = {0, 0, -1}; up = {0, 1, 0}; break;
+    case ViewType::bottom: dir = {0, 0, 1}; up = {0, 1, 0}; break;
+    case ViewType::front: dir = {0, 1, 0}; up = {0, 0, 1}; break;
+    case ViewType::back: dir = {0, -1, 0}; up = {0, 0, 1}; break;
+    case ViewType::left: dir = {1, 0, 0}; up = {0, 0, 1}; break;
+    case ViewType::right: dir = {-1, 0, 0}; up = {0, 0, 1}; break;
+    default: dir = {0, 1, 0}; up = {0, 0, 1}; break;
+  }
+}
+
+}  // namespace
+
+f32 Studio::camera_speed() const {
+  const i32 s = clamp(prefs_.camera_speed, 1, 8);
+  return kSpeeds[s - 1];
+}
+
+Camera Studio::camera_of(const Viewport& v) const {
+  Camera c;
+  if (v.type == ViewType::perspective) {
+    c.eye = v.camera.position;
+    c.target = v.camera.position + v.camera.forward();
+    c.up = {0, 0, 1};
+    c.fov = clamp(v.camera.fov + v.fov_boost, 10.0f, 150.0f) * kDegToRad;
+    c.near = 0.05f;
+    c.far = 6000;
+    if (std::fabs(v.camera.pitch) > 89.5f) c.up = v.camera.right() * -1.0f;  // avoid a degenerate basis straight up/down
+    return c;
+  }
+  Vec3 dir, up;
+  ortho_basis(v.type, dir, up);
+  c.orthographic = true;
+  c.ortho_height = max_of(0.01f, v.camera.ortho_height);
+  c.target = v.camera.ortho_center;
+  c.eye = v.camera.ortho_center - dir * 3000;
+  c.up = up;
+  c.near = 1;
+  c.far = 6000;
+  return c;
+}
+
+bool Studio::ray(const Viewport& v, f32 x, f32 y, Ray& out) const {
+  Camera c = camera_of(v);
+  if (play_ == PlayState::playing && !ejected_ && v.index == active_view_ && play_camera_valid_) c = play_camera_;
+  return screen_ray(c, x, y, v.css_width, v.css_height, out);
+}
+
+bool Studio::to_screen(const Viewport& v, Vec3 p, f32& x, f32& y) const {
+  Camera c = camera_of(v);
+  if (play_ == PlayState::playing && !ejected_ && v.index == active_view_ && play_camera_valid_) c = play_camera_;
+  bool ok = false;
+  const Mat4 view = Mat4::look_at(c.eye, c.target, c.up, &ok);
+  if (!ok) return false;
+  const Vec4 clip = (projection_matrix(c, v.css_width / max_of(1.0f, v.css_height)) * view).transform({p.x, p.y, p.z, 1});
+  if (clip.w <= 1e-6f) return false;
+  x = (clip.x / clip.w * 0.5f + 0.5f) * v.css_width;
+  y = (0.5f - clip.y / clip.w * 0.5f) * v.css_height;
+  return true;
+}
+
+void Studio::set_viewport_rect(u32 index, Rect rect, f32 css_width, f32 css_height, f32 dpr, bool visible) {
+  if (index >= 4) return;
+  Viewport& v = views_[index];
+  v.rect = rect;
+  v.css_width = max_of(1.0f, css_width);
+  v.css_height = max_of(1.0f, css_height);
+  v.dpr = dpr > 0 ? dpr : 1;
+  v.visible = visible && rect.w > 0 && rect.h > 0;
+}
+
+// ---------------------------------------------------------------------------
+// picking
+
+ActorId Studio::pick(u32 index, f32 x, f32 y, Vec3* hit_point) {
+  Viewport& v = viewport(index);
+  Ray r;
+  if (!ray(v, x, y, r)) return 0;
+  // Actors without meshes (lights, empties) are picked by their icon on screen.
+  ActorId icon = 0;
+  f32 best = 14;
+  for (const game::Actor& a : level_.actors) {
+    if (a.mesh || a.city || a.locked || a.hidden) continue;
+    Mat4 m;
+    if (!world_->actor_matrix(a.id, m)) continue;
+    f32 sx, sy;
+    if (!to_screen(v, m.translation(), sx, sy)) continue;
+    const f32 d = std::hypot(sx - x, sy - y);
+    if (d < best) { best = d; icon = a.id; }
+  }
+  PickQuery q;
+  q.layers = layer::scene;
+  PickHit hit;
+  ActorId mesh_actor = 0;
+  // Skip locked actors and the ground by continuing the ray past them.
+  for (int attempt = 0; attempt < 12; ++attempt) {
+    if (!r_->pick_ray(r, q, hit)) break;
+    const ActorId id = world_->actor_for_mesh(hit.mesh);
+    const game::Actor* a = level_.find(id);
+    if (a && !a->locked) {
+      mesh_actor = id;
+      if (hit_point) *hit_point = hit.point;
+      break;
+    }
+    q.ignore_id = hit.mesh;  // the ground or a locked actor: look behind it
+    r.origin = hit.point + r.direction * 0.001f;
+  }
+  if (icon) {
+    if (hit_point && !mesh_actor) { Mat4 m; world_->actor_matrix(icon, m); *hit_point = m.translation(); }
+    return icon;
+  }
+  return mesh_actor;
+}
+
+// ---------------------------------------------------------------------------
+// input
+
+game::PlayInput Studio::play_input() const {
+  game::PlayInput in;
+  auto held = [&](const char* code) { return keys_.count(code) > 0; };
+  in.move_y = (held("KeyW") || held("ArrowUp") ? 1.0f : 0.0f) - (held("KeyS") || held("ArrowDown") ? 1.0f : 0.0f);
+  in.move_x = (held("KeyD") || held("ArrowRight") ? 1.0f : 0.0f) - (held("KeyA") || held("ArrowLeft") ? 1.0f : 0.0f);
+  in.up = (held("KeyE") || held("Space") ? 1.0f : 0.0f) - (held("KeyQ") || held("ShiftLeft") || held("ControlLeft") ? 1.0f : 0.0f);
+  in.jump = held("Space");
+  in.boost = held("ShiftLeft") || held("ShiftRight");
+  in.look_x = look_dx_ * 0.2f * prefs_.mouse_sensitivity;
+  in.look_y = look_dy_ * 0.2f * prefs_.mouse_sensitivity * (prefs_.invert_y ? -1.0f : 1.0f);
+  in.zoom = play_zoom_;
+  // Touch controls add to the keyboard.
+  in.move_x = clamp(in.move_x + touch_.move_x, -1.0f, 1.0f);
+  in.move_y = clamp(in.move_y + touch_.move_y, -1.0f, 1.0f);
+  in.up = clamp(in.up + touch_.up, -1.0f, 1.0f);
+  in.jump = in.jump || touch_.jump;
+  in.boost = in.boost || touch_.boost;
+  return in;
+}
+
+void Studio::look(f32 dx, f32 dy) {
+  look_dx_ += dx;
+  look_dy_ += dy;
+}
+
+Vec3 Studio::orbit_pivot(Viewport& v) {
+  if (prefs_.orbit_around_selection && !selection_.empty()) {
+    Aabb box;
+    for (ActorId id : selection_) {
+      Aabb b;
+      if (world_->actor_bounds(id, b)) box.extend(b);
+    }
+    if (box.valid()) return box.center();
+  }
+  Vec3 hit;
+  if (pick(v.index, v.x, v.y, &hit)) return hit;
+  // A point in front of the camera on the ground, or 15 m ahead.
+  const Vec3 f = v.camera.forward();
+  if (f.z < -0.05f) {
+    const f32 t = -v.camera.position.z / f.z;
+    if (t > 0 && t < 500) return v.camera.position + f * t;
+  }
+  return v.camera.position + f * 15;
+}
+
+void Studio::begin_drag(Viewport& v, Drag d) {
+  v.drag = d;
+  if (d == Drag::orbit || d == Drag::dolly) v.pivot = orbit_pivot(v);
+}
+
+void Studio::end_drag(Viewport& v) {
+  if (v.drag == Drag::gizmo) end_gizmo(true);
+  if (v.drag == Drag::grab) world_->end_grab();
+  if (v.drag == Drag::fly) v.fov_boost = 0;
+  v.drag = Drag::none;
+}
+
+void Studio::apply_drag(Viewport& v, f32 dx, f32 dy, u32 mods) {
+  ViewCamera& c = v.camera;
+  const f32 sens = 0.25f * prefs_.mouse_sensitivity;
+  const f32 inv = prefs_.invert_y ? -1.0f : 1.0f;
+  const f32 move = camera_speed() * 0.02f;  // metres per pixel for drags
+  switch (v.drag) {
+    case Drag::fly:
+      c.yaw -= dx * sens;
+      c.pitch = clamp(c.pitch - dy * sens * inv, -89.9f, 89.9f);
+      break;
+    case Drag::lmb_move: {
+      c.yaw -= dx * sens;
+      const f32 y = c.yaw * kDegToRad;
+      c.position += Vec3{std::cos(y), std::sin(y), 0} * (-dy * move);
+      break;
+    }
+    case Drag::pedestal:
+      c.position.z -= dy * move;
+      c.position += c.right() * (dx * move);
+      break;
+    case Drag::pan: {
+      const Vec3 up = cross(c.right(), c.forward());
+      // Pan speed follows the distance to what is under the cursor.
+      c.position += c.right() * (-dx * move) + up * (dy * move);
+      break;
+    }
+    case Drag::orbit: {
+      const f32 dist = max_of(0.5f, distance(c.position, v.pivot));
+      c.yaw -= dx * sens * 1.2f;
+      c.pitch = clamp(c.pitch - dy * sens * 1.2f * inv, -89.5f, 89.5f);
+      c.position = v.pivot - c.forward() * dist;
+      break;
+    }
+    case Drag::dolly: {
+      const f32 dist = max_of(0.3f, distance(c.position, v.pivot) * (1 + dy * 0.01f));
+      c.position = v.pivot - c.forward() * dist;
+      break;
+    }
+    case Drag::ortho_pan: {
+      Vec3 dir, up;
+      ortho_basis(v.type, dir, up);
+      const Vec3 right = cross(dir, up);
+      const f32 per_px = c.ortho_height / v.css_height;
+      c.ortho_center += right * (-dx * per_px) + up * (dy * per_px);
+      break;
+    }
+    case Drag::gizmo: update_gizmo(v); break;
+    case Drag::grab: {
+      Ray r;
+      if (!ray(v, v.x, v.y, r)) break;
+      const f32 d = distance(camera_of(v).eye, v.pivot);
+      world_->move_grab(r.origin + r.direction * d);
+      break;
+    }
+    case Drag::look:
+      look(dx, dy);
+      break;
+    default: break;
+  }
+  (void)mods;
+}
+
+void Studio::click(Viewport& v, f32 x, f32 y, u32 mods) {
+  const ActorId id = pick(v.index, x, y);
+  if (!id) {
+    if (!(mods & (shift | ctrl))) deselect();
+    return;
+  }
+  // Clicking a child of a selected actor selects the child (Unreal selects the actor under the cursor).
+  if (mods & ctrl) select({id}, false, true);
+  else if (mods & shift) select({id}, true);
+  else select({id});
+}
+
+void Studio::marquee_select(Viewport& v, u32 mods) {
+  const f32 x0 = min_of(v.press_x, v.x), x1 = max_of(v.press_x, v.x), y0 = min_of(v.press_y, v.y), y1 = max_of(v.press_y, v.y);
+  std::vector<ActorId> ids;
+  for (const game::Actor& a : level_.actors) {
+    if (a.locked || a.hidden || a.city) continue;
+    Mat4 m;
+    if (!world_->actor_matrix(a.id, m)) continue;
+    f32 sx, sy;
+    if (!to_screen(v, m.translation(), sx, sy)) continue;
+    if (sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1) ids.push_back(a.id);
+  }
+  if (mods & ctrl) select(ids, false, true);
+  else select(ids, (mods & shift) != 0);
+  report("Selected " + std::to_string(selection_.size()) + " actors");
+}
+
+json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 buttons, u32 mods, f32 wheel_delta) {
+  json::Value result = json::Value::object();
+  if (index >= 4) return result;
+  Viewport& v = views_[index];
+  const f32 dx = x - v.x, dy = y - v.y;
+  modifiers_ = mods;
+  // Playing: the mouse looks around (captured) and clicks recapture it.
+  if (play_ == PlayState::playing && !ejected_ && index == active_view_) {
+    if (type == down) {
+      if (!mouse_captured_) {
+        mouse_captured_ = true;
+        json::Value a = json::Value::object();
+        a.set("action", "capturePointer");
+        a.set("viewport", index);
+        push_ui(std::move(a));
+      }
+      v.drag = Drag::look;
+    } else if (type == move && (buttons || mouse_captured_)) {
+      if (v.drag == Drag::look || buttons) look(dx, dy);
+    } else if (type == up || type == cancel) {
+      v.drag = Drag::none;
+    } else if (type == wheel) {
+      play_zoom_ += wheel_delta;  // zooms the play camera
+    }
+    v.x = x;
+    v.y = y;
+    return result;
+  }
+  switch (type) {
+    case down: {
+      if (active_view_ != index) { active_view_ = index; touch(); }
+      v.x = v.press_x = x;
+      v.y = v.press_y = y;
+      v.moved = false;
+      v.buttons = static_cast<u32>(buttons);
+      const bool persp = v.type == ViewType::perspective;
+      if (button == 0) {
+        const u32 handle = gizmo_visible(v) ? gizmo_hit(v, x, y) : 0;
+        if ((mods & alt) && !(mods & ctrl) && persp && !handle) begin_drag(v, Drag::orbit);
+        else if (handle) begin_gizmo(v, handle, mods);
+        else if ((mods & ctrl) && play_ == PlayState::simulating) {
+          Vec3 hit;
+          const ActorId id = pick(index, x, y, &hit);
+          if (id && world_->begin_grab(id, hit)) {
+            v.pivot = hit;
+            begin_drag(v, Drag::grab);
+          }
+        } else if (!persp || ((mods & ctrl) && (mods & alt))) begin_drag(v, Drag::marquee);
+        else if (v.drag == Drag::fly) begin_drag(v, Drag::pedestal);
+        else begin_drag(v, Drag::lmb_move);
+      } else if (button == 2) {
+        if ((mods & alt) && persp) begin_drag(v, Drag::dolly);
+        else if (!persp) begin_drag(v, Drag::ortho_pan);
+        else if (v.drag == Drag::lmb_move) begin_drag(v, Drag::pedestal);
+        else begin_drag(v, Drag::fly);
+      } else if (button == 1) {
+        begin_drag(v, persp ? Drag::pan : Drag::ortho_pan);
+      }
+      result.set("capture", true);
+      break;
+    }
+    case move: {
+      v.x = x;
+      v.y = y;
+      if (std::hypot(x - v.press_x, y - v.press_y) > 3) v.moved = true;
+      if (v.drag != Drag::none) {
+        // Small jitter before a click does not move the camera.
+        if (v.moved || v.drag == Drag::fly || v.drag == Drag::gizmo) apply_drag(v, dx, dy, mods);
+      } else {
+        const u32 h = gizmo_visible(v) ? gizmo_hit(v, x, y) : 0;
+        if (h != gizmo_hover_) { gizmo_hover_ = h; ++scene_revision_; }
+      }
+      break;
+    }
+    case up:
+    case cancel: {
+      v.x = x;
+      v.y = y;
+      const Drag d = v.drag;
+      const bool click_now = type == up && !v.moved;
+      // Releasing one button of a two-button drag continues with the other.
+      v.buttons = static_cast<u32>(buttons);
+      if (d == Drag::pedestal && type == up) {
+        v.drag = (buttons & 2) ? Drag::fly : (buttons & 1) ? Drag::lmb_move : Drag::none;
+        break;
+      }
+      if (d == Drag::marquee && v.moved && type == up) marquee_select(v, mods);
+      end_drag(v);
+      if (click_now && button == 0 && (d == Drag::lmb_move || d == Drag::marquee)) click(v, x, y, mods);
+      if (click_now && button == 2 && (d == Drag::fly || d == Drag::ortho_pan) && play_ != PlayState::playing) {
+        // Right click: select what is under the cursor and open the context menu.
+        const ActorId id = pick(index, x, y);
+        if (id && !selected(id)) select({id});
+        json::Value a = json::Value::object();
+        a.set("action", "popup");
+        a.set("menu", "context");
+        a.set("entries", menu_json("context"));
+        a.set("viewport", index);
+        a.set("x", x);
+        a.set("y", y);
+        push_ui(std::move(a));
+      }
+      break;
+    }
+    case wheel: {
+      ViewCamera& c = v.camera;
+      if (v.type != ViewType::perspective) {
+        // Zoom about the cursor.
+        Ray before;
+        ray(v, x, y, before);
+        c.ortho_height = clamp(c.ortho_height * (wheel_delta > 0 ? 1.15f : 1 / 1.15f), 0.5f, 20000.0f);
+        Ray after;
+        ray(v, x, y, after);
+        Vec3 dir, up;
+        ortho_basis(v.type, dir, up);
+        const Vec3 shift = before.origin - after.origin;
+        c.ortho_center += shift - dir * dot(shift, dir);
+        v.grid_key = 0;
+      } else if (v.drag == Drag::fly) {
+        prefs_.camera_speed = clamp(prefs_.camera_speed + (wheel_delta < 0 ? 1 : -1), 1, 8);
+        report("Camera speed " + std::to_string(prefs_.camera_speed));
+      } else {
+        c.position += c.forward() * (-wheel_delta * 0.01f * camera_speed());
+      }
+      break;
+    }
+    case leave:
+      if (gizmo_hover_) { gizmo_hover_ = 0; ++scene_revision_; }
+      break;
+    default: break;
+  }
+  return result;
+}
+
+void Studio::focus_selection(i32 index) {
+  Viewport& v = viewport(index < 0 ? active_view_ : static_cast<u32>(index));
+  Aabb box;
+  for (ActorId id : selection_) {
+    Aabb b;
+    if (world_->actor_bounds(id, b)) box.extend(b);
+  }
+  if (!box.valid()) {
+    for (const game::Actor& a : level_.actors) {
+      Aabb b;
+      if (!a.hidden && world_->actor_bounds(a.id, b)) box.extend(b);
+    }
+  }
+  if (!box.valid()) return;
+  const f32 radius = max_of(0.5f, length(box.extent()) * 0.5f);
+  if (v.type == ViewType::perspective) {
+    const f32 dist = radius / std::tan(v.camera.fov * 0.5f * kDegToRad) * 1.15f;
+    v.camera.position = box.center() - v.camera.forward() * dist;
+  } else {
+    v.camera.ortho_center = box.center();
+    v.camera.ortho_height = radius * 2.4f;
+    v.grid_key = 0;
+  }
+  touch();
+}
+
+// ---------------------------------------------------------------------------
+// per frame
+
+void Studio::update_cameras(f32 dt) {
+  for (Viewport& v : views_) {
+    if (v.type != ViewType::perspective || v.drag != Drag::fly) continue;
+    auto held = [&](const char* code) { return keys_.count(code) > 0; };
+    Vec3 move;
+    const Vec3 f = v.camera.forward(), r = v.camera.right();
+    if (held("KeyW") || held("ArrowUp")) move += f;
+    if (held("KeyS") || held("ArrowDown")) move -= f;
+    if (held("KeyD") || held("ArrowRight")) move += r;
+    if (held("KeyA") || held("ArrowLeft")) move -= r;
+    if (held("KeyE") || held("PageUp")) move += Vec3{0, 0, 1};
+    if (held("KeyQ") || held("PageDown")) move -= Vec3{0, 0, 1};
+    f32 speed = camera_speed();
+    if (held("ShiftLeft") || held("ShiftRight")) speed *= 2.5f;
+    if (length(move) > 0) v.camera.position += normalize(move) * (speed * dt);
+    // Z / C zoom while flying.
+    if (held("KeyZ")) v.fov_boost = max_of(-60.0f, v.fov_boost - 90 * dt);
+    else if (held("KeyC")) v.fov_boost = min_of(60.0f, v.fov_boost + 90 * dt);
+  }
+}
+
+void Studio::frame(f64 now_ms) {
+  if (!ready_) return;
+  now_ = now_ms;
+  const f64 raw = last_frame_ < 0 ? 1000.0 / 60 : now_ms - last_frame_;
+  const f32 dt = static_cast<f32>(clamp(raw / 1000.0, 0.0, 0.1));
+  last_frame_ = now_ms;
+  if (raw > 0) fps_ = fps_ <= 0 ? static_cast<f32>(1000.0 / raw) : fps_ * 0.9f + static_cast<f32>(100.0 / raw);
+  update_cameras(dt);
+  if (play_ != PlayState::editing) {
+    const game::PlayInput in = play_input();
+    world_->step(dt, in);
+    if (play_ == PlayState::playing && !ejected_) {
+      Camera c = play_camera_valid_ ? play_camera_ : camera_of(views_[active_view_]);
+      play_camera_valid_ = world_->update_camera(c, dt, in);
+      play_camera_ = c;
+    }
+    look_dx_ = look_dy_ = play_zoom_ = 0;
+    for (const std::string& e : world_->events()) report(e, e.rfind("Game lost", 0) == 0 ? "warn" : "info");
+    world_->events().clear();
+  } else if (synced_revision_ != scene_revision_) {
+    world_->sync(level_);
+  }
+  sync_overlays();
+  // Lighting and the presentation of the moving world use the active viewport's eye.
+  const Viewport& active = views_[active_view_];
+  const Camera eye_cam = play_ == PlayState::playing && !ejected_ && play_camera_valid_ ? play_camera_ : camera_of(active);
+  world_->present(now_ms, eye_cam.eye);
+  // Clear the whole drawing buffer once (gaps between quad viewports).
+  for (Viewport& v : views_) {
+    if (!v.visible) continue;
+    if (prefs_.layout == Layout::single && v.index != active_view_ && !player_only_) continue;
+    render_viewport(v, now_ms);
+  }
+}
+
+void Studio::render_viewport(Viewport& v, f64 now_ms) {
+  (void)now_ms;
+  const bool playing_here = play_ == PlayState::playing && !ejected_ && v.index == active_view_ && play_camera_valid_;
+  Camera cam = playing_here ? play_camera_ : camera_of(v);
+  const f32 aspect = static_cast<f32>(v.rect.w) / static_cast<f32>(max_of(1, v.rect.h));
+  (void)aspect;
+  r_->camera = cam;
+  world_->apply_lighting(cam.eye);
+  Lighting& l = r_->lighting;
+  const bool helpers = !v.game_view && !playing_here && !player_only_;
+  if (!v.flags.fog || cam.orthographic) l.fog_density = 0;
+  RenderParams p;
+  p.layers = layer::scene;
+  p.sky = v.flags.sky && !cam.orthographic;
+  p.clear_color = {0.09f, 0.1f, 0.12f, 1};
+  switch (v.mode) {
+    case ViewMode::lit: break;
+    case ViewMode::unlit:
+      // Base colour only: no sun, points or environment; the hemisphere term carries pi * base.
+      l.sun_color = {0, 0, 0};
+      l.env_intensity = 0;
+      l.sky_color = l.ground_color = {kPi, kPi, kPi};
+      l.exposure = 1;
+      l.fog_density = 0;
+      r_->set_point_lights({});
+      break;
+    case ViewMode::wireframe:
+      p.layers = layer::wireframe;
+      p.sky = false;
+      p.clear_color = {0.05f, 0.055f, 0.065f, 1};
+      break;
+    case ViewMode::collision:
+      p.layers = layer::scene | layer::colliders;
+      l.exposure *= 0.55f;
+      break;
+  }
+  if (helpers) {
+    if (v.flags.grid) p.layers |= cam.orthographic ? (layer::ortho_grid0 << v.index) : layer::grid;
+    if (v.flags.icons) p.layers |= layer::icons;
+    if (v.flags.selection) p.layers |= layer::selection;
+    if (v.flags.colliders) p.layers |= layer::colliders;
+    if (v.flags.joints || v.flags.contacts) p.layers |= layer::joints;
+    if (v.flags.bounds) p.layers |= layer::bounds;
+    if (gizmo_visible(v)) p.layers |= layer::gizmo0 << v.index;
+  } else if (v.mode == ViewMode::collision) {
+    p.layers |= layer::colliders;
+  }
+  // A single full-size viewport renders without a scissor rectangle so bloom runs.
+  const bool full = v.rect.x == 0 && v.rect.y == 0 && v.rect.w == r_->width() && v.rect.h == r_->height();
+  if (!full) {
+    p.has_viewport = true;
+    p.viewport = {v.rect.x, v.rect.y, v.rect.w, v.rect.h};
+    {
+      kern::Viewport& vp = p.viewport;
+      if (vp.x < 0) { vp.width += vp.x; vp.x = 0; }
+      if (vp.y < 0) { vp.height += vp.y; vp.y = 0; }
+      vp.width = min_of(vp.width, r_->width() - vp.x);
+      vp.height = min_of(vp.height, r_->height() - vp.y);
+      if (vp.width <= 0 || vp.height <= 0) return;
+    }
+  }
+  RenderStats stats;
+  if (!r_->render(p, stats)) {
+    const std::string err = last_error();
+    if (status_text_ != "Render: " + err) report("Render: " + err, "error");
+  }
+}
+
+}  // namespace kern::studio

@@ -6,9 +6,8 @@ SpawnCity läuft auf Kern (`games/spawncity/` + `sim/kern_spawncity*.mjs`). Die 
 
 - `kern/examples/hello`: das kleinste Spiel, rund 90 Zeilen
 - `kern/examples/orbrun`: ein vollständiges Spiel in C++ mit prozeduraler Stadt, Fahrphysik, Verkehr, Tag/Nacht und einer eigenen Shader-Erweiterung
-- `kern/examples/scenegame`: ein C++-Spiel, das eine im Kern Editor gebaute `.e3d`-Szene mit Box3D spielt
 
-Dazu kommt der **Kern Editor** (`kern/src/editor`, `kern/web/editor`): die Oberfläche von Editor3D als vollständig bedienbare Game-Engine-Oberfläche – Szenen bauen, mit Box3D simulieren, Spiel-Komponenten vergeben und Spiele als eigenständige HTML-Datei exportieren. Ausführliche Dokumentation: [`kern/docs/editor.md`](docs/editor.md).
+Dazu kommen die **Spiel-Laufzeit** (`kern::game`: Levels aus Actors und Komponenten, auf Box3D gespielt) und **Kern Studio** (`kern/src/studio`, `kern/web/studio`), der Engine-Editor im Stil der Unreal Engine: Viewports mit Fly Mode und Unreal-Navigation, Gizmos, Outliner, Details, World Settings, Content Drawer, Play und Simulate im Viewport sowie Spiele als eigenständige HTML-Datei. Beim Start ist Orb Run als Level geladen. Ausführliche Dokumentation: [`docs/studio.md`](docs/studio.md).
 
 ## Aufbau
 
@@ -28,18 +27,18 @@ kern/
     app/app.h            App/Engine/Input für Spiele, die ganz in C++ laufen
     api/c_api.h          flache C-ABI für JavaScript-Hosts
     core/json.h          JSON-Wert, Parser, Formatierer (Schlüsselreihenfolge bleibt)
-    physics/physics.h    Box3D-Schicht: Welt, Körper, Shapes, Gelenke, Raycast, MouseGrab
-    world/               Szenenmodell (.e3d), SceneRuntime mit Spiel-Komponenten, SceneMeshes
-    editor/editor.h      der Kern Editor (komplette Editorlogik, ohne Browser testbar)
-  src/                   Implementierung (gleiche Gliederung; src/editor/editor_api.cpp = kern_editor_* C-ABI)
+    physics/physics.h    Box3D-Schicht: Welt, Körper, Shapes, Gelenke, Raycast, MouseGrab, Kontaktpunkte, Gelenkkräfte
+    game/                Levels (.klevel), Geometrie und prozedurale Stadt, GameWorld (Darstellung, Box3D, Controller, Regeln), Demo-Levels
+    studio/studio.h      Kern Studio (komplette Editorlogik, ohne Browser testbar)
+  src/                   Implementierung (gleiche Gliederung; src/studio/api.cpp = kern_studio_* C-ABI)
   third_party/box3d/     Box3D (Erin Catto, MIT), als C17 mitkompiliert
   web/kern.mjs           Browser-Plattformschicht + KernRenderer (JS-Fassade der C-ABI)
   web/app.mjs            Host für C++-Spiele (Frame-Loop, Größe, Eingabe, Kontextverlust)
-  web/editor/            Editor-Seite (index.html, editor.css, editor.mjs) und Spiel-Host (player.mjs, player.html)
-  docs/editor.md         Dokumentation des Editors, des Protokolls und des Formats
+  web/studio/            Studio-Seite (index.html, studio.css, studio.mjs), Spiel-Host (game.mjs, play.html)
+  docs/studio.md         Dokumentation von Studio, Komponenten, Format und Protokoll
   examples/              Beispielspiele
-  tests/                 C++-Unit-Tests (Host-Build mit ASan/UBSan), tests/e2e: Browser-Test des Editors
-  build.sh               WebAssembly-Build (--app, --physics, --world, --editor)
+  tests/                 C++-Unit-Tests (Host-Build mit ASan/UBSan), tests/e2e: Browser-Test von Studio
+  build.sh               WebAssembly-Build (--app, --physics, --game, --studio)
 ```
 
 ## Bauen
@@ -55,11 +54,8 @@ tools/build_kern_wasm.sh
 # ein C++-Spiel (mit App-Laufzeit)
 kern/build.sh --app kern/examples/orbrun/orbrun.wasm kern/examples/orbrun/orbrun.cpp
 
-# ein C++-Spiel mit Box3D und Szenen aus dem Editor
-kern/build.sh --app --world kern/examples/scenegame/scenegame.wasm kern/examples/scenegame/scenegame.cpp
-
-# der Kern Editor als eine HTML-Datei -> generated/editor3d.html
-tools/build_editor.sh
+# Kern Studio als eine HTML-Datei -> generated/studio.html (Modul: generated/kern_studio.wasm)
+tools/build_studio.sh
 
 # Unit-Tests (nativ, mit Sanitizern)
 CXX=g++ kern/tests/run.sh
@@ -157,18 +153,18 @@ Spiele fügen eigene Looks hinzu, ohne die Engine anzufassen. Eine `ShaderExtens
 
 Auf dem echten Konstanz-Snapshot (1300 Gebäude) braucht Kern für Bau und Welding etwa 45 ms. Die vorherige JavaScript-Variante brauchte etwa 1260 ms, also rund 28-mal länger.
 
-## Physik, Szenen und Editor
+## Physik, Spiel-Laufzeit und Studio
 
-- **`kern::physics`** kapselt Box3D: `World` mit Körpern, Shapes (Box, Kugel, Kapsel, konvexe Hülle), allen Gelenktypen, Kontakt- und Sensor-Ereignissen, Kräften und Posen; `cast_ray` mit Maske und ignoriertem Körper (Sensoren zählen nicht); `MouseGrab` (Box3D-MotorJoint); `hull_mesh`.
-- **`kern::world`** ist das Szenenmodell von Editor3D (`.e3d` v2, liest v1 und die alte Objektliste), mit Validierung, unveränderten Fremdschlüsseln und `double`-Mathematik nach three.js-Semantik. `SceneRuntime` instanziiert eine Szene in Box3D und führt die Spiel-Komponenten aus (Spieler mit roll/drive/fly/walk, Pickups, Gefahren, Ziele, Zeitlimit, Absturzgrenze). `SceneMeshes` zeichnet sie.
-- **`kern::editor::Editor`** ist der Editor selbst: Dokumente, Historie, Auswahl, Transformationen, Ansichten, Picking, Properties, Menüs, Dialoge, Bilder/Sampler und Player. Die Seite spricht ihn über `kern_editor_*` mit JSON an. Details, Befehlsreferenz und Format: [`docs/editor.md`](docs/editor.md).
+- **`kern::physics`** kapselt Box3D: `World` mit Körpern, Shapes (Box, Kugel, Kapsel, konvexe Hülle), allen Gelenktypen mit Limits, Motoren, Federn und Bruchschwellen, Kontakt-, Sensor- und Gelenk-Ereignissen, Kontaktpunkten, Achsensperren, Kräften und Posen; `cast_ray` mit Maske und ignoriertem Körper (Sensoren zählen nicht); `MouseGrab` (Box3D-MotorJoint); `hull_mesh`.
+- **`kern::game`** ist die Spiel-Laufzeit: `Level` aus Actors mit Komponenten (Static Mesh, Point Light, Rigid Body, Collider, Constraint, Player Controller, Pickup, Trigger, Rotator, Mover, Procedural City), gespeichert als `.klevel`. `plan_bodies` macht daraus Box3D-Körper; Kinder ohne eigenen Body werden als Compound angeschweißt. `GameWorld` stellt das Level dar und spielt es: Controller (Hovercar, Rolling, Character, Flyer, Vehicle), Chase-Kamera, Pickups, Trigger, Respawn, Zeitlimit, Siegbedingungen, Tag und Nacht, Verkehr. Demo-Levels: Orb Run, Physics Lab.
+- **`kern::studio::Studio`** ist der Editor: Dokument und Historie, Auswahl, Viewports mit Unreal-Navigation, Gizmos, Overlays, Details-Schema, Katalog, Menüs, Dialoge, Play/Simulate. Die Seite spricht ihn über `kern_studio_*` mit JSON an. Steuerung, Befehlsreferenz und Format: [`docs/studio.md`](docs/studio.md).
 
-Der Renderer hat dafür Linien-Materialien (`Material.lines`), Ebenenmasken (`MeshInput.layers`, `RenderParams.layers`, `PickQuery.layers`), `RenderParams.sky`, `TextureDesc.nearest` und die Primitive `capsule` und `torus` bekommen.
+Der Renderer hat dafür Linien-Materialien (`Material.lines`), Ebenenmasken (`MeshInput.layers`, `RenderParams.layers`, `PickQuery.layers`), `RenderParams.sky`, Viewport-Rechtecke, orthografische Kameras (`Camera.orthographic`), die Viewmodel-Ebene für Gizmos, `TextureDesc.nearest` und die Primitive `capsule` und `torus` bekommen.
 
 ## Tests
 
-- `kern/tests/run.sh`: Unit-Tests für Mathe, BVH gegen Brute Force, Earcut, Welding, Builder, Primitive, Renderer gegen eine aufzeichnende GL-Attrappe (Validierung, Instanz-Kapazität, Uniform-Cache, Schatten-Wiederverwendung, Kontextverlust, Linien und Ebenen), App-Eingabe, Box3D-Schicht, JSON, Szenen, Laufzeit und Spielregeln sowie der Editor
-- `kern/tests/e2e/editor_e2e.mjs`: Browser-Test (Playwright) des Single-File-Editors, aller Menüeinträge und Dialoge, des Players, des Spiel-Exports und von `scenegame`
+- `kern/tests/run.sh`: Unit-Tests für Mathe, BVH gegen Brute Force, Earcut, Welding, Builder, Primitive, Renderer gegen eine aufzeichnende GL-Attrappe (Validierung, Instanz-Kapazität, Uniform-Cache, Schatten-Wiederverwendung, Kontextverlust, Linien und Ebenen), App-Eingabe, Box3D-Schicht, JSON, Levels, Body-Planung, Stadt, GameWorld mit Orb Run und Physics Lab, Spielregeln sowie Kern Studio (Navigation, Gizmos, Katalog, Befehle, Outliner, Play, Speichern)
+- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) von Studio (Single-File und Modul), Fly Mode, Panels, Content Drawer, Play, Simulate, Layouts, Vorlagen und dem exportierten Spiel
 - `tests/kern_renderer_facade_test.mjs`: das echte Modul unter Node mit WebGL2-Attrappe
 - `tests/kern_geo_parity_test.mjs`: C++-Geometrie gegen die frühere JS-Implementierung. Gebäude sind bitgenau gleich, Straßen weichen um 0 ulp ab, Terrain um höchstens 1 ulp.
 - `tests/native_*_proof*.mjs`: echte Browser-Proofs (Szene, komponierte Welt mit Kontextverlust)

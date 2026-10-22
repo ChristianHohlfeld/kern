@@ -9,7 +9,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,14 +21,13 @@ jobs:
           echo "WASI_SDK=/tmp/wasi-sdk-25.0-x86_64-linux" >> "$GITHUB_ENV"
       - name: Native unit tests (ASan/UBSan)
         run: CXX=g++ CC=gcc kern/tests/run.sh
-      - name: Build the editor and the example games
+      - name: Build Kern Studio and the example games
         run: |
           set -euo pipefail
-          tools/build_editor.sh
+          tools/build_studio.sh
           kern/build.sh --app kern/examples/hello/hello.wasm kern/examples/hello/hello.cpp
           kern/build.sh --app kern/examples/orbrun/orbrun.wasm kern/examples/orbrun/orbrun.cpp
-          kern/build.sh --app --world kern/examples/scenegame/scenegame.wasm kern/examples/scenegame/scenegame.cpp
-          for f in kern/web/kern.mjs kern/web/app.mjs kern/web/editor/editor.mjs kern/web/editor/player.mjs; do node --check "$f"; done
+          for f in kern/web/kern.mjs kern/web/app.mjs kern/web/studio/studio.mjs kern/web/studio/game.mjs; do node --check "$f"; done
       - name: Browser end-to-end test
         run: |
           set -euo pipefail
@@ -37,13 +36,13 @@ jobs:
           python3 -m http.server 8771 --bind 127.0.0.1 >/tmp/http.log 2>&1 &
           sleep 1
           mkdir -p artifacts/e2e
-          NODE_PATH=/tmp/e2e/node_modules KERN_E2E_SHOTS=artifacts/e2e node kern/tests/e2e/editor_e2e.mjs http://127.0.0.1:8771
-      - name: Keep the editor and screenshots
+          NODE_PATH=/tmp/e2e/node_modules KERN_E2E_SHOTS=artifacts/e2e node kern/tests/e2e/studio_e2e.mjs http://127.0.0.1:8771
+      - name: Keep Kern Studio and the screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kern-editor
+          name: kern-studio
           path: |
-            generated/editor3d.html
+            generated/studio.html
             artifacts/e2e/
           if-no-files-found: warn

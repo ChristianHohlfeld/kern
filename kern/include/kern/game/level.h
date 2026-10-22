@@ -11,6 +11,7 @@
 // like an editor rotator, colours as sRGB 0..1.
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -222,7 +223,7 @@ struct WorldSettings {
 
 struct TextureAsset {
   std::string id, name;
-  std::string src;              // data URL (png/jpeg/webp)
+  std::shared_ptr<const std::string> src;  // data URL (png/jpeg/webp), shared by undo snapshots
   i32 width = 0, height = 0;
 };
 

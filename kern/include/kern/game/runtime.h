@@ -240,7 +240,7 @@ class GameWorld {
   bool jump_latch_ = false;
   f32 boost_ = 1;
   f32 shake_ = 0;
-  f32 heading_vis_ = 0, steer_vis_ = 0, pitch_vis_ = 0, last_forward_ = 0;
+  f32 steer_vis_ = 0, pitch_vis_ = 0, last_forward_ = 0;
   Vec3 camera_eye_;
   f32 camera_yaw_ = 0, camera_pitch_ = 18, camera_zoom_ = 1;
   bool camera_reset_ = true;

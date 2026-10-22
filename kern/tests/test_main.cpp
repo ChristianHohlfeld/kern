@@ -10,6 +10,7 @@
 #include "kern/core/json.h"
 #include "kern/game/demos.h"
 #include "kern/game/runtime.h"
+#include "kern/studio/studio.h"
 
 #include <algorithm>
 #include <memory>
@@ -1346,6 +1347,424 @@ TEST(game_world_rules) {
   CHECK(f.world->hud().status == game::GameStatus::lost);
   CHECK(f.world->hud().remaining > 0 && f.world->hud().remaining < 30);
   f.world->stop();
+}
+
+// ---------------------------------------------------------------------------
+// Kern Studio
+
+struct StudioFixture {
+  Renderer renderer;
+  game::NightWindows windows;
+  std::unique_ptr<studio::Studio> s;
+  f64 now = 1000;
+  explicit StudioFixture(bool player_only = false) {
+    ShaderExtension* ext[1] = {&windows};
+    RendererOptions o;
+    o.shadows = true;
+    renderer.init(o, Span<ShaderExtension* const>(ext, 1));
+    s = std::make_unique<studio::Studio>();
+    s->init(&renderer, &windows, player_only);
+    for (u32 i = 0; i < 4; ++i) s->set_viewport_rect(i, {0, 0, 960, 540}, 960, 540, 1, i == 0);
+  }
+  ~StudioFixture() { s.reset(); renderer.shutdown(); }
+  void frames(int n) { for (int i = 0; i < n; ++i) s->frame(now += 1000.0 / 60); }
+  json::Value cmd(const char* text) {
+    json::Value c;
+    json::parse(text, c);
+    return s->command(c);
+  }
+};
+
+TEST(studio_starts_with_orb_run) {
+  StudioFixture f;
+  CHECK(f.s->level().name == "Orb Run");
+  CHECK(f.s->play_state() == studio::PlayState::editing);
+  f.frames(3);
+  CHECK(f.renderer.mesh_count() > 30);
+  const json::Value st = f.s->state();
+  CHECK(st["level"]["name"].as_string() == "Orb Run");
+  CHECK(st["outliner"]["rows"].size() > 5);
+  CHECK(st["menus"]["file"].size() > 5);
+  CHECK(st["viewports"].size() == 4);
+  // The orbs live in a folder.
+  bool folder = false;
+  for (const json::Value& r : st["outliner"]["rows"].items()) folder |= r["folder"].as_string() == "Orbs";
+  CHECK(folder);
+  const json::Value status = f.s->status();
+  CHECK(status["play"].as_string() == "editing");
+  CHECK(status["camera"]["position"].size() == 3);
+}
+
+TEST(studio_fly_and_orbit) {
+  StudioFixture f;
+  f.frames(1);
+  studio::Viewport& v = f.s->viewport(0);
+  const Vec3 start = v.camera.position;
+  const Vec3 fwd = v.camera.forward();
+  // Right mouse + W flies forward.
+  f.s->pointer(0, 0, 480, 270, 2, 2, 0, 0);
+  CHECK(v.drag == studio::Drag::fly);
+  f.s->key("w", "KeyW", true, 0, false);
+  f.frames(30);
+  f.s->key("w", "KeyW", false, 0, false);
+  const Vec3 moved = v.camera.position - start;
+  CHECK(dot(moved, fwd) > 1);
+  // W while flying did not switch the tool to translate... and mouse look turns.
+  const f32 yaw = v.camera.yaw;
+  f.s->pointer(0, 1, 520, 270, -1, 2, 0, 0);
+  CHECK(v.camera.yaw < yaw);
+  // The wheel while flying changes the camera speed.
+  const i32 speed = f.s->preferences().camera_speed;
+  f.s->pointer(0, 4, 520, 270, -1, 2, 0, -100);
+  CHECK(f.s->preferences().camera_speed == min_of(speed + 1, 8));
+  f.s->pointer(0, 2, 520, 270, 2, 0, 0, 0);
+  CHECK(v.drag == studio::Drag::none);
+  // Alt + LMB orbits around the selection, keeping the distance.
+  f.cmd(R"({"cmd":"select","ids":[1]})");
+  const game::ActorId car = [&] { for (const game::Actor& a : f.s->level().actors) if (a.controller) return a.id; return 0u; }();
+  f.s->select({car});
+  f.s->focus_selection();
+  Aabb box;
+  f.s->world().actor_bounds(car, box);
+  const f32 d0 = distance(v.camera.position, box.center());
+  // (Away from the gizmo in the middle: Alt-dragging a gizmo handle duplicates.)
+  f.s->pointer(0, 0, 200, 150, 0, 1, 4, 0);
+  CHECK(v.drag == studio::Drag::orbit);
+  f.s->pointer(0, 1, 280, 180, -1, 1, 4, 0);
+  f.s->pointer(0, 2, 280, 180, 0, 0, 4, 0);
+  CHECK_NEAR(distance(v.camera.position, box.center()), d0, d0 * 0.05f + 0.1f);
+  // F frames the selection: it ends up in the middle of the view.
+  f.s->key("f", "KeyF", true, 0, false);
+  f.s->key("f", "KeyF", false, 0, false);
+  f32 sx = 0, sy = 0;
+  CHECK(f.s->to_screen(v, box.center(), sx, sy));
+  CHECK_NEAR(sx, 480, 5);
+  CHECK_NEAR(sy, 270, 5);
+}
+
+TEST(studio_spawn_every_catalog_item_and_simulate) {
+  StudioFixture f;
+  f.cmd(R"({"cmd":"new","template":"basic"})");
+  f.frames(1);
+  const json::Value cat = f.cmd(R"({"cmd":"catalog"})");
+  u32 spawned = 0;
+  f32 x = -60;
+  for (const json::Value& g : cat["groups"].items())
+    for (const json::Value& it : g["items"].items()) {
+      if (it["id"].as_string() == "city") continue;  // big; covered by Orb Run
+      json::Value c = json::Value::object();
+      c.set("cmd", "spawn");
+      c.set("item", it["id"]);
+      json::Value at = json::Value::array();
+      at.push(static_cast<f64>(x));
+      at.push(0.0);
+      at.push(0.0);
+      c.set("at", at);
+      x += 8;
+      const json::Value r = f.s->command(c);
+      CHECK(r["ok"].as_bool());
+      if (r["ok"].as_bool()) ++spawned;
+    }
+  CHECK(spawned >= 30);
+  bool errors = false;
+  for (const game::Issue& i : game::validate(f.s->level())) errors |= i.error;
+  CHECK(!errors);
+  f.frames(2);
+  CHECK(f.s->play(game::SimMode::simulate));
+  f.frames(60);
+  const json::Value st = f.s->status();
+  CHECK(st["sim"]["bodies"].as_number() > 20);
+  CHECK(st["sim"]["joints"].as_number() >= 10);
+  f.s->stop();
+  CHECK(f.s->play_state() == studio::PlayState::editing);
+  // Spawning is undoable.
+  const std::size_t n = f.s->level().actors.size();
+  f.s->spawn("cube", Vec3{0, 0, 0});
+  CHECK(f.s->level().actors.size() == n + 1);
+  f.s->undo();
+  CHECK(f.s->level().actors.size() == n);
+  f.s->redo();
+  CHECK(f.s->level().actors.size() == n + 1);
+}
+
+TEST(studio_gizmo_translate_and_undo) {
+  StudioFixture f;
+  f.cmd(R"({"cmd":"new","template":"basic"})");
+  f.frames(1);
+  const game::ActorId id = f.s->spawn("cube", Vec3{0, 0, 0});
+  CHECK(id != 0);
+  studio::Viewport& v = f.s->viewport(0);
+  v.camera.position = {-10, -10, 8};
+  v.camera.yaw = 45;
+  v.camera.pitch = -30;
+  f.s->set_tool(studio::Tool::translate);
+  f.s->snap().grid = false;
+  f.frames(2);
+  const Vec3 before = f.s->level().find(id)->transform.position;
+  // Grab the X axis handle a little outside the centre.
+  Vec3 pivot;
+  Mat4 m;
+  f.s->world().actor_matrix(id, m);
+  pivot = m.translation();
+  f32 cx, cy, ax, ay;
+  CHECK(f.s->to_screen(v, pivot, cx, cy));
+  CHECK(f.s->to_screen(v, pivot + Vec3{1, 0, 0}, ax, ay));
+  const f32 len = std::hypot(ax - cx, ay - cy);
+  const f32 hx = cx + (ax - cx) / len * 60, hy = cy + (ay - cy) / len * 60;
+  CHECK(f.s->gizmo_hit(v, hx, hy) == 1);
+  f.s->pointer(0, 0, hx, hy, 0, 1, 0, 0);
+  CHECK(v.drag == studio::Drag::gizmo);
+  f.s->pointer(0, 1, hx + (ax - cx) / len * 80, hy + (ay - cy) / len * 80, -1, 1, 0, 0);
+  f.s->pointer(0, 2, hx + (ax - cx) / len * 80, hy + (ay - cy) / len * 80, 0, 0, 0, 0);
+  const Vec3 after = f.s->level().find(id)->transform.position;
+  CHECK(after.x > before.x + 0.3f);
+  CHECK_NEAR(after.y, before.y, 1e-3f);
+  CHECK_NEAR(after.z, before.z, 1e-3f);
+  f.s->key("z", "KeyZ", true, 2, false);
+  CHECK_NEAR(f.s->level().find(id)->transform.position.x, before.x, 1e-4f);
+  f.s->key("y", "KeyY", true, 2, false);
+  CHECK_NEAR(f.s->level().find(id)->transform.position.x, after.x, 1e-4f);
+  // Alt-drag duplicates.
+  const std::size_t n = f.s->level().actors.size();
+  f.s->pointer(0, 0, hx, hy, 0, 1, 0, 0);
+  f.s->pointer(0, 2, hx, hy, 0, 0, 0, 0);
+  f.frames(1);
+  f.s->world().actor_matrix(id, m);
+  CHECK(f.s->to_screen(v, m.translation(), cx, cy));
+  CHECK(f.s->to_screen(v, m.translation() + Vec3{1, 0, 0}, ax, ay));
+  const f32 l2 = std::hypot(ax - cx, ay - cy);
+  const f32 gx = cx + (ax - cx) / l2 * 60, gy = cy + (ay - cy) / l2 * 60;
+  f.s->pointer(0, 0, gx, gy, 0, 1, 4, 0);
+  f.s->pointer(0, 1, gx + 40, gy, -1, 1, 4, 0);
+  f.s->pointer(0, 2, gx + 40, gy, 0, 0, 4, 0);
+  CHECK(f.s->level().actors.size() == n + 1);
+}
+
+TEST(studio_shortcuts_and_commands) {
+  StudioFixture f;
+  f.frames(1);
+  f.s->key("e", "KeyE", true, 0, false);
+  CHECK(f.s->tool() == studio::Tool::rotate);
+  f.s->key("r", "KeyR", true, 0, false);
+  CHECK(f.s->tool() == studio::Tool::scale);
+  f.s->key("w", "KeyW", true, 0, false);
+  CHECK(f.s->tool() == studio::Tool::translate);
+  f.s->key("w", "KeyW", false, 0, false);
+  f.s->key("a", "KeyA", true, 2, false);
+  CHECK(f.s->selection().size() == f.s->level().actors.size());
+  f.s->key("Escape", "Escape", true, 0, false);
+  CHECK(f.s->selection().empty());
+  // Copy / paste / delete via commands.
+  const game::ActorId cube = f.s->spawn("cube", Vec3{5, 5, 0});
+  const std::size_t n = f.s->level().actors.size();
+  f.s->key("d", "KeyD", true, 2, false);
+  CHECK(f.s->level().actors.size() == n + 1);
+  f.s->key("Delete", "Delete", true, 0, false);
+  CHECK(f.s->level().actors.size() == n);
+  f.s->select({cube});
+  f.cmd(R"({"cmd":"copy"})");
+  f.cmd(R"({"cmd":"paste"})");
+  CHECK(f.s->level().actors.size() == n + 1);
+  json::Value ui = f.s->take_ui();
+  bool clip = false;
+  for (const json::Value& a : ui.items()) clip |= a["action"].as_string() == "clipboard";
+  CHECK(clip);
+  // Properties and components.
+  f.s->select({cube});
+  CHECK(f.cmd(R"({"cmd":"set","path":"transform.position","value":[1,2,3]})")["ok"].as_bool());
+  CHECK_NEAR(f.s->level().find(cube)->transform.position.y, 2, 1e-5f);
+  CHECK(f.cmd(R"({"cmd":"set","path":"components.mesh.material.color","value":"#ff0000"})")["ok"].as_bool());
+  CHECK(f.s->level().find(cube)->mesh->material.color.x > 0.99f);
+  CHECK(f.cmd(R"({"cmd":"addComponent","type":"body"})")["ok"].as_bool());
+  CHECK(f.s->level().find(cube)->body.has_value());
+  CHECK(f.cmd(R"({"cmd":"set","path":"components.body.mass","value":42})")["ok"].as_bool());
+  CHECK_NEAR(f.s->level().find(cube)->body->mass, 42, 1e-4f);
+  CHECK(f.cmd(R"({"cmd":"removeComponent","type":"body","index":0})")["ok"].as_bool());
+  CHECK(!f.s->level().find(cube)->body.has_value());
+  CHECK(f.cmd(R"({"cmd":"setWorld","path":"world.timeOfDay","value":0.5})")["ok"].as_bool());
+  CHECK_NEAR(f.s->level().world.time_of_day, 0.5f, 1e-4f);
+  // Details JSON lists the sections of the selection.
+  const json::Value st = f.s->state();
+  CHECK(st["details"]["sections"].size() >= 3);
+  // Connect two actors with a hinge.
+  const game::ActorId a = f.s->spawn("physics_cube", Vec3{20, 0, 0});
+  const game::ActorId b = f.s->spawn("cube", Vec3{21.5f, 0, 0});
+  f.s->select({a, b});
+  CHECK(f.cmd(R"({"cmd":"connect","kind":"hinge"})")["ok"].as_bool());
+  CHECK(f.s->level().find(a)->joints.size() == 1 && f.s->level().find(a)->joints[0].target == b);
+  // Every menu entry has a command object; unknown commands fail cleanly.
+  for (const char* m : {"file", "edit", "window", "play", "help", "context"}) {
+    const json::Value menu = f.cmd((std::string(R"({"cmd":"menu","name":")") + m + "\"}").c_str());
+    CHECK(menu["entries"].size() > 0);
+    for (const json::Value& e : menu["entries"].items()) CHECK(e["separator"].as_bool() || e["cmd"].is_object() || e["submenu"].is_array());
+  }
+  CHECK(!f.cmd(R"({"cmd":"nonsense"})")["ok"].as_bool());
+  // Dialogs.
+  for (const char* d : {"new", "preferences", "export", "history", "controls", "about", "rename"})
+    CHECK(f.cmd((std::string(R"({"cmd":"dialog","name":")") + d + "\"}").c_str())["dialog"].is_object());
+  CHECK(f.cmd(R"({"cmd":"submitDialog","name":"preferences","values":{"cameraSpeed":7,"gridSize":2}})")["ok"].as_bool());
+  CHECK(f.s->preferences().camera_speed == 7 && f.s->snap().grid_size == 2);
+  // View commands.
+  CHECK(f.cmd(R"({"cmd":"layout","layout":"quad"})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"viewType","viewport":1,"type":"left"})")["ok"].as_bool());
+  CHECK(f.s->viewport(1).type == studio::ViewType::left);
+  CHECK(f.cmd(R"({"cmd":"viewMode","viewport":0,"mode":"collision"})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"showFlag","viewport":0,"flag":"colliders","value":true})")["ok"].as_bool());
+  for (u32 i = 0; i < 4; ++i) f.s->set_viewport_rect(i, {static_cast<i32>(i % 2) * 480, static_cast<i32>(i / 2) * 270, 480, 270}, 480, 270, 1, true);
+  f.frames(3);
+  // Bookmarks.
+  f.s->key("1", "Digit1", true, 2, false);
+  const Vec3 p = f.s->viewport(0).camera.position;
+  f.s->viewport(0).camera.position = {0, 0, 100};
+  f.s->key("1", "Digit1", true, 0, false);
+  CHECK_NEAR(f.s->viewport(0).camera.position.z, p.z, 1e-4f);
+  // Console.
+  CHECK(f.cmd(R"({"cmd":"console","text":"gravity 0 0 -3"})")["ok"].as_bool());
+  CHECK_NEAR(f.s->level().world.gravity.z, -3, 1e-4f);
+}
+
+TEST(studio_outliner_hierarchy) {
+  StudioFixture f;
+  f.cmd(R"({"cmd":"new","template":"empty"})");
+  const game::ActorId a = f.s->spawn("cube", Vec3{0, 0, 0});
+  const game::ActorId b = f.s->spawn("sphere", Vec3{3, 0, 0});
+  CHECK(f.s->attach({b}, a));
+  CHECK(f.s->level().find(b)->parent == a);
+  // World placement is kept when attaching.
+  CHECK_NEAR(f.s->level().world_matrix(b).translation().x, 3, 1e-4f);
+  json::Value rows = f.s->state()["outliner"]["rows"];
+  CHECK(rows.size() == 2 && rows[1]["depth"].as_number() == 1);
+  json::Value c = json::Value::object();
+  c.set("cmd", "collapse");
+  c.set("key", "a:" + std::to_string(a));
+  f.s->command(c);
+  CHECK(f.s->state()["outliner"]["rows"].size() == 1);
+  f.cmd(R"({"cmd":"filter","text":"sphere"})");
+  rows = f.s->state()["outliner"]["rows"];
+  CHECK(rows.size() == 1 && rows[0]["id"].as_number() == b);
+  f.cmd(R"({"cmd":"filter","text":""})");
+  // Folders.
+  f.s->select({a});
+  CHECK(f.cmd(R"({"cmd":"setFolder","folder":"Props"})")["ok"].as_bool());
+  CHECK(f.s->level().find(a)->folder == "Props");
+  CHECK(f.cmd(R"({"cmd":"renameFolder","from":"Props","to":"Stuff"})")["ok"].as_bool());
+  CHECK(f.s->level().find(a)->folder == "Stuff");
+  // Hide / show, lock.
+  f.s->key("h", "KeyH", true, 0, false);
+  CHECK(f.s->level().find(a)->hidden);
+  f.s->key("h", "KeyH", true, 2, false);
+  CHECK(!f.s->level().find(a)->hidden);
+  f.s->select({a});
+  f.cmd(R"({"cmd":"lock","value":true})");
+  CHECK(f.s->level().find(a)->locked && f.s->selection().empty());
+  // Group keeps world placement.
+  f.cmd(R"({"cmd":"lock","value":false,"ids":[1]})");
+  f.s->select({b});
+  f.s->group_selection();
+  CHECK_NEAR(f.s->level().world_matrix(b).translation().x, 3, 1e-4f);
+  // Delete takes children along.
+  f.s->select({a});
+  f.s->delete_selection();
+  CHECK(!f.s->level().find(a));
+}
+
+TEST(studio_play_orb_run) {
+  StudioFixture f;
+  f.frames(2);
+  f.s->key("p", "KeyP", true, 4, false);  // Alt+P
+  CHECK(f.s->play_state() == studio::PlayState::playing);
+  const game::ActorId car = f.s->world().player();
+  CHECK(car != 0);
+  Mat4 m0;
+  f.s->world().actor_matrix(car, m0);
+  f.s->key("w", "KeyW", true, 0, false);
+  f.frames(120);
+  f.s->key("w", "KeyW", false, 0, false);
+  Mat4 m1;
+  f.s->world().actor_matrix(car, m1);
+  CHECK(distance(m0.translation(), m1.translation()) > 3);
+  json::Value st = f.s->status();
+  CHECK(st["hud"]["status"].as_string() == "playing");
+  CHECK(st["hud"]["pickupsTotal"].as_number() == 24);
+  // F8 ejects to a free camera, F8 again possesses.
+  f.s->key("F8", "F8", true, 0, false);
+  CHECK(f.s->play_state() == studio::PlayState::simulating);
+  f.s->key("F8", "F8", true, 0, false);
+  CHECK(f.s->play_state() == studio::PlayState::playing);
+  // Editing is blocked while playing; Esc stops and the level is untouched.
+  const std::size_t n = f.s->level().actors.size();
+  CHECK(f.s->spawn("cube") == 0);
+  f.s->key("Escape", "Escape", true, 0, false);
+  CHECK(f.s->play_state() == studio::PlayState::editing);
+  CHECK(f.s->level().actors.size() == n);
+  Mat4 m2;
+  f.frames(1);
+  f.s->world().actor_matrix(car, m2);
+  CHECK(distance(m0.translation(), m2.translation()) < 0.01f);
+}
+
+TEST(studio_simulate_keep_changes) {
+  StudioFixture f;
+  f.cmd(R"({"cmd":"new","template":"basic"})");
+  const game::ActorId box = f.s->spawn("physics_cube", Vec3{0, 0, 5});
+  f.frames(1);
+  CHECK(f.s->play(game::SimMode::simulate));
+  f.frames(120);
+  f.s->select({box});
+  f.s->key("k", "KeyK", true, 0, false);
+  CHECK(f.s->play_state() == studio::PlayState::editing);
+  CHECK(f.s->level().find(box)->transform.position.z < 1.5f);
+  f.s->undo();
+  CHECK(f.s->level().find(box)->transform.position.z > 4);
+}
+
+TEST(studio_save_load_and_textures) {
+  StudioFixture f;
+  f.cmd(R"({"cmd":"new","template":"physicsLab"})");
+  const json::Value saved = f.cmd(R"({"cmd":"save"})");
+  CHECK(saved["text"].as_string().size() > 1000);
+  CHECK(saved["file"].as_string().find(".klevel") != std::string::npos);
+  const std::size_t n = f.s->level().actors.size();
+  f.cmd(R"({"cmd":"new","template":"empty"})");
+  CHECK(f.s->level().actors.empty());
+  json::Value open = json::Value::object();
+  open.set("cmd", "open");
+  open.set("text", saved["text"]);
+  open.set("name", "lab.klevel");
+  CHECK(f.s->command(open)["ok"].as_bool());
+  CHECK(f.s->level().actors.size() == n);
+  CHECK(!f.s->can_undo());
+  // Texture import assigns to the selected mesh and asks the host for pixels.
+  const game::ActorId cube = f.s->spawn("cube", Vec3{0, 0, 0});
+  f.s->select({cube});
+  CHECK(f.cmd(R"({"cmd":"importTexture","name":"checker","src":"data:image/png;base64,AAAA","width":2,"height":2})")["ok"].as_bool());
+  CHECK(f.s->level().find(cube)->mesh->material.texture == "tex1");
+  f.frames(1);
+  const std::vector<std::string> pending = f.s->pending_textures();
+  CHECK(pending.size() == 1 && pending[0] == "tex1");
+  CHECK(f.s->texture_source("tex1").rfind("data:image/png", 0) == 0);
+  const u8 px[16] = {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
+  CHECK(f.s->texture_pixels("tex1", 2, 2, px));
+  CHECK(f.s->pending_textures().empty());
+  // Autosave becomes due after an edit.
+  CHECK(f.s->dirty());
+  CHECK(!f.s->take_autosave(f.now + 60000).empty());
+  // Packaging hands the level text to the page.
+  CHECK(f.cmd(R"({"cmd":"submitDialog","name":"export","values":{"title":"Lab"}})")["text"].as_string().find("\"Lab\"") != std::string::npos);
+}
+
+TEST(studio_player_only) {
+  StudioFixture f(true);
+  CHECK(f.s->level().actors.empty());
+  json::Value open = json::Value::object();
+  open.set("cmd", "open");
+  open.set("text", game::to_text(game::orb_run_level(), -1));
+  CHECK(f.s->command(open)["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  f.frames(10);
+  const json::Value st = f.s->status();
+  CHECK(st["hud"]["status"].as_string() == "playing");
+  CHECK(!st.has("camera"));
 }
 
 TEST(app_input_and_args) {

@@ -63,10 +63,10 @@ footer a { color: var(--muted); }
   <header>
     <div class="eyebrow">C++20 · WebAssembly · WebGL2 · Box3D</div>
     <h1>Kern</h1>
-    <p class="lede">Eine 3D-Engine in <b>C++</b>, kompiliert mit wasi-sdk nach <b>WebAssembly</b>, mit eigenem WebGL2-Renderer und <b>Box3D</b>-Physik. Dazu der <b>Kern Editor</b>: Szenen bauen, mit Box3D simulieren, Spielregeln vergeben und Spiele als eine HTML-Datei exportieren. Kein three.js, kein Emscripten.</p>
+    <p class="lede">Eine 3D-Engine in <b>C++</b>, kompiliert mit wasi-sdk nach <b>WebAssembly</b>, mit eigenem WebGL2-Renderer und <b>Box3D</b>-Physik. Dazu <b>Kern Studio</b>, ein Engine-Editor im Stil der Unreal Engine: Fly Mode, Gizmos, Outliner und Details, Play und Simulate im Viewport, Spiele als eine HTML-Datei. Kein three.js, kein Emscripten.</p>
     <div class="cta">
-      <a class="btn primary" href="./editor/">Editor öffnen</a>
-      <a class="btn" href="./kern/web/editor/player.html">Roll &amp; Collect spielen</a>
+      <a class="btn primary" href="./editor/">Kern Studio öffnen</a>
+      <a class="btn" href="./kern/web/studio/play.html?level=orbRun">Orb Run spielen</a>
       <a class="btn" href="https://github.com/ChristianHohlfeld/kern">Quellcode</a>
     </div>
   </header>
@@ -75,26 +75,26 @@ footer a { color: var(--muted); }
     <h2 id="live">Live</h2>
     <ul class="targets">
       <li>
-        <span class="name">Kern Editor</span>
-        <p class="what">Die Editor3D-Oberfläche auf Kern: Körper, Fixtures, Gelenke, Bildebenen, Sampler, Undo, Player mit Box3D-Maus-Griff, Spiel-Komponenten und Export.</p>
-        <span class="cmd">tools/build_editor.sh → editor3d.html</span>
+        <span class="name">Kern Studio</span>
+        <p class="what">Der Editor: Levels aus Actors und Komponenten, Viewports mit Unreal-Navigation (rechte Maustaste + WASD), Box3D-Körper, Collider und alle Gelenktypen, Play und Simulate im Viewport, Package Game. Startet mit Orb Run.</p>
+        <span class="cmd">tools/build_studio.sh → studio.html</span>
         <a class="go" href="./editor/">Öffnen →</a>
       </li>
       <li>
-        <span class="name">Roll &amp; Collect</span>
-        <p class="what">Das Beispielspiel aus dem Editor im Player: WASD oder Pfeile, Leertaste springt, R startet neu. Auf dem Handy mit Joystick.</p>
-        <span class="cmd">kern_editor.wasm · player-only</span>
-        <a class="go" href="./kern/web/editor/player.html">Spielen →</a>
-      </li>
-      <li>
-        <span class="name">scenegame</span>
-        <p class="what">Ein reines C++-Spiel (<code>kern::App</code>), das dieselbe Editor-Szene mit <code>world::SceneRuntime</code> auf Box3D abspielt.</p>
-        <span class="cmd">kern/build.sh --app --world scenegame.cpp</span>
-        <a class="go" href="./kern/examples/scenegame/?file=roll-and-collect.e3d">Spielen →</a>
-      </li>
-      <li>
         <span class="name">Orb Run</span>
-        <p class="what">Prozedurale Stadt, Fahrphysik, Verkehr, Tag und Nacht und eine eigene Shader-Erweiterung, komplett in C++.</p>
+        <p class="what">Das Start-Level aus Studio, ohne Editor gespielt: prozedurale Stadt, Box3D-Hovercar, 24 Orbs, Tag wird Nacht. WASD, Shift Boost, Maus schaut.</p>
+        <span class="cmd">kern_studio.wasm · player-only</span>
+        <a class="go" href="./kern/web/studio/play.html?level=orbRun">Spielen →</a>
+      </li>
+      <li>
+        <span class="name">Physics Lab</span>
+        <p class="what">Jeder Box3D-Gelenktyp in einem Level: Stapel, Pendel, Scharniertür, Seilbrücke mit Bruchstelle, Drehteller mit Motor, Lift und ein Rover auf Wheel-Gelenken. Mit der Kugel hineinrollen.</p>
+        <span class="cmd">kern_studio.wasm · player-only</span>
+        <a class="go" href="./kern/web/studio/play.html?level=physicsLab">Spielen →</a>
+      </li>
+      <li>
+        <span class="name">orbrun (C++)</span>
+        <p class="what">Das ursprüngliche Orb Run als reines C++-Spiel gegen <code>kern::App</code>: Stadt, Fahrphysik, Verkehr, Tag und Nacht und eine eigene Shader-Erweiterung.</p>
         <span class="cmd">kern/build.sh --app orbrun.cpp</span>
         <a class="go" href="./kern/examples/orbrun/">Starten →</a>
       </li>
@@ -110,16 +110,16 @@ footer a { color: var(--muted); }
   <section aria-labelledby="stack">
     <h2 id="stack">Aufbau</h2>
     <dl class="stack">
-      <div><dt>Renderer</dt><dd>PBR, Instancing, Skinning, Sonnenschatten mit Wiederverwendung, Bloom, Picking über BVH, Linien und Ebenen</dd></div>
-      <div><dt>Physik</dt><dd>Box3D von Erin Catto als C17 im selben Modul: Körper, Hüllen, alle Gelenktypen, Raycasts, MotorJoint-Griff</dd></div>
-      <div><dt>Welt</dt><dd>Szenenformat <code>.e3d</code> v2, Laufzeit mit Spieler, Pickups, Gefahren, Zielen und Zeitlimit</dd></div>
-      <div><dt>Editor</dt><dd><code>kern::editor::Editor</code> in C++; die Seite zeichnet nur Panels aus JSON</dd></div>
+      <div><dt>Renderer</dt><dd>PBR, Instancing, Skinning, Sonnenschatten mit Wiederverwendung, Bloom, Picking über BVH, Linien, Ebenen, orthografische Ansichten</dd></div>
+      <div><dt>Physik</dt><dd>Box3D von Erin Catto als C17 im selben Modul: Körper, Compounds, Hüllen, alle Gelenktypen mit Motoren, Federn und Bruch, Raycasts, MotorJoint-Griff</dd></div>
+      <div><dt>Spiel</dt><dd><code>kern::game</code>: Levels (<code>.klevel</code>) aus Actors und Komponenten, Controller, Pickups, Trigger, Siegbedingungen, prozedurale Stadt</dd></div>
+      <div><dt>Studio</dt><dd><code>kern::studio::Studio</code> in C++; die Seite zeichnet nur Panels aus JSON</dd></div>
     </dl>
   </section>
 
   <footer>
     <span>Box3D: MIT, Erin Catto · Earcut: ISC, Mapbox</span>
-    <a href="https://github.com/ChristianHohlfeld/kern/blob/main/kern/docs/editor.md">Editor-Doku</a>
+    <a href="https://github.com/ChristianHohlfeld/kern/blob/main/kern/docs/studio.md">Studio-Doku</a>
     <a href="https://github.com/ChristianHohlfeld/kern/blob/main/kern/README.md">Engine-Doku</a>
   </footer>
 </div>

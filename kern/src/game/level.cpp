@@ -723,7 +723,7 @@ json::Value to_json(const Level& level) {
     x.set("name", t.name);
     x.set("width", t.width);
     x.set("height", t.height);
-    x.set("src", t.src);
+    x.set("src", t.src ? *t.src : std::string());
     tex.push(std::move(x));
   }
   o.set("textures", std::move(tex));
@@ -778,10 +778,10 @@ bool from_json(const json::Value& doc, Level& out, std::string* error) {
       TextureAsset t;
       t.id = v["id"].as_string();
       t.name = v["name"].as_string();
-      t.src = v["src"].as_string();
+      t.src = std::make_shared<const std::string>(v["src"].as_string());
       t.width = static_cast<i32>(v["width"].as_number(0));
       t.height = static_cast<i32>(v["height"].as_number(0));
-      if (t.id.empty() || t.src.rfind("data:image/", 0) != 0) continue;
+      if (t.id.empty() || t.src->rfind("data:image/", 0) != 0) continue;
       l.textures.push_back(std::move(t));
     }
   out = std::move(l);

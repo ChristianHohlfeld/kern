@@ -178,9 +178,10 @@ Level orb_run_level() {
     orb.tags = {"Orb"};
     l.add(orb);
   }
-  l.camera.position = {car.transform.position.x - 26, car.transform.position.y - 34, 22};
-  l.camera.yaw = 52;
-  l.camera.pitch = -24;
+  // Down the avenue behind the car, the skyline ahead.
+  l.camera.position = {car.transform.position.x, car.transform.position.y - 38, 13};
+  l.camera.yaw = 90;
+  l.camera.pitch = -15;
   return l;
 }
 
