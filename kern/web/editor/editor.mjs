@@ -823,7 +823,23 @@ class EditorPage {
     try { localStorage.setItem(AUTOSAVE_KEY, text); } catch { this.report("Autosave unavailable or full. Use File → Save scene.", "warn"); }
   }
 
-  download(name, blob) {
+  /**
+   * Saves a file. Inside a claude.ai artifact the page may not start downloads
+   * itself; there the viewer's `downloads` capability asks the viewer instead
+   * (its extension allowlist has no .e3d, so scenes go out as .e3d.json).
+   */
+  async download(name, blob) {
+    const host = await this.hostDownloads();
+    if (host) {
+      const filename = name.endsWith(".e3d") ? name + ".json" : name;
+      try {
+        await host.save({filename, data: blob});
+        this.report("Saved " + filename);
+      } catch (error) {
+        if (error?.code !== "declined") this.report("Could not save " + filename + ": " + (error?.message || error?.code || error), "error");
+      }
+      return;
+    }
     const url = URL.createObjectURL(blob), a = document.createElement("a");
     a.href = url;
     a.download = name;
@@ -831,6 +847,12 @@ class EditorPage {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 15000);
+  }
+
+  hostDownloads() {
+    if (this.hostDownloadsPromise === undefined)
+      this.hostDownloadsPromise = window.claude?.use ? window.claude.use("downloads").catch(() => null) : Promise.resolve(null);
+    return this.hostDownloadsPromise;
   }
 
   downloadPixels(name, width, height) {

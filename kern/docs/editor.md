@@ -121,7 +121,7 @@ PNG, JPEG, WebP und GIF (bis 15 MB) lassen sich über *Add image* oder per Drag 
 
 ### Dateien und Autosave
 
-*Save* schreibt `.e3d` v2, *Export JSON* eine validierte JSON-Fassung. Geöffnet werden `.e3d`, `.json` und alte Editor3D-Dateien (v1 und die frühere Objektliste werden migriert). Der Arbeitsbereich wird laufend in `localStorage` (`kern-editor.workspace.v1`) gesichert und beim nächsten Start wiederhergestellt; ein Autosave des Originaleditors (`editor3d.workspace.v2`) wird übernommen.
+*Save* schreibt `.e3d` v2, *Export JSON* eine validierte JSON-Fassung. Läuft der Editor als claude.ai-Artifact, fragt der Viewer vor jedem Speichern nach; Szenen heißen dort `name.e3d.json`, weil der Viewer die Endung `.e3d` nicht zulässt. Geöffnet werden `.e3d`, `.json` und alte Editor3D-Dateien (v1 und die frühere Objektliste werden migriert). Der Arbeitsbereich wird laufend in `localStorage` (`kern-editor.workspace.v1`) gesichert und beim nächsten Start wiederhergestellt; ein Autosave des Originaleditors (`editor3d.workspace.v2`) wird übernommen.
 
 ## Spiele bauen
 
