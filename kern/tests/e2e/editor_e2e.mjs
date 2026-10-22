@@ -109,15 +109,16 @@ async function viewInk(page) {
   const undone = await page.evaluate(() => window.KernEditor.state.properties);
   check(Number(px(undone)) === Number(px(before)), "Ctrl+Z undoes the move");
 
-  // Property edit through the DOM.
-  const mass = page.locator('#properties input[aria-label="Name"]');
-  if (await mass.count()) {
-    await mass.fill("Crate");
-    await mass.press("Enter");
-    await mass.dispatchEvent("change");
-    await page.waitForTimeout(50);
-    check((await page.evaluate(() => window.KernEditor.state.tree.rows.map(r => r.name))).includes("Crate"), "renaming via the properties panel");
-  }
+  // Property edit through the DOM (value + change event in one step: the panel
+  // may be redrawn between separate Playwright actions on a slow machine).
+  const renamed = await page.evaluate(() => {
+    const input = document.querySelector('#properties input[aria-label="Name"]');
+    if (!input) return null;
+    input.value = "Crate";
+    input.dispatchEvent(new Event("change", {bubbles: true}));
+    return window.KernEditor.state.tree.rows.map(r => r.name);
+  });
+  check(renamed && renamed.includes("Crate"), "renaming via the properties panel");
 
   // Dialog: keyboard reference.
   await page.locator(".view.focused .canvas-wrap").focus();
@@ -139,7 +140,7 @@ async function viewInk(page) {
   check(await page.locator(".view.focused .hud").isVisible(), "HUD shown over the player view");
   const h0 = await page.evaluate(() => window.KernEditor.status.views.find(v => v.hud).hud);
   await page.keyboard.down("KeyW");
-  await page.waitForTimeout(1200);
+  await until(async () => { const h = await page.evaluate(() => window.KernEditor.status.views.find(v => v.hud).hud); return Math.hypot(h.player[0] - h0.player[0], h.player[1] - h0.player[1]) > 0.3; }, 5000);
   await page.keyboard.up("KeyW");
   const h1 = await page.evaluate(() => window.KernEditor.status.views.find(v => v.hud).hud);
   check(h1.elapsed > h0.elapsed, "game clock advances (" + h0.elapsed + " -> " + h1.elapsed + ")");
@@ -192,11 +193,12 @@ async function viewInk(page) {
   check(gh && gh.status === "playing", "exported game runs standalone from file:// (" + JSON.stringify(gh) + ")");
   check((await gp.textContent("#hud")).includes("Score"), "exported game HUD");
   const g0 = await gp.evaluate(() => window.KernPlayer.status.views[0].hud.player);
+  await gp.locator("#gl").focus();
   await gp.keyboard.down("KeyD");
-  await gp.waitForTimeout(800);
+  const dMoved = await until(async () => { const p = await gp.evaluate(() => window.KernPlayer.status.views[0].hud.player); return Math.hypot(p[0] - g0[0], p[1] - g0[1]) > 0.2; }, 5000);
   await gp.keyboard.up("KeyD");
   const g1 = await gp.evaluate(() => window.KernPlayer.status.views[0].hud.player);
-  check(Math.hypot(g1[0] - g0[0], g1[1] - g0[1]) > 0.2, "D moves the ball in the exported game");
+  check(dMoved, "D moves the ball in the exported game");
   await gp.evaluate(() => window.KernPlayer.command({cmd: "gameInput", view: window.KernPlayer.view, moveY: 1}));
   await gp.waitForTimeout(600);
   await gp.evaluate(() => window.KernPlayer.command({cmd: "gameInput", view: window.KernPlayer.view, moveY: 0}));
