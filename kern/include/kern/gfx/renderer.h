@@ -101,15 +101,18 @@ class Renderer {
   i32 height() const { return height_; }
 
   // ---- meshes ----
-  /// A free mesh id (> 0). Ids are recycled after remove().
+  /// A free mesh id (> 0). Ids are recycled after remove(); upsert() only
+  /// accepts ids obtained here, so two owners can never share a slot.
   u32 allocate_id();
   /// Returns an allocated id that never received a mesh (failed first upsert).
   void release_id(u32 id);
+  bool id_allocated(u32 id) const { return id < allocated_.size() && allocated_[id]; }
   /// Creates or atomically replaces mesh `id` (validation happens before
   /// anything changes; on failure the previous mesh stays drawn).
   bool upsert(u32 id, const MeshInput& input);
-  /// Replaces the instance transforms (16 floats each) and tints (4 floats each,
-  /// empty = white). `changed` reports whether anything differed.
+  /// Replaces the instance transforms (16 floats each; empty = keep the current
+  /// instances, i.e. a tint-only update) and tints (4 floats each per instance,
+  /// anything else = white). `changed` reports whether anything differed.
   bool update_instances(u32 id, Span<const f32> transforms, Span<const f32> tints, bool* changed = nullptr);
   bool update_bones(u32 id, Span<const f32> bones);
   bool set_visible(u32 id, bool visible);
@@ -173,7 +176,7 @@ class Renderer {
   void upload_texture(Texture& t);
   bool build_instances(Span<const f32> transforms, Span<const f32> tints, std::vector<f32>& out_t, std::vector<f32>& out_tint,
                        std::vector<f32>& out_normals, u32& count) const;
-  void write_instance_streams(Mesh& m);
+  void write_instance_streams(Mesh& m, u32 mask = 7);  // bit 0 transforms, 1 tints, 2 normal matrices
   void set_frame_uniforms(const Mat4& view_projection);
   void draw_mesh(const Mesh& m, RenderStats& stats);
   void touch(const Mesh& m) { ++scene_revision_; if (m.material.casts_shadow()) ++shadow_revision_; }
@@ -189,6 +192,8 @@ class Renderer {
   std::vector<std::unique_ptr<Mesh>> slots_;
   std::vector<Mesh*> live_;
   std::vector<u32> free_ids_;
+  std::vector<u8> allocated_;
+  std::vector<f32> scratch_transforms_, scratch_tints_, scratch_normals_;  // per slot: handed out by allocate_id() and not yet released
   std::vector<Texture> textures_;
 
   Program program_;
@@ -213,7 +218,7 @@ class Renderer {
 
   // GPU timer
   bool timer_supported_ = false;
-  std::vector<u32> pending_queries_;
+  std::vector<u32> pending_queries_, free_queries_;
   f64 last_gpu_ms_ = -1;
 
   // per-frame scratch, reused

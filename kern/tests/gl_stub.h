@@ -9,7 +9,9 @@ struct GlStub {
   kern::u64 programs_created = 0, programs_deleted = 0;
   kern::u64 buffer_bytes = 0, buffer_data_calls = 0, buffer_sub_data_calls = 0, shader_source_bytes = 0;
   kern::u64 uniform_calls = 0, draws = 0, instances = 0;
+  kern::u64 cull_front = 0, cull_back = 0, queries_created = 0;
   bool extensions_available = true;
+  bool fail_link = false;  // next program links report failure
   void reset();
 };
 

@@ -1,6 +1,7 @@
 // C ABI of the geometry builders: incremental jobs for footprint extrusion
 // and road ribbons, plus synchronous terrain tiles. Results are committed
 // straight into the renderer (welded), so the host never touches vertices.
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -49,22 +50,34 @@ u32 store(std::unique_ptr<GeoJob> j) {
 
 Rgb rgb_at(const f64* o, u32 slot) { return {o[slot], o[slot + 1], o[slot + 2]}; }
 
+bool all_finite(const f64* o, u32 n) {
+  for (u32 i = 0; i < n; ++i)
+    if (!std::isfinite(o[i])) return false;
+  return true;
+}
+
 }  // namespace
 
 /// options (f64): chunk_size, max_buildings, cornice, wall_records, trim rgb, trim_mix,
 ///                wall_count, roof_count, walls rgb..., roofs rgb...
-KERN_EXPORT(kern_geo_buildings_begin) u32 kern_geo_buildings_begin(const f64* stream, u32 length, const f64* o) {
+KERN_EXPORT(kern_geo_buildings_begin) u32 kern_geo_buildings_begin(const f64* stream, u32 length, const f64* o, u32 option_count) {
+  if (!stream || !length || !o || option_count < 10 || !all_finite(o, option_count)) { fail("invalid building job arguments"); return 0; }
+  u32 walls = 0, roofs = 0, max_buildings = 0;
+  if (!stream_count(o[8], 4096, walls) || !stream_count(o[9], 4096, roofs) || !stream_count(o[1], 1e7, max_buildings) ||
+      10 + (walls + roofs) * 3 > option_count) {
+    fail("building options do not match their length");
+    return 0;
+  }
   auto j = std::make_unique<GeoJob>();
   j->kind = GeoJob::kBuildings;
   j->stream.assign(stream, stream + length);
   BuildingOptions opt;
   opt.chunk_size = o[0];
-  opt.max_buildings = static_cast<u32>(o[1]);
+  opt.max_buildings = max_buildings;
   opt.cornice = o[2] != 0;
   opt.wall_records = o[3] != 0;
   opt.style.trim = rgb_at(o, 4);
   opt.style.trim_mix = o[7];
-  const u32 walls = static_cast<u32>(o[8]), roofs = static_cast<u32>(o[9]);
   opt.style.walls.clear();
   opt.style.roofs.clear();
   for (u32 i = 0; i < walls; ++i) opt.style.walls.push_back(rgb_at(o, 10 + i * 3));
@@ -75,7 +88,10 @@ KERN_EXPORT(kern_geo_buildings_begin) u32 kern_geo_buildings_begin(const f64* st
 
 /// options (f64): center x/y, radius, chunk_size, segment_length, curb_extra, curb_z, surface_z, marking_z,
 ///                marking_width, dash_start, dash_length, dash_period, uv_scale, curb rgb, palette_count, palette rgb...
-KERN_EXPORT(kern_geo_roads_begin) u32 kern_geo_roads_begin(const f64* stream, u32 length, const f64* o) {
+KERN_EXPORT(kern_geo_roads_begin) u32 kern_geo_roads_begin(const f64* stream, u32 length, const f64* o, u32 option_count) {
+  u32 palette = 0;
+  if (!stream || !length || !o || option_count < 18 || !all_finite(o, option_count)) { fail("invalid road job arguments"); return 0; }
+  if (!stream_count(o[17], 4096, palette) || 18 + palette * 3 > option_count) { fail("road options do not match their length"); return 0; }
   auto j = std::make_unique<GeoJob>();
   j->kind = GeoJob::kRoads;
   j->stream.assign(stream, stream + length);
@@ -84,7 +100,6 @@ KERN_EXPORT(kern_geo_roads_begin) u32 kern_geo_roads_begin(const f64* stream, u3
   opt.curb_extra = o[5]; opt.curb_z = o[6]; opt.surface_z = o[7]; opt.marking_z = o[8]; opt.marking_width = o[9];
   opt.dash_start = o[10]; opt.dash_length = o[11]; opt.dash_period = o[12]; opt.uv_scale = o[13];
   opt.curb_color = rgb_at(o, 14);
-  const u32 palette = static_cast<u32>(o[17]);
   for (u32 i = 0; i < palette; ++i) opt.palette.push_back(rgb_at(o, 18 + i * 3));
   if (!j->roads.begin(j->stream.data(), j->stream.size(), opt, host_heights())) return 0;
   return store(std::move(j));

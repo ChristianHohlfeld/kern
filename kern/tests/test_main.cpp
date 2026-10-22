@@ -444,6 +444,194 @@ TEST(particles_and_lights) {
 // ---------------------------------------------------------------------------
 // app runtime
 
+// ---------------------------------------------------------------------------
+// hardening (malformed streams, id ownership, instance updates, GPU state)
+
+TEST(stream_guards) {
+  u32 n = 7;
+  CHECK(stream_count(0, 10, n) && n == 0);
+  CHECK(stream_count(10, 10, n) && n == 10);
+  CHECK(!stream_count(11, 10, n));
+  CHECK(!stream_count(-1, 10, n));
+  CHECK(!stream_count(2.5, 10, n));
+  CHECK(!stream_count(NAN, 10, n));
+  CHECK(!stream_count(INFINITY, 1e300, n));
+  CHECK(stream_u32(-5) == 0 && stream_u32(1e12) == 0 && stream_u32(4294967295.0) == 4294967295u);
+
+  // A ring count that would wrap a 32-bit `n * 2` must not read past the stream.
+  BuildingOptions bo;
+  bo.chunk_size = 320;
+  const f64 huge_ring[] = {1, 7, 0, 10, 0, 0, 0, 1, 2147483648.0, 0, 0, 10, 0, 10, 10};
+  BuildingBuilder b;
+  CHECK(b.begin(huge_ring, sizeof huge_ring / sizeof *huge_ring, bo));
+  while (!b.step(1e9)) {}
+  CHECK(b.built() == 0);
+  const f64 bad_count[] = {-3};
+  CHECK(!b.begin(bad_count, 1, bo));
+  const f64 nan_count[] = {NAN};
+  CHECK(!b.begin(nan_count, 1, bo));
+  const f64 fractional_rings[] = {1, 7, 0, 10, 0, 0, 0, 1.5, 3, 0, 0, 10, 0, 10, 10};
+  CHECK(b.begin(fractional_rings, sizeof fractional_rings / sizeof *fractional_rings, bo));
+  while (!b.step(1e9)) {}
+  CHECK(b.built() == 0);
+
+  RoadOptions ro;
+  ro.radius = 1000;
+  ro.palette = {{0.2, 0.2, 0.2}, {1, 1, 1}};
+  HeightSampler flat;
+  const f64 huge_road[] = {1, 10, 3, 0, 1, 2147483649.0, 0, 0, 100, 0};
+  RoadBuilder r;
+  CHECK(r.begin(huge_road, sizeof huge_road / sizeof *huge_road, ro, flat));
+  while (!r.step(1e9)) {}
+  CHECK(r.triangles() == 0);
+  // Options that would make the dash loop or the segment split run away.
+  RoadOptions no_period = ro;
+  no_period.dash_period = 0;
+  CHECK(!r.begin(huge_road, 10, no_period, flat));
+  RoadOptions no_dash = ro;
+  no_dash.dash_length = 0;
+  CHECK(!r.begin(huge_road, 10, no_dash, flat));
+  RoadOptions tiny_segments = ro;
+  tiny_segments.segment_length = 1e-6;
+  CHECK(!r.begin(huge_road, 10, tiny_segments, flat));
+  RoadOptions nan_radius = ro;
+  nan_radius.radius = NAN;
+  CHECK(!r.begin(huge_road, 10, nan_radius, flat));
+}
+
+TEST(renderer_id_ownership) {
+  Renderer r;
+  CHECK(r.init({}));
+  const MeshData boxd = primitives::box({1, 1, 1});
+  const MeshInput box = input_of(boxd);
+  CHECK(!r.upsert(1, box));  // never allocated
+  const u32 a = r.allocate_id();
+  CHECK(r.upsert(a, box));
+  CHECK(r.remove(a));
+  CHECK(!r.upsert(a, box));  // released by remove(): the old owner cannot resurrect it
+  const u32 b = r.allocate_id();
+  CHECK(b == a);
+  r.release_id(b);
+  r.release_id(b);  // double release must not queue the id twice
+  const u32 c = r.allocate_id(), d = r.allocate_id();
+  CHECK(c == b && d != c);
+  r.release_id(d);
+  CHECK(!r.id_allocated(d));
+  CHECK(r.upsert(c, box));
+  r.release_id(c);  // has a mesh: ignored
+  CHECK(r.id_allocated(c) && r.mesh(c));
+  r.shutdown();
+}
+
+TEST(renderer_instance_updates) {
+  Renderer r;
+  RendererOptions o;
+  o.shadows = true;
+  o.width = 320;
+  o.height = 200;
+  CHECK(r.init(o));
+  const MeshData boxd = primitives::box({1, 1, 1});
+  const u32 a = r.allocate_id();
+  std::vector<f32> t;
+  for (int i = 0; i < 3; ++i) { const Mat4 m = Mat4::translate({static_cast<f32>(i * 2), 0, 0}); t.insert(t.end(), m.m, m.m + 16); }
+  MeshInput in = input_of(boxd);
+  in.transforms = Span<const f32>(t.data(), t.size());
+  CHECK(r.upsert(a, in));
+  r.camera.eye = {0, 10, 5};
+  r.camera.target = {0, 0, 0};
+  RenderStats s;
+  CHECK(r.render({}, s));
+  CHECK(r.render({}, s) && s.shadow_reused);
+  // Tint-only update: empty transforms keep the instances, upload one stream, keep the shadow map.
+  const std::vector<f32> red = {1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1};
+  const u64 uploads = g_gl.buffer_sub_data_calls;
+  bool changed = false;
+  CHECK(r.update_instances(a, {}, Span<const f32>(red.data(), red.size()), &changed) && changed);
+  CHECK(r.mesh(a)->instance_count == 3);
+  CHECK(r.mesh(a)->transforms.size() == 48 && r.mesh(a)->transforms[12] == 0 && r.mesh(a)->transforms[16 + 12] == 2);
+  CHECK(r.mesh(a)->tints[4] == 1 && r.mesh(a)->tints[5] == 0);
+  CHECK(g_gl.buffer_sub_data_calls == uploads + 1);
+  CHECK(r.render({}, s) && s.shadow_reused);
+  CHECK(r.update_instances(a, {}, Span<const f32>(red.data(), red.size()), &changed) && !changed);
+  const std::vector<f32> bad_tint = {NAN, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1};
+  CHECK(!r.update_instances(a, {}, Span<const f32>(bad_tint.data(), bad_tint.size())));
+  CHECK(r.mesh(a)->tints[0] == 1);
+  // Transform updates swap with scratch storage and rebuild bounds.
+  t[12] = 40;
+  CHECK(r.update_instances(a, Span<const f32>(t.data(), t.size()), Span<const f32>(red.data(), red.size()), &changed) && changed);
+  CHECK(r.mesh(a)->world_bounds.center.x > 2);
+  CHECK(r.render({}, s) && !s.shadow_reused);
+  CHECK(!r.update_instances(a, Span<const f32>(t.data(), 15), {}));
+
+  // A static mesh keeps (or regains) its picking BVH while its single instance is the identity.
+  const MeshData sphere = primitives::sphere(1, 16, 12);
+  const u32 st = r.allocate_id();
+  CHECK(r.upsert(st, input_of(sphere)));
+  CHECK(r.mesh(st)->bvh != nullptr);
+  const Mat4 moved = Mat4::translate({0, 0, 3});
+  CHECK(r.update_instances(st, Span<const f32>(moved.m, 16), {}));
+  CHECK(r.mesh(st)->bvh == nullptr);
+  const Mat4 identity = Mat4::identity();
+  CHECK(r.update_instances(st, Span<const f32>(identity.m, 16), {}));
+  CHECK(r.mesh(st)->bvh != nullptr);
+  r.shutdown();
+}
+
+TEST(renderer_mirrored_instances) {
+  Renderer r;
+  RendererOptions o;
+  o.shadows = true;
+  o.width = 320;
+  o.height = 200;
+  CHECK(r.init(o));
+  const MeshData boxd = primitives::box({1, 1, 1});
+  const u32 a = r.allocate_id();
+  const Mat4 mirror = Mat4::scale({-1, 1, 1});
+  MeshInput in = input_of(boxd);
+  in.transforms = Span<const f32>(mirror.m, 16);
+  CHECK(r.upsert(a, in));
+  CHECK(r.mesh(a)->mirror == 1 && r.mesh(a)->cull_mode() == 2);
+  r.camera.eye = {0, 10, 5};
+  r.camera.target = {0, 0, 0};
+  RenderStats s;
+  const u64 front = g_gl.cull_front;
+  CHECK(r.render({}, s));
+  CHECK(g_gl.cull_front >= front + 2);  // shadow pass and main pass
+  std::vector<f32> mixed(mirror.m, mirror.m + 16);
+  const Mat4 plain = Mat4::translate({3, 0, 0});
+  mixed.insert(mixed.end(), plain.m, plain.m + 16);
+  CHECK(r.update_instances(a, Span<const f32>(mixed.data(), mixed.size()), {}));
+  CHECK(r.mesh(a)->mirror == 2 && r.mesh(a)->cull_mode() == 0);
+  CHECK(r.update_instances(a, Span<const f32>(plain.m, 16), {}));
+  CHECK(r.mesh(a)->mirror == 0 && r.mesh(a)->cull_mode() == 1);
+  r.shutdown();
+}
+
+TEST(renderer_restore_failure_and_queries) {
+  Renderer r;
+  RendererOptions o;
+  o.width = 64;
+  o.height = 64;
+  CHECK(r.init(o));
+  const u32 a = r.allocate_id();
+  const MeshData boxd = primitives::box({1, 1, 1});
+  CHECK(r.upsert(a, input_of(boxd)));
+  RenderStats s;
+  const u64 queries = g_gl.queries_created;
+  for (int i = 0; i < 20; ++i) CHECK(r.render({}, s));
+  CHECK(g_gl.queries_created - queries <= 2);  // timer queries are recycled, not created per frame
+  r.context_lost();
+  g_gl.fail_link = true;
+  CHECK(!r.context_restored());
+  CHECK(r.lost());
+  CHECK(!r.render({}, s));
+  g_gl.fail_link = false;
+  CHECK(r.context_restored());
+  CHECK(!r.lost());
+  CHECK(r.render({}, s) && s.draw_calls == 1);
+  r.shutdown();
+}
+
 TEST(app_input_and_args) {
   Input in;
   in.key(Key::w, true);

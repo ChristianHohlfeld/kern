@@ -48,6 +48,8 @@ bool Renderer::init(const RendererOptions& options, Span<ShaderExtension* const>
   bloom_.configure(options.bloom);
   slots_.clear();
   slots_.emplace_back();  // id 0 is "none"
+  free_ids_.clear();
+  allocated_.assign(1, 0);
   textures_.assign(1, Texture{});
   if (!init_gpu()) return false;
   initialised_ = true;
@@ -94,6 +96,7 @@ bool Renderer::init_gpu() {
   if (!sky_pass_.init()) return false;
   timer_supported_ = gl::has_extension("EXT_disjoint_timer_query_webgl2");
   pending_queries_.clear();
+  free_queries_.clear();
   last_gpu_ms_ = -1;
   shadow_.reset();
   shadow_key_valid_ = false;
@@ -111,13 +114,16 @@ void Renderer::shutdown() {
   live_.clear();
   slots_.clear();
   free_ids_.clear();
+  allocated_.clear();
   if (!lost_) {
     for (u32 q : pending_queries_) gl::deleteQuery(q);
+    for (u32 q : free_queries_) gl::deleteQuery(q);
     for (Texture& t : textures_)
       if (t.alive && !t.external && t.handle) gl::deleteTexture(t.handle);
   }
   textures_.clear();
   pending_queries_.clear();
+  free_queries_.clear();
   if (shadow_) shadow_->destroy(lost_);
   shadow_.reset();
   sky_pass_.destroy(lost_);
@@ -140,15 +146,18 @@ u32 Renderer::allocate_id() {
   if (!free_ids_.empty()) {
     const u32 id = free_ids_.back();
     free_ids_.pop_back();
+    allocated_[id] = 1;
     return id;
   }
   slots_.emplace_back();
+  allocated_.push_back(1);
   return static_cast<u32>(slots_.size() - 1);
 }
 
 void Renderer::release_id(u32 id) {
-  if (!id || id >= slots_.size() || slots_[id]) return;
-  if (std::find(free_ids_.begin(), free_ids_.end(), id) == free_ids_.end()) free_ids_.push_back(id);
+  if (!id_allocated(id) || slots_[id]) return;
+  allocated_[id] = 0;
+  free_ids_.push_back(id);
 }
 
 bool Renderer::build_instances(Span<const f32> transforms, Span<const f32> tints, std::vector<f32>& out_t,
@@ -159,7 +168,10 @@ bool Renderer::build_instances(Span<const f32> transforms, Span<const f32> tints
   if (!all_finite(transforms.data, transforms.size)) return fail("non-finite instance transform");
   count = static_cast<u32>(transforms.size / 16);
   assign(out_t, transforms);
-  if (tints.size == static_cast<std::size_t>(count) * 4) assign(out_tint, tints);
+  if (tints.size == static_cast<std::size_t>(count) * 4) {
+    if (!all_finite(tints.data, tints.size)) return fail("non-finite instance tint");
+    assign(out_tint, tints);
+  }
   else out_tint.assign(static_cast<std::size_t>(count) * 4, 1.0f);
   out_normals.resize(static_cast<std::size_t>(count) * 9);
   for (u32 k = 0; k < count; ++k)
@@ -169,7 +181,7 @@ bool Renderer::build_instances(Span<const f32> transforms, Span<const f32> tints
 
 bool Renderer::upsert(u32 id, const MeshInput& in) {
   if (!initialised_) return fail("renderer not initialised");
-  if (!id || id >= slots_.size()) return fail("invalid mesh id %u", id);
+  if (!id_allocated(id)) return fail("mesh id %u was not allocated", id);
   const std::size_t p = in.positions.size;
   if (!p || p % 3) return fail("positions must be xyz triplets");
   const u32 vertices = static_cast<u32>(p / 3);
@@ -238,6 +250,7 @@ bool Renderer::upsert(u32 id, const MeshInput& in) {
   }
   if (skinned) { assign(m.joints, in.joints); assign(m.weights, in.weights); assign(m.bones, in.bones); }
   if (!build_instances(in.transforms, in.tints, m.transforms, m.tints, m.instance_normals, m.instance_count)) return false;
+  m.mirror = mirror_state(m.transforms.data(), m.instance_count);
   m.local_bounds = bounding_sphere(m.positions.data(), vertices);
   m.world_bounds = instanced_bounds(m.local_bounds, m.transforms.data(), m.instance_count);
   if (!m.world_bounds.valid()) return fail("invalid world bounds");
@@ -337,11 +350,12 @@ void Renderer::free_gpu(Mesh& m) {
   g = MeshGpu{};
 }
 
-void Renderer::write_instance_streams(Mesh& m) {
+void Renderer::write_instance_streams(Mesh& m, u32 mask) {
   MeshGpu& g = m.gpu;
   const std::vector<f32>* data[3] = {&m.transforms, &m.tints, &m.instance_normals};
   const u32 buffers[3] = {g.transforms, g.tints, g.instance_normals};
   for (int s = 0; s < 3; ++s) {
+    if (!(mask & (1u << s))) continue;
     gl::bindBuffer(gl::ARRAY_BUFFER, buffers[s]);
     const u32 n = static_cast<u32>(data[s]->size());
     if (n > g.capacity[s]) {
@@ -358,9 +372,12 @@ bool Renderer::update_instances(u32 id, Span<const f32> transforms, Span<const f
   if (changed) *changed = false;
   Mesh* m = mesh(id);
   if (!m) return fail("unknown mesh %u", id);
-  const std::size_t count = transforms.empty() ? 1 : transforms.size / 16;
-  const bool same_transforms = !transforms.empty() && transforms.size == m->transforms.size() &&
-                               std::memcmp(transforms.data, m->transforms.data(), transforms.size * 4) == 0;
+  // Empty transforms keep the current instances (tint-only update).
+  const bool keep_transforms = transforms.empty();
+  if (!keep_transforms && transforms.size % 16) return fail("instance transforms must be 16 floats each");
+  const std::size_t count = keep_transforms ? m->instance_count : transforms.size / 16;
+  const bool same_transforms = keep_transforms || (transforms.size == m->transforms.size() &&
+                                                   std::memcmp(transforms.data, m->transforms.data(), transforms.size * 4) == 0);
   const bool default_tints = tints.size != count * 4;
   bool same_tints;
   if (default_tints) {
@@ -370,17 +387,40 @@ bool Renderer::update_instances(u32 id, Span<const f32> transforms, Span<const f
     same_tints = m->tints.size() == tints.size && std::memcmp(tints.data, m->tints.data(), tints.size * 4) == 0;
   }
   if (same_transforms && same_tints) return true;
-  std::vector<f32> t, tint, normals;
+
+  if (same_transforms) {
+    // Colour only: geometry, bounds, BVH and the shadow map stay valid.
+    if (default_tints) {
+      m->tints.assign(count * 4, 1.0f);
+    } else {
+      if (!all_finite(tints.data, tints.size)) return fail("non-finite instance tint");
+      assign(m->tints, tints);
+    }
+    if (!lost_ && m->gpu.vao) write_instance_streams(*m, 2);
+    ++scene_revision_;
+    if (changed) *changed = true;
+    return true;
+  }
+
+  // Scratch vectors swap with the mesh's, so steady-state updates never allocate.
   u32 n = 0;
-  if (!build_instances(transforms, tints, t, tint, normals, n)) return false;
-  const Sphere bounds = instanced_bounds(m->local_bounds, t.data(), n);
+  if (!build_instances(transforms, tints, scratch_transforms_, scratch_tints_, scratch_normals_, n)) return false;
+  const Sphere bounds = instanced_bounds(m->local_bounds, scratch_transforms_.data(), n);
   if (!bounds.valid()) return fail("invalid world bounds");
-  m->transforms.swap(t);
-  m->tints.swap(tint);
-  m->instance_normals.swap(normals);
+  m->transforms.swap(scratch_transforms_);
+  m->tints.swap(scratch_tints_);
+  m->instance_normals.swap(scratch_normals_);
   m->instance_count = n;
+  m->mirror = mirror_state(m->transforms.data(), n);
   m->world_bounds = bounds;
-  m->bvh.reset();
+  // The BVH holds mesh-space triangles and is used for a single identity instance.
+  const bool static_world = n == 1 && !m->skinned() && Mat4::load(m->transforms.data()).is_identity();
+  if (!static_world) {
+    m->bvh.reset();
+  } else if (!m->bvh && m->triangle_count() >= kBvhMinTriangles) {
+    m->bvh = std::make_unique<Bvh>();
+    m->bvh->build(m->positions.data(), m->vertex_count(), m->indices.empty() ? nullptr : m->indices.data(), static_cast<u32>(m->indices.size()));
+  }
   if (!lost_ && m->gpu.vao) write_instance_streams(*m);
   touch(*m);
   if (changed) *changed = true;
@@ -427,6 +467,7 @@ bool Renderer::remove(u32 id) {
   last->live_index = m->live_index;
   live_.pop_back();
   slots_[id].reset();
+  allocated_[id] = 0;
   free_ids_.push_back(id);
   return true;
 }
@@ -561,11 +602,8 @@ void Renderer::draw_mesh(const Mesh& m, RenderStats& stats) {
     gl::bindTexture(gl::TEXTURE_2D, texture);
     bound_texture_ = texture;
   }
-  const i32 cull = mat.double_sided ? 0 : 1;
-  if (cull != cull_state_) {
-    if (cull) { gl::enable(gl::CULL_FACE); gl::cullFace(gl::BACK); } else gl::disable(gl::CULL_FACE);
-    cull_state_ = cull;
-  }
+  const i32 cull = m.cull_mode();
+  if (cull != cull_state_) { apply_cull_mode(cull); cull_state_ = cull; }
   gl::bindVertexArray(m.gpu.vao);
   const i32 instances = static_cast<i32>(m.instance_count);
   if (!m.indices.empty()) gl::drawElementsInstanced(gl::TRIANGLES, static_cast<i32>(m.indices.size()), m.gpu.element_type, 0, instances);
@@ -603,15 +641,16 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
     for (u32 q : pending_queries_) {
       if (gl::queryAvailable(q)) {
         if (!gl::gpuDisjoint()) last_gpu_ms_ = gl::queryResultMs(q);
-        gl::deleteQuery(q);
+        free_queries_.push_back(q);  // reused: no query object churn per frame
       } else pending_queries_[keep++] = q;
     }
     pending_queries_.resize(keep);
   }
   u32 timer_query = 0;
   if (timer_supported_ && pending_queries_.size() < 4) {
-    timer_query = gl::createQuery();
-    gl::beginQuery(gl::TIME_ELAPSED, timer_query);
+    if (!free_queries_.empty()) { timer_query = free_queries_.back(); free_queries_.pop_back(); }
+    else timer_query = gl::createQuery();
+    if (timer_query) gl::beginQuery(gl::TIME_ELAPSED, timer_query);
   }
 
   if (shadow_) {
@@ -723,6 +762,7 @@ void Renderer::context_lost() {
   for (Texture& t : textures_)
     if (!t.external) t.handle = 0;
   pending_queries_.clear();
+  free_queries_.clear();
   if (shadow_) shadow_->destroy(true);
   shadow_.reset();
   shadow_key_valid_ = false;
@@ -733,8 +773,17 @@ void Renderer::context_lost() {
 
 bool Renderer::context_restored() {
   if (!lost_) return true;
+  // Stay lost until everything is rebuilt; a failed attempt frees what it made
+  // (the context is alive) so a later restore can start from scratch.
+  if (!init_gpu()) {
+    if (shadow_) shadow_->destroy(false);
+    shadow_.reset();
+    sky_pass_.destroy(false);
+    bloom_.destroy(false);
+    program_.destroy(false);
+    return false;
+  }
   lost_ = false;
-  if (!init_gpu()) return false;
   for (Texture& t : textures_)
     if (t.alive && !t.external) upload_texture(t);
   for (Mesh* m : live_) upload(*m);

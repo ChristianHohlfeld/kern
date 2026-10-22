@@ -149,34 +149,38 @@ KERN_EXPORT(kern_mesh_upsert) i32 kern_mesh_upsert(u32 id, const u32* d) {
   in.transforms = span_at<f32>(d, KERN_MD_TRANSFORMS);
   in.tints = span_at<f32>(d, KERN_MD_TINTS);
   read_material(d, in);
+  // Welding only applies to well-formed triangle soups with normals and at most
+  // one extension stream; anything else goes through the validating upsert as is
+  // (which reports malformed input instead of guessing).
+  const std::size_t p = in.positions.size;
+  const std::size_t vertices = p / 3;
+  u32 ext_streams = 0, slot = kMaxExtensionAttributes;
+  for (u32 a = 0; a < kMaxExtensionAttributes; ++a)
+    if (!in.extension[a].empty()) { ext_streams++; if (slot == kMaxExtensionAttributes) slot = a; }
+  const bool weldable = (d[KERN_MD_FLAGS] & KERN_MF_WELD) && in.indices.empty() && in.bones.empty() && p >= 9 && p % 9 == 0 &&
+                        in.normals.size == p && (in.colors.empty() || in.colors.size == p) &&
+                        (in.uvs.empty() || in.uvs.size == vertices * 2) && ext_streams <= 1 &&
+                        (ext_streams == 0 || (in.extension[slot].size % vertices == 0 && in.extension[slot].size / vertices >= 1 &&
+                                              in.extension[slot].size / vertices <= 4));
   bool ok;
-  if ((d[KERN_MD_FLAGS] & KERN_MF_WELD) && in.indices.empty() && in.bones.empty() && !in.positions.empty()) {
-    // Lossless welding of a triangle soup inside the engine (no JS-side packing).
+  if (weldable) {
     MeshData soup;
     soup.positions.assign(in.positions.begin(), in.positions.end());
-    const std::size_t p = in.positions.size;
-    if (in.normals.size == p) soup.normals.assign(in.normals.begin(), in.normals.end());
-    if (in.colors.size == p) soup.colors.assign(in.colors.begin(), in.colors.end()); else soup.colors.assign(p, 1.0f);
-    if (in.uvs.size == p / 3 * 2) soup.uvs.assign(in.uvs.begin(), in.uvs.end()); else soup.uvs.assign(p / 3 * 2, 0.0f);
-    u32 slot = kMaxExtensionAttributes;
-    for (u32 a = 0; a < kMaxExtensionAttributes; ++a)
-      if (!in.extension[a].empty() && slot == kMaxExtensionAttributes) slot = a;
-    if (slot < kMaxExtensionAttributes && in.extension[slot].size % (p / 3) == 0) {
-      soup.extra_size = static_cast<u32>(in.extension[slot].size / (p / 3));
+    soup.normals.assign(in.normals.begin(), in.normals.end());
+    if (!in.colors.empty()) soup.colors.assign(in.colors.begin(), in.colors.end()); else soup.colors.assign(p, 1.0f);
+    if (!in.uvs.empty()) soup.uvs.assign(in.uvs.begin(), in.uvs.end()); else soup.uvs.assign(vertices * 2, 0.0f);
+    if (ext_streams) {
+      soup.extra_size = static_cast<u32>(in.extension[slot].size / vertices);
       soup.extra.assign(in.extension[slot].begin(), in.extension[slot].end());
     }
-    if (soup.normals.empty()) {
-      ok = R().upsert(id, in);  // flat normals are generated per face; welding would not merge anything
-    } else {
-      weld(soup);
-      MeshInput welded = soup.as_input(slot < kMaxExtensionAttributes ? slot : 0);
-      welded.transforms = in.transforms;
-      welded.tints = in.tints;
-      welded.material = in.material;
-      welded.texture = in.texture;
-      welded.visible = in.visible;
-      ok = R().upsert(id, welded);
-    }
+    weld(soup);
+    MeshInput welded = soup.as_input(ext_streams ? slot : 0);
+    welded.transforms = in.transforms;
+    welded.tints = in.tints;
+    welded.material = in.material;
+    welded.texture = in.texture;
+    welded.visible = in.visible;
+    ok = R().upsert(id, welded);
   } else {
     ok = R().upsert(id, in);
   }

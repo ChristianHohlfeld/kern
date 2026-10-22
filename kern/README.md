@@ -119,7 +119,9 @@ Die Fassade kopiert Typed Arrays in einen wiederverwendeten Staging-Bereich im W
 - **Sonnenschatten:** Der Fokus wird auf das Texelraster im Lichtraum eingerastet. Dadurch flimmert nichts, und die Map wird wiederverwendet, bis sich ein Schattenwerfer, die Sonne oder die gerasterte Fokuszelle ändert.
 - **Zustandsfilter:** `UniformCache` lässt unveränderte `uniform*`-Aufrufe aus. Textur- und Cull-Zustand werden pro Frame verfolgt.
 - **Instanzpuffer:** Sie wachsen geometrisch. Unveränderte Instanzen werden erkannt und nicht hochgeladen.
-- **Robustheit:** Ein ungültiges `upsert` lässt das vorhandene Mesh unangetastet, weil vor jeder Änderung validiert wird. Bei Kontextverlust pausiert der Renderer. Bei der Wiederherstellung baut er alle Programme neu und lädt Meshes und Engine-Texturen aus den CPU-Kopien neu hoch. Host-Texturen stellt die Plattformschicht im selben Handle-Slot wieder her.
+- **Robustheit:** Ein ungültiges `upsert` lässt das vorhandene Mesh unangetastet, weil vor jeder Änderung validiert wird. Bei Kontextverlust pausiert der Renderer. Bei der Wiederherstellung baut er alle Programme neu und lädt Meshes und Engine-Texturen aus den CPU-Kopien neu hoch. Host-Texturen stellt die Plattformschicht im selben Handle-Slot wieder her. Scheitert die Wiederherstellung, bleibt der Renderer pausiert, bis ein späterer Versuch gelingt.
+- **Eingaben aus dem Host:** Alle f64-Ströme der Geometrie-Jobs werden geprüft (Zähler endlich, ganzzahlig, im Rahmen der echten Länge), Optionsvektoren gegen ihre übergebene Länge. Mesh-Ids gehören dem, der sie mit `allocate_id()` geholt hat; `upsert` auf fremde oder freigegebene Ids schlägt fehl.
+- **Instanzen:** Leere Transforms bei `update_instances` bedeuten „Instanzen behalten“ (reines Tint-Update, nur ein Puffer wird hochgeladen, die Schattenkarte bleibt gültig). Gespiegelte Instanzen (negative Determinante) werden mit `cullFace(FRONT)` gezeichnet, gemischte ohne Culling, auch im Schattenpass.
 
 ### Shader-Erweiterungen
 

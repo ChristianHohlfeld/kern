@@ -92,6 +92,7 @@ struct Mesh {
 
   std::vector<f32> transforms, tints, instance_normals;
   u32 instance_count = 0;
+  u8 mirror = 0;  // instances with negative determinant: 0 none, 1 all, 2 some
 
   Sphere local_bounds, world_bounds;
   std::unique_ptr<Bvh> bvh;  // static world-space meshes only (picking)
@@ -105,6 +106,9 @@ struct Mesh {
   Mesh& operator=(const Mesh&) = delete;
 
   bool skinned() const { return !bones.empty(); }
+  /// Face culling for this mesh: 0 off, 1 back faces, 2 front faces (all
+  /// instances mirrored flip the winding; a mix cannot be culled in one draw).
+  i32 cull_mode() const { return material.double_sided || mirror == 2 ? 0 : mirror == 1 ? 2 : 1; }
   u32 vertex_count() const { return static_cast<u32>(positions.size() / 3); }
   u32 element_count() const { return indices.empty() ? vertex_count() : static_cast<u32>(indices.size()); }
   u32 triangle_count() const { return element_count() / 3; }
@@ -114,6 +118,10 @@ struct Mesh {
 
 /// Bounding sphere of a position array.
 Sphere bounding_sphere(const f32* positions, u32 vertex_count);
+/// 0 when no instance mirrors (negative 3x3 determinant), 1 when all do, 2 for a mix.
+u8 mirror_state(const f32* transforms, u32 instance_count);
+/// Applies a cull_mode() value to the GL state.
+void apply_cull_mode(i32 mode);
 /// World sphere enclosing every instance transform of a local sphere.
 Sphere instanced_bounds(const Sphere& local, const f32* transforms, u32 instance_count);
 

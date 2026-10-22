@@ -61,7 +61,7 @@ void deleteShader(u32) {}
 u32 createProgram() { g_gl.programs_created++; return next_handle(); }
 void attachShader(u32, u32) {}
 void linkProgram(u32) {}
-i32 getProgramParameter(u32, u32) { return 1; }
+i32 getProgramParameter(u32, u32) { return g_gl.fail_link ? 0 : 1; }
 u32 getProgramInfoLog(u32, char*, u32) { return 0; }
 void deleteProgram(u32) { g_gl.programs_deleted++; }
 void useProgram(u32) {}
@@ -86,7 +86,7 @@ void disable(u32) {}
 void depthFunc(u32) {}
 void depthMask(i32) {}
 void blendFunc(u32, u32) {}
-void cullFace(u32) {}
+void cullFace(u32 mode) { (mode == FRONT ? g_gl.cull_front : g_gl.cull_back)++; }
 void colorMask(i32, i32, i32, i32) {}
 void clearColor(f32, f32, f32, f32) {}
 void clearDepth(f32) {}
@@ -98,7 +98,7 @@ void drawArrays(u32, i32, i32) { g_gl.draws++; }
 void drawArraysInstanced(u32, i32, i32, i32 instances) { g_gl.draws++; g_gl.instances += instances; }
 void drawElementsInstanced(u32, i32, u32, i32, i32 instances) { g_gl.draws++; g_gl.instances += instances; }
 i32 getExtension(const char*, u32) { return g_gl.extensions_available ? 1 : 0; }
-u32 createQuery() { return next_handle(); }
+u32 createQuery() { g_gl.queries_created++; return next_handle(); }
 void deleteQuery(u32) {}
 void beginQuery(u32, u32) {}
 void endQuery(u32) {}

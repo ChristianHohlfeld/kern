@@ -129,11 +129,8 @@ u32 SunShadowMap::draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun) {
     const i32 skinned = m->skinned() ? 1 : 0;
     if (skinned != skinned_state) { gl::uniform1i(u_skinned_, skinned); skinned_state = skinned; }
     if (skinned) gl::uniformMatrix4fv(u_bones_, m->bones.data(), static_cast<i32>(m->bones.size() / 16));
-    const i32 cull = m->material.double_sided ? 0 : 1;
-    if (cull != cull_state) {
-      if (cull) { gl::enable(gl::CULL_FACE); gl::cullFace(gl::BACK); } else gl::disable(gl::CULL_FACE);
-      cull_state = cull;
-    }
+    const i32 cull = m->cull_mode();
+    if (cull != cull_state) { apply_cull_mode(cull); cull_state = cull; }
     gl::bindVertexArray(m->gpu.vao);
     if (!m->indices.empty())
       gl::drawElementsInstanced(gl::TRIANGLES, static_cast<i32>(m->indices.size()), m->gpu.element_type, 0, static_cast<i32>(m->instance_count));

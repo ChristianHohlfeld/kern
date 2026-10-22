@@ -51,7 +51,8 @@ bool BuildingBuilder::begin(const f64* stream, std::size_t length, const Buildin
   stream_ = stream;
   length_ = length;
   cursor_ = 1;
-  count_ = static_cast<u32>(min_of<f64>(stream[0], options.max_buildings));
+  if (!stream_count(stream[0], 1e9, count_)) return fail("invalid footprint count");
+  count_ = min_of(count_, options.max_buildings);
   options_ = options;
   chunks_.clear();
   chunk_index_.clear();
@@ -96,11 +97,12 @@ bool BuildingBuilder::build_one() {
   // ---- parse ----
   if (cursor_ + 7 > length_) return false;
   const f64* s = stream_ + cursor_;
-  const u32 seed_hash = static_cast<u32>(s[0]);
+  const u32 seed_hash = stream_u32(s[0]);
   const f64 base = s[1], top = s[2];
   const bool has_center = s[3] != 0;
   f64 center_x = s[4], center_y = s[5];
-  const u32 ring_count = static_cast<u32>(s[6]);
+  u32 ring_count = 0;
+  if (!stream_count(s[6], 1e6, ring_count)) return false;
   cursor_ += 7;
   xy_.clear();
   ring_starts_.clear();
@@ -109,8 +111,9 @@ bool BuildingBuilder::build_one() {
   f64 outer_first_x = 0, outer_first_y = 0;
   for (u32 r = 0; r < ring_count; ++r) {
     if (cursor_ + 1 > length_) return false;
-    const u32 n = static_cast<u32>(stream_[cursor_++]);
-    if (cursor_ + n * 2 > length_) return false;
+    u32 n = 0;
+    const f64 count_value = stream_[cursor_++];
+    if (!stream_count(count_value, static_cast<f64>((length_ - cursor_) / 2), n)) return false;
     ring_.assign(stream_ + cursor_, stream_ + cursor_ + n * 2);
     cursor_ += n * 2;
     clean_ring(ring_);

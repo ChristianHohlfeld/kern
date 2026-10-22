@@ -5,12 +5,15 @@
 namespace kern {
 
 bool RoadBuilder::begin(const f64* stream, std::size_t length, const RoadOptions& options, HeightSampler heights) {
-  if (!(options.radius > 0) || !(options.chunk_size > 0) || !(options.segment_length > 0)) return fail("invalid road options");
+  if (!(options.radius > 0) || !(options.chunk_size > 0) || !(options.segment_length >= 0.25) || !(options.dash_period > 0) ||
+      !(options.dash_length > 0) || !(options.marking_width > 0) || !(options.dash_start >= 0) || !std::isfinite(options.radius) ||
+      !std::isfinite(options.chunk_size) || !std::isfinite(options.segment_length) || !std::isfinite(options.dash_period))
+    return fail("invalid road options");
   if (!stream || length < 1) return fail("empty road stream");
   stream_ = stream;
   length_ = length;
   cursor_ = 1;
-  count_ = static_cast<u32>(stream[0]);
+  if (!stream_count(stream[0], 1e9, count_)) return fail("invalid road count");
   index_ = 0;
   options_ = options;
   heights_ = heights;
@@ -70,10 +73,11 @@ bool RoadBuilder::build_one() {
   if (cursor_ + 6 > length_) return false;
   const f64* s = stream_ + cursor_;
   const f64 width = s[0];
-  const u32 flags = static_cast<u32>(s[1]);
-  const u32 surface = static_cast<u32>(s[2]), marking = static_cast<u32>(s[3]), n = static_cast<u32>(s[4]);
+  u32 flags = 0, surface = 0, marking = 0, n = 0;
+  if (!stream_count(s[1], 3, flags) || !stream_count(s[2], 1e6, surface) || !stream_count(s[3], 1e6, marking)) return false;
   cursor_ += 5;
-  if (cursor_ + n * 2 > length_) return false;
+  if (!stream_count(s[4], static_cast<f64>((length_ - cursor_) / 2), n)) return false;
+  if (!(width > 0 && width < 1000)) { cursor_ += static_cast<std::size_t>(n) * 2; return true; }
   const f64* p = stream_ + cursor_;
   cursor_ += n * 2;
   if (n < 2 || surface >= options_.palette.size() || ((flags & 2) && marking >= options_.palette.size())) return true;

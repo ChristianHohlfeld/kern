@@ -125,6 +125,13 @@ export class KernModule {
     else this.objects[slot] = object;
     return slot;
   }
+  /** Takes a slot even while no GPU object exists (context lost): it stays PENDING until restored. */
+  reserveObject(object) {
+    let slot = this.freeObjects.pop();
+    if (slot === undefined) slot = this.objects.push(object || PENDING) - 1;
+    else this.objects[slot] = object || PENDING;
+    return slot;
+  }
   releaseObject(slot) {
     if (!slot || this.pinned.has(slot)) return;
     this.objects[slot] = null;
@@ -161,7 +168,7 @@ export class KernModule {
   imports() {
     const self = this;
     const gl = () => self.gl;
-    const obj = slot => self.objects[slot] ?? null;
+    const obj = slot => { const o = self.objects[slot]; return o && o !== PENDING ? o : null; };
     const loc = slot => self.locations[slot] ?? null;
     const env = {
       now: () => performance.now(),
@@ -211,11 +218,12 @@ export class KernModule {
       framebufferTexture2D: (target, attachment, textarget, t, level) => gl().framebufferTexture2D(target, attachment, textarget, obj(t), level),
       checkFramebufferStatus: target => gl().checkFramebufferStatus(target),
       drawBuffers: (ptr, count) => {
-        const u32 = self.u32, values = [];
-        for (let i = 0; i < count; i++) values.push(u32[(ptr >> 2) + i]);
-        const key = values.join(",");
+        // Numeric key (no per-call allocation); lists are cached per distinct value set.
+        const u32 = self.u32, base = ptr >> 2;
+        let key = count;
+        for (let i = 0; i < count; i++) key = count <= 3 ? key * 65536 + (u32[base + i] & 0xffff) : `${key},${u32[base + i]}`;
         let list = self.drawBufferLists.get(key);
-        if (!list) self.drawBufferLists.set(key, list = values);
+        if (!list) self.drawBufferLists.set(key, list = Array.from({ length: count }, (_, i) => u32[base + i]));
         gl().drawBuffers(list);
       },
       readBuffer: src => gl().readBuffer(src),
@@ -455,10 +463,12 @@ export class KernRenderer {
     };
     this.onRestored = () => {
       if (!this.lost) return;
-      this.lost = false;
       kern.attachContext(canvas, gl);
       for (const restore of kern.pinned.values()) restore();
+      // Stay "lost" (render() refuses) until the engine has rebuilt everything.
       if (!e.kern_context_restored()) { this.error = kern.fail("context restore"); console.error(this.error); return; }
+      this.lost = false;
+      this.error = null;
       this.ready = true;
     };
     canvas.addEventListener?.("webglcontextlost", this.onLost, false);
@@ -559,7 +569,8 @@ export class KernRenderer {
       gl.bindTexture(gl.TEXTURE_2D, null);
       return texture;
     };
-    const slot = kern.addObject(upload());
+    // While the context is lost the slot is reserved now and filled by the pinned restore.
+    const slot = kern.reserveObject(this.lost ? null : upload());
     kern.pinned.set(slot, () => { kern.objects[slot] = upload(); });
     const id = kern.exports.kern_texture_external(slot);
     const handle = { id, slot, kernTexture: true };
@@ -572,7 +583,8 @@ export class KernRenderer {
     const kern = this.kern;
     kern.exports.kern_texture_delete(handle.id);
     kern.pinned.delete(handle.slot);
-    if (!this.lost) this.gl.deleteTexture(kern.objects[handle.slot]);
+    const object = kern.objects[handle.slot];
+    if (!this.lost && object && object !== PENDING) this.gl.deleteTexture(object);
     kern.releaseObject(handle.slot);
     return true;
   }
@@ -702,7 +714,7 @@ export class KernRenderer {
     if (!(stream instanceof Float64Array) || !(options instanceof Float64Array)) throw Error("geometry job needs Float64Array stream and options");
     this.staging.reset(Staging.size(stream) + Staging.size(options));
     const sp = this.staging.put(stream), op = this.staging.put(options);
-    const id = this.kern.exports[entry](sp, stream.length, op);
+    const id = this.kern.exports[entry](sp, stream.length, op, options.length);
     if (!id) throw this.kern.fail("geometry job");
     return new KernGeoJob(this, id);
   }

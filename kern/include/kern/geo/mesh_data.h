@@ -49,6 +49,16 @@ WeldStats weld(MeshData& mesh, std::size_t min_saving = 0);
 /// FNV-1a over the bit patterns of all float streams (and indices).
 u32 content_hash(const MeshData& mesh);
 
+/// Reads a non-negative integer count from a f64 stream value; false for NaN,
+/// negative, fractional or values above `limit` (never casts out of range).
+inline bool stream_count(f64 v, f64 limit, u32& out) {
+  if (!(v >= 0 && v <= limit) || v != static_cast<f64>(static_cast<u64>(v))) return false;
+  out = static_cast<u32>(v);
+  return true;
+}
+/// A u32 hash carried in a f64 (0 for anything that is not an integer in range).
+inline u32 stream_u32(f64 v) { return v >= 0 && v <= 4294967295.0 ? static_cast<u32>(v) : 0u; }
+
 /// Terrain/ground height lookup supplied by the game (physics truth).
 struct HeightSampler {
   f64 (*fn)(void* user, f64 x, f64 y) = nullptr;

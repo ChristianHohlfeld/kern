@@ -1,5 +1,7 @@
 #include "kern/gfx/mesh.h"
 
+#include "kern/gfx/gl.h"
+
 #include "kern/scene/bvh.h"
 
 namespace kern {
@@ -27,6 +29,24 @@ Sphere bounding_sphere(const f32* p, u32 n) {
   f32 r2 = 0;
   for (u32 i = 0; i < n; ++i) r2 = max_of(r2, distance_sq(Vec3::load(p + i * 3), c));
   return {c, std::sqrt(r2)};
+}
+
+u8 mirror_state(const f32* t, u32 count) {
+  u32 mirrored = 0;
+  for (u32 k = 0; k < count; ++k) {
+    const f32* m = t + k * 16;
+    const f64 det = static_cast<f64>(m[0]) * (static_cast<f64>(m[5]) * m[10] - static_cast<f64>(m[6]) * m[9]) -
+                    static_cast<f64>(m[4]) * (static_cast<f64>(m[1]) * m[10] - static_cast<f64>(m[2]) * m[9]) +
+                    static_cast<f64>(m[8]) * (static_cast<f64>(m[1]) * m[6] - static_cast<f64>(m[2]) * m[5]);
+    if (det < 0) ++mirrored;
+  }
+  return mirrored == 0 ? 0 : mirrored == count ? 1 : 2;
+}
+
+void apply_cull_mode(i32 mode) {
+  if (!mode) { gl::disable(gl::CULL_FACE); return; }
+  gl::enable(gl::CULL_FACE);
+  gl::cullFace(mode == 2 ? gl::FRONT : gl::BACK);
 }
 
 Sphere instanced_bounds(const Sphere& local, const f32* t, u32 count) {
