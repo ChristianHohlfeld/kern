@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           npm install --prefix /tmp/e2e --no-audit --no-fund playwright@1.56.0
-          /tmp/e2e/node_modules/.bin/playwright install --with-deps chromium
+          /tmp/e2e/node_modules/.bin/playwright install --with-deps chromium || { echo "::error::playwright install failed"; exit 1; }
           python3 -m http.server 8771 --bind 127.0.0.1 >/tmp/http.log 2>&1 &
           sleep 1
           mkdir -p artifacts/e2e

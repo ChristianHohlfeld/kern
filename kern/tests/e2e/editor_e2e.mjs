@@ -16,7 +16,10 @@ const {chromium} = await import("playwright").catch(() => createRequire(import.m
 const base = process.argv[2] || "http://127.0.0.1:8771";
 const shots = process.env.KERN_E2E_SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), "kern-e2e-"));
 let failures = 0, checks = 0;
-const check = (ok, what) => { checks++; if (!ok) { failures++; console.log("FAIL", what); } else console.log("ok  ", what); };
+const annotate = text => { if (process.env.GITHUB_ACTIONS) console.log("::error::" + String(text).replace(/\r?\n/g, " ").slice(0, 900)); };
+const check = (ok, what) => { checks++; if (!ok) { failures++; console.log("FAIL", what); annotate("e2e: " + what); } else console.log("ok  ", what); };
+process.on("uncaughtException", e => { annotate("e2e crashed: " + (e?.stack || e)); console.error(e); process.exit(1); });
+process.on("unhandledRejection", e => { annotate("e2e crashed: " + (e?.stack || e)); console.error(e); process.exit(1); });
 
 const browser = await chromium.launch({args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]});
 
