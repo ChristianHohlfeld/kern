@@ -161,6 +161,45 @@ const vpCenter = async (page, i = 0) => {
   check(await until(async () => (await page.locator(".menu .mi").count()) > 2), "right click opens the viewport context menu");
   await page.keyboard.press("Escape");
 
+  // Right clicks belong to the engine everywhere: the browser menu never opens, panels get engine menus.
+  const native = await page.evaluate(() => {
+    const out = {};
+    for (const sel of ["#outliner", "#details", "#toolbar", "#statusbar", "#menubar", "body", "#details input"]) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const ev = new MouseEvent("contextmenu", {bubbles: true, cancelable: true, clientX: 200, clientY: 200, button: 2});
+      el.dispatchEvent(ev);
+      out[sel] = ev.defaultPrevented;
+      document.querySelectorAll(".menu").forEach(m => m.remove());
+    }
+    return out;
+  });
+  check(Object.values(native).length >= 5 && Object.values(native).every(Boolean), "no native browser context menu anywhere: " + JSON.stringify(native));
+  await page.locator("#details .f input.num").first().click({button: "right"});
+  check(await until(async () => (await page.locator(".menu .mi", {hasText: "Reset to Default"}).count()) === 1), "details fields have an engine context menu");
+  await page.keyboard.press("Escape");
+  await page.mouse.click(5, 5);
+
+  // Deterministic undo: a scrub is one step, undo and redo restore exactly.
+  const histBefore = (await state(page)).history?.index;
+  const docBefore = await page.evaluate(() => window.KernStudio.engine.command({cmd: "packageText"}).text ?? "");
+  const scrubLabel = page.locator("#details label.scrub").first();
+  if (await scrubLabel.count()) {
+    const lb = await scrubLabel.boundingBox();
+    await page.mouse.move(lb.x + lb.width / 2, lb.y + lb.height / 2);
+    await page.mouse.down();
+    for (let k = 1; k <= 8; k++) await page.mouse.move(lb.x + lb.width / 2 + k * 6, lb.y + lb.height / 2);
+    await page.mouse.up();
+    const after = (await state(page)).history;
+    check(after?.index === histBefore + 1, `a scrub of ${8} moves is one undo step (${histBefore} -> ${after?.index})`);
+    await page.keyboard.press("Control+z");
+    const docUndo = await page.evaluate(() => window.KernStudio.engine.command({cmd: "packageText"}).text ?? "");
+    check(await until(async () => (await state(page)).history?.index === histBefore) && docUndo === docBefore, "undo restores the exact document");
+    await page.keyboard.press("Control+y");
+    check(await until(async () => (await state(page)).history?.index === histBefore + 1), "redo re-applies the scrub");
+    await page.keyboard.press("Control+z");
+  }
+
   // Play in the viewport.
   await page.click("#playBtn");
   check(await until(async () => (await state(page)).play.state === "playing"), "Play starts the game");

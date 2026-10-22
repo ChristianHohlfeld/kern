@@ -385,8 +385,8 @@ json::Value Studio::menu_json(std::string_view name) const {
     m.push(submenu("Example Levels", std::move(recent)));
   } else if (name == "edit") {
     std::string u = "Undo", r = "Redo";
-    if (can_undo()) u += " " + history_[history_index_].first;
-    if (can_redo()) r += " " + history_[history_index_ + 1].first;
+    if (can_undo()) u += " " + history_[history_index_].label;
+    if (can_redo()) r += " " + history_[history_index_ + 1].label;
     m.push(entry(u, cmd("undo"), "Ctrl+Z", editing && can_undo()));
     m.push(entry(r, cmd("redo"), "Ctrl+Y", editing && can_redo()));
     m.push(entry("History...", cmd("dialog", "name", "history"), "", editing));
@@ -563,7 +563,7 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
       cards.push(std::move(c));
     }
     d.set("templates", std::move(cards));
-    if (dirty_) d.set("text", "Unsaved changes of the current level are kept in the autosave until you start editing the new one.");
+    if (dirty()) d.set("text", "Unsaved changes of the current level are kept in the autosave until you start editing the new one.");
     buttons("Create");
   } else if (name == "preferences") {
     d.set("title", "Preferences");
@@ -607,7 +607,7 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
     for (std::size_t i = 0; i < history_.size(); ++i) {
       json::Value e = json::Value::object();
       e.set("index", static_cast<u32>(i));
-      e.set("label", history_[i].first);
+      e.set("label", history_[i].label);
       if (i == history_index_) e.set("current", true);
       list.push(std::move(e));
     }
@@ -765,7 +765,7 @@ json::Value Studio::state() {
   s.set("playerOnly", player_only_);
   json::Value lv = json::Value::object();
   lv.set("name", level_.name);
-  lv.set("dirty", dirty_);
+  lv.set("dirty", dirty());
   lv.set("title", level_.world.title);
   lv.set("actors", static_cast<u32>(level_.actors.size()));
   s.set("level", std::move(lv));
@@ -819,9 +819,12 @@ json::Value Studio::state() {
   s.set("textures", std::move(tex));
   json::Value h = json::Value::object();
   h.set("canUndo", can_undo());
+  h.set("index", static_cast<f64>(history_index_));
+  h.set("size", static_cast<f64>(history_.size()));
+  h.set("dirty", dirty());
   h.set("canRedo", can_redo());
-  h.set("undo", can_undo() ? history_[history_index_].first : std::string());
-  h.set("redo", can_redo() ? history_[history_index_ + 1].first : std::string());
+  h.set("undo", can_undo() ? history_[history_index_].label : std::string());
+  h.set("redo", can_redo() ? history_[history_index_ + 1].label : std::string());
   s.set("history", std::move(h));
   json::Value menus = json::Value::object();
   for (const char* m : {"file", "edit", "window", "play", "help"}) menus.set(m, menu_json(m));
@@ -1024,12 +1027,9 @@ json::Value Studio::run(const json::Value& c) {
   if (name == "undo") { undo(); return ok(); }
   if (name == "redo") { redo(); return ok(); }
   if (name == "historyJump") {
-    const std::size_t i = static_cast<std::size_t>(num("index", -1));
-    if (play_ != PlayState::editing || i >= history_.size()) return ok(false);
-    end_gizmo(false);
-    restore_snapshot(i);
-    report("History: " + history_[i].first);
-    return ok();
+    const f64 i = num("index", -1);
+    if (!(i >= 0) || i != std::floor(i)) return ok(false);
+    return ok(jump_history(static_cast<std::size_t>(i)));
   }
   if (name == "rename") return ok(rename(static_cast<ActorId>(num("id", primary())), str("name")));
   if (name == "attach") {
@@ -1043,10 +1043,9 @@ json::Value Studio::run(const json::Value& c) {
     if (ids.empty()) return ok(false);
     if (c["parent"].is_number() && num("parent") > 0) return ok(attach(ids, static_cast<ActorId>(num("parent"))));
     const std::string folder = str("folder");
-    bool any_parent = false;
-    for (ActorId id : ids) if (const game::Actor* a = level_.find(id)) any_parent |= a->parent != 0;
-    if (any_parent && !attach(ids, 0)) return ok(false);
-    return ok(edit("Move to folder", [&](game::Level& l) {
+    // Detaching and moving into the folder are one step.
+    return ok(edit(folder.empty() ? "Detach" : "Move to folder", [&](game::Level& l) {
+      reparent(l, ids, 0);
       for (ActorId id : ids) if (game::Actor* a = l.find(id)) a->folder = folder;
       return true;
     }));
@@ -1092,13 +1091,13 @@ json::Value Studio::run(const json::Value& c) {
     const bool locked = c["value"].is_bool() ? c["value"].as_bool() : true;
     const bool done = edit(locked ? "Lock" : "Unlock", [&](game::Level& l) {
       for (ActorId id : ids) if (game::Actor* a = l.find(id)) a->locked = locked;
+      if (locked) {  // locked actors leave the selection (part of the step, so undo brings them back)
+        std::vector<ActorId> keep;
+        for (ActorId id : selection_) if (std::find(ids.begin(), ids.end(), id) == ids.end()) keep.push_back(id);
+        select(keep);
+      }
       return true;
     });
-    if (locked) {
-      std::vector<ActorId> keep;
-      for (ActorId id : selection_) if (std::find(ids.begin(), ids.end(), id) == ids.end()) keep.push_back(id);
-      select(keep);
-    }
     return ok(done);
   }
   if (name == "focus") {
@@ -1106,8 +1105,8 @@ json::Value Studio::run(const json::Value& c) {
     focus_selection(c["viewport"].is_number() ? static_cast<i32>(num("viewport")) : -1);
     return ok();
   }
-  if (name == "set") return ok(set_property(str("path"), c["value"]));
-  if (name == "setWorld") return ok(set_world_property(str("path"), c["value"]));
+  if (name == "set") return ok(set_property(str("path"), c["value"], str("transaction")));
+  if (name == "setWorld") return ok(set_world_property(str("path"), c["value"], str("transaction")));
   if (name == "addComponent") return ok(add_component(str("type")));
   if (name == "removeComponent") return ok(remove_component(str("type"), static_cast<i32>(num("index"))));
   if (name == "connect") {
@@ -1339,7 +1338,7 @@ json::Value Studio::run(const json::Value& c) {
     r.set("file", file + ".klevel");
     return r;
   }
-  if (name == "saved") { dirty_ = false; save_due_ = -1; touch(); report("Saved " + level_.name); return ok(); }
+  if (name == "saved") { mark_saved(); report("Saved " + level_.name); return ok(); }
   if (name == "packageText") {
     json::Value r = ok();
     game::Level copy = level_;

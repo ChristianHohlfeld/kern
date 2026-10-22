@@ -248,12 +248,17 @@ u32 Studio::gizmo_hit(const Viewport& v, f32 x, f32 y) const {
 }
 
 void Studio::begin_gizmo(Viewport& v, u32 axes, u32 modifiers) {
-  if ((modifiers & 4) && play_ == PlayState::editing) {
-    duplicate_selection();  // Alt-drag: move a copy (Unreal)
-    gizmo_.duplicated = true;
-  } else {
-    gizmo_.duplicated = false;
+  if (play_ == PlayState::editing) {
+    gizmo_.before = level_;
+    gizmo_.selection_before = selection_;
   }
+  gizmo_.duplicated = false;
+  if ((modifiers & 4) && play_ == PlayState::editing) {
+    // Alt-drag moves a copy (Unreal). Copy and move form ONE undo step, committed when the drag ends.
+    duplicate_in_place();
+    gizmo_.duplicated = true;
+  }
+  if (play_ == PlayState::editing) gizmo_.base = level_;
   Vec3 pivot;
   Quat frame;
   if (!gizmo_frame(pivot, frame)) return;
@@ -274,7 +279,6 @@ void Studio::begin_gizmo(Viewport& v, u32 axes, u32 modifiers) {
     Mat4 m;
     if (world_->actor_matrix(id, m)) gizmo_.start.push_back({id, m});
   }
-  if (play_ == PlayState::editing) gizmo_.before = level_;
   Ray r;
   ray(v, v.x, v.y, r);
   const Camera cam = camera_of(v);
@@ -429,7 +433,7 @@ void Studio::update_gizmo(Viewport& v) {
       world_->physics().set_awake(b, true);
     }
   } else if (play_ == PlayState::editing) {
-    level_ = gizmo_.before;
+    level_ = gizmo_.base;
     for (auto& [id, w0] : gizmo_.start) {
       game::Actor* a = level_.find(id);
       if (!a) continue;
@@ -448,15 +452,17 @@ void Studio::end_gizmo(bool accept) {
   if (!gizmo_.active) return;
   gizmo_.active = false;
   if (play_ != PlayState::editing) return;
-  if (!accept) {
+  if (!accept || (!gizmo_.moved && gizmo_.duplicated)) {
+    // Cancelled (or an Alt-click without movement): back to the state before the drag, copies included.
     level_ = gizmo_.before;
-    ++scene_revision_;
-    touch();
+    selection_ = gizmo_.selection_before;
+    changed();
     return;
   }
   if (!gizmo_.moved) return;
   const char* label = gizmo_.tool == Tool::translate ? "Move" : gizmo_.tool == Tool::rotate ? "Rotate" : "Scale";
-  commit(label, std::move(gizmo_.before));
+  if (gizmo_.duplicated) label = gizmo_.tool == Tool::translate ? "Duplicate and move" : gizmo_.tool == Tool::rotate ? "Duplicate and rotate" : "Duplicate and scale";
+  commit(label, std::move(gizmo_.before), std::move(gizmo_.selection_before));
 }
 
 }  // namespace kern::studio

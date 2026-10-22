@@ -504,13 +504,14 @@ json::Value Studio::world_json() const {
   return d;
 }
 
-bool Studio::set_property(const std::string& path, const json::Value& value) {
-  if (path.rfind("world.", 0) == 0 || path == "level.name") return set_world_property(path, value);
+bool Studio::set_property(const std::string& path, const json::Value& value, const std::string& transaction) {
+  if (path.rfind("world.", 0) == 0 || path == "level.name") return set_world_property(path, value, transaction);
   if (selection_.empty()) return false;
   std::string label = "Edit " + path.substr(path.find_last_of('.') == std::string::npos ? 0 : path.find_last_of('.') + 1);
   std::string error;
   coalesce_ = "p:" + path;
   for (ActorId id : selection_) coalesce_ += "," + std::to_string(id);
+  transaction_ = transaction;
   const bool ok = edit(label.c_str(), [&](game::Level& l) {
     u32 changed_actors = 0;
     for (ActorId id : selection_) {
@@ -557,13 +558,15 @@ bool Studio::set_property(const std::string& path, const json::Value& value) {
     return changed_actors > 0;
   });
   coalesce_.clear();
+  transaction_.clear();
   if (!ok && !error.empty()) report(error, "error");
   return ok;
 }
 
-bool Studio::set_world_property(const std::string& path, const json::Value& value) {
+bool Studio::set_world_property(const std::string& path, const json::Value& value, const std::string& transaction) {
   std::string error;
   coalesce_ = "w:" + path;
+  transaction_ = transaction;
   const bool ok = edit("Edit world settings", [&](game::Level& l) {
     if (path == "level.name") {
       if (value.as_string().empty()) { error = "a level needs a name"; return false; }
@@ -582,6 +585,7 @@ bool Studio::set_world_property(const std::string& path, const json::Value& valu
     return true;
   });
   coalesce_.clear();
+  transaction_.clear();
   if (!ok && !error.empty()) report(error, "error");
   return ok;
 }

@@ -416,9 +416,9 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at) {
       l.add(std::move(a));
     }
     root = ids[0];
+    select({root});
     return true;
   });
-  if (root) select({root});
   return root;
 }
 

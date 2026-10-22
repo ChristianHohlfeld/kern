@@ -111,6 +111,21 @@ struct GizmoDrag {
   bool moved = false;
   u32 viewport = 0;
   game::Level before;           // the level when the drag started (undo / cancel)
+  game::Level base;             // the level the live preview starts from (before + Alt-duplicates)
+  std::vector<ActorId> selection_before;  // the selection when the drag started (before an Alt-duplicate)
+};
+
+/// One step of the undo history. Every step stores the complete document after
+/// the change, so undo and redo are exact (no inverse operations to drift) and
+/// depend only on the sequence of edits, never on timing.
+struct HistoryEntry {
+  std::string label;
+  game::Level level;                       // document after this step
+  std::vector<ActorId> selection_before;   // selection when the step began (restored by undo)
+  std::vector<ActorId> selection_after;    // selection after the step (restored by redo)
+  std::string merge_key;                   // property edits: path + targets
+  std::string transaction;                 // page token of one continuous interaction (slider, scrub, colour drag)
+  u64 serial = 0;                          // identity of this state (dirty tracking)
 };
 
 struct Snap {
@@ -165,7 +180,8 @@ class Studio {
   u64 revision() const { return revision_; }
   json::Value take_ui();
   std::string take_autosave(f64 now_ms);
-  bool dirty() const { return dirty_; }
+  /// Unsaved changes: the current history state differs from the saved one.
+  bool dirty() const { return history_.empty() || history_[history_index_].serial != saved_serial_; }
   const std::vector<LogLine>& log() const { return log_; }
   std::vector<std::string> pending_textures();
   bool texture_pixels(const std::string& id, i32 w, i32 h, const u8* rgba);
@@ -177,18 +193,35 @@ class Studio {
   bool load_level(game::Level level, bool reset_history = true);
   bool load_level_text(std::string_view text, std::string_view name);
   std::string level_text() const;
-  /// Applies a modification with undo (label shows in the history).
+  /// Applies a modification as one undo step (label shows in the history). `fn`
+  /// edits the level in place and may change the selection; returning false
+  /// rolls both back. A change that leaves the document identical adds no step.
   template <typename F> bool edit(const char* label, F&& fn) {
     if (play_ != PlayState::editing) { report("Stop playing to edit the level", "warn"); return false; }
     game::Level before = level_;
-    if (!fn(level_)) { level_ = std::move(before); return false; }
-    commit(label, std::move(before));
+    std::vector<ActorId> selection_before = selection_;
+    if (!fn(level_)) {
+      level_ = std::move(before);
+      selection_ = std::move(selection_before);
+      coalesce_.clear();
+      transaction_.clear();
+      changed();
+      return false;
+    }
+    commit(label, std::move(before), std::move(selection_before));
     return true;
   }
   void undo();
   void redo();
+  /// Moves to history step `index` through the intermediate steps (same result as repeated undo/redo).
+  bool jump_history(std::size_t index);
   bool can_undo() const { return history_index_ > 0; }
   bool can_redo() const { return history_index_ + 1 < history_.size(); }
+  const std::vector<HistoryEntry>& history() const { return history_; }
+  std::size_t history_index() const { return history_index_; }
+  /// Marks the current state as saved (dirty() becomes false until the next change).
+  void mark_saved();
+  static constexpr std::size_t kMaxHistory = 500;
 
   // selection
   const std::vector<ActorId>& selection() const { return selection_; }
@@ -204,18 +237,25 @@ class Studio {
   ActorId spawn(const std::string& item, std::optional<Vec3> at = {});
   ActorId add_actor(game::Actor actor, bool select_it = true);
   void delete_selection();
+  void delete_selection(const char* label);
   void duplicate_selection(Vec3 offset = {});
+  /// Alt-drag: copies the selection into the level without an undo step (the drag commits it).
+  void duplicate_in_place();
   void copy_selection();
   bool paste();
   void cut_selection();
   bool attach(const std::vector<ActorId>& children, ActorId parent);
+  /// Re-parents inside an edit step, keeping world placements (0 = top level).
+  static void reparent(game::Level& level, const std::vector<ActorId>& children, ActorId parent);
   bool rename(ActorId id, const std::string& name);
   void group_selection();
   void snap_to_floor();
   void set_hidden(const std::vector<ActorId>& ids, bool hidden);
   void focus_selection(i32 viewport = -1);
-  bool set_property(const std::string& path, const json::Value& value);
-  bool set_world_property(const std::string& path, const json::Value& value);
+  /// Consecutive edits of the same property with the same non-empty `transaction`
+  /// token (one slider drag, one scrub) form a single undo step.
+  bool set_property(const std::string& path, const json::Value& value, const std::string& transaction = {});
+  bool set_world_property(const std::string& path, const json::Value& value, const std::string& transaction = {});
   bool add_component(const std::string& type);
   bool remove_component(const std::string& type, i32 index);
   void keep_simulation_changes();
@@ -250,10 +290,11 @@ class Studio {
   void report(const std::string& text, const char* level = "info");
 
  private:
-  void commit(const char* label, game::Level before);
+  /// Records the step; false (and no step) when the document did not change.
+  bool commit(const char* label, game::Level before, std::vector<ActorId> selection_before);
   void touch() { ++revision_; }
   void changed();
-  void restore_snapshot(std::size_t index);
+  void step_history(bool forward);
   // viewports
   void update_cameras(f32 dt);
   void render_viewport(Viewport& v, f64 now_ms);
@@ -300,11 +341,11 @@ class Studio {
   std::unique_ptr<game::GameWorld> world_;
   bool ready_ = false, player_only_ = false;
   game::Level level_;
-  std::vector<std::pair<std::string, game::Level>> history_;  // label, state after the edit
+  std::vector<HistoryEntry> history_;
   std::size_t history_index_ = 0;
-  std::string coalesce_, last_coalesce_;  // consecutive edits of one property merge into one undo step
-  f64 last_coalesce_time_ = -1e9;
-  bool dirty_ = false;
+  std::string coalesce_;                  // merge key of the edit being committed
+  std::string transaction_;               // transaction token of the edit being committed
+  u64 next_serial_ = 1, saved_serial_ = 0;
   f64 save_due_ = -1;
   std::vector<ActorId> selection_;
   std::vector<game::Actor> clipboard_;

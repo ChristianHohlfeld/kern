@@ -902,6 +902,7 @@ class StudioPage {
   }
 
   fieldHtml(f, ctx) {
+    (this.fieldInfo ??= new Map()).set(f.path, {value: f.value, reset: f.reset, mixed: f.mixed, label: f.label});
     const p = esc(f.path), mixed = f.mixed;
     const attrs = `data-path="${p}" data-type="${f.type}"` + (f.step != null ? ` data-step="${f.step}"` : "") + (f.min != null ? ` data-min="${f.min}"` : "") + (f.max != null ? ` data-max="${f.max}"` : "");
     const num = (v, extra = "", part = -1, partMixed = false) => {
@@ -966,9 +967,18 @@ class StudioPage {
   }
 
   initProps(host) {
+    // One continuous interaction (scrub, slider drag, colour picker) carries one transaction token:
+    // the engine merges its edits into a single undo step. Typed values and clicks are steps of their own.
+    this.txn = null;
+    this.txnSerial = 0;
+    const beginTxn = kind => (this.txn ??= `${kind}-${++this.txnSerial}`);
+    const endTxn = () => { this.txn = null; };
+    this.beginTxn = beginTxn;
+    this.endTxn = endTxn;
     const set = (path, value) => {
-      if (path.startsWith("world.") || path === "level.name") this.engine.command({cmd: "setWorld", path, value});
-      else this.engine.command({cmd: "set", path, value});
+      const cmd = path.startsWith("world.") || path === "level.name" ? {cmd: "setWorld", path, value} : {cmd: "set", path, value};
+      if (this.txn) cmd.transaction = this.txn;
+      this.engine.command(cmd);
     };
     this.setProp = set;
     const vecOf = el => [...el.closest(".v").querySelectorAll(".num")].map(i => (i.value === "" ? null : evalNumber(i.value)));
@@ -1005,11 +1015,12 @@ class StudioPage {
       if (el.matches("[data-filter]")) return;
       if (el.type === "range") { const n = el.closest(".slider-row").querySelector(".num"); n.value = fmtNum(+el.value); }
       commit(el);
+      if (el.type === "range" || el.type === "color") endTxn();  // the drag / picker session is over
     });
     host.addEventListener("input", e => {
       const el = e.target;
-      if (el.type === "range") { el.closest(".slider-row").querySelector(".num").value = fmtNum(+el.value); commit(el); }
-      if (el.type === "color") { const t = el.closest(".color").querySelector("[data-hex]"); t.value = el.value; commit(el); }
+      if (el.type === "range") { beginTxn("slider"); el.closest(".slider-row").querySelector(".num").value = fmtNum(+el.value); commit(el); }
+      if (el.type === "color") { beginTxn("color"); const t = el.closest(".color").querySelector("[data-hex]"); t.value = el.value; commit(el); }
     });
     host.addEventListener("keydown", e => {
       const el = e.target;
@@ -1062,6 +1073,7 @@ class StudioPage {
       if (!s || e.pointerId !== s.id) return;
       const dx = e.clientX - s.x;
       if (!s.moved && Math.abs(dx) < 3) return;
+      if (!s.moved) beginTxn("scrub");
       s.moved = true;
       const step = (+s.input.dataset.step || (s.input.dataset.type === "integer" ? 1 : 0.1)) * (e.shiftKey ? 10 : 1) * (e.ctrlKey || e.metaKey ? 0.1 : 1);
       let n = s.start + Math.round(dx / 2) * step;
@@ -1074,7 +1086,11 @@ class StudioPage {
       const s = this.scrub;
       if (!s || e.pointerId !== s.id) return;
       this.scrub = null;
+      if (s.moved) endTxn();
       if (!s.moved && s.el === s.input) { s.input.focus(); s.input.select(); }
+    });
+    host.addEventListener("pointercancel", e => {
+      if (this.scrub && e.pointerId === this.scrub.id) { this.scrub = null; endTxn(); }
     });
   }
 
@@ -1218,6 +1234,43 @@ class StudioPage {
       }
     });
     m.addEventListener("contextmenu", e => e.preventDefault());
+  }
+
+  /** Engine context menu for places without a menu of their own: text fields, details rows, the rest of the window. */
+  fallbackMenu(target) {
+    const entries = [];
+    const field = target.closest?.("input, textarea");
+    const editable = field && !field.readOnly && !field.disabled && /^(text|search|number|)$/.test(field.type || "");
+    if (editable) {
+      const sel = () => field.value.slice(field.selectionStart ?? 0, field.selectionEnd ?? 0);
+      const insert = text => {
+        field.focus();
+        field.setRangeText(text, field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, "end");
+        field.dispatchEvent(new Event("input", {bubbles: true}));
+      };
+      const hasSel = (field.selectionEnd ?? 0) > (field.selectionStart ?? 0);
+      entries.push(
+        {label: "Cut", shortcut: "Ctrl+X", disabled: !hasSel, run: () => { navigator.clipboard?.writeText(sel()).catch(() => {}); insert(""); }},
+        {label: "Copy", shortcut: "Ctrl+C", disabled: !hasSel, run: () => navigator.clipboard?.writeText(sel()).catch(() => {})},
+        {label: "Paste", shortcut: "Ctrl+V", run: () => navigator.clipboard?.readText().then(insert).catch(() => {})},
+        {label: "Select All", shortcut: "Ctrl+A", run: () => { field.focus(); field.select(); }});
+    }
+    const row = target.closest?.(".f");
+    const path = row?.querySelector("[data-path]")?.dataset.path || row?.querySelector("[data-scrub]")?.dataset.scrub;
+    const info = path && this.fieldInfo?.get(path);
+    if (info) {
+      if (entries.length) entries.push({separator: true});
+      entries.push({header: info.label || path},
+        {label: "Reset to Default", icon: "reset", disabled: info.reset == null || JSON.stringify(info.reset) === JSON.stringify(info.value),
+         run: () => { this.engine.command({cmd: "set", path, value: info.reset}); this.flushUi(); }},
+        {label: "Copy Value", disabled: info.mixed, run: () => { this.fieldClipboard = info.value; navigator.clipboard?.writeText(JSON.stringify(info.value)).catch(() => {}); }},
+        {label: "Paste Value", disabled: this.fieldClipboard === undefined, run: () => { this.engine.command({cmd: "set", path, value: this.fieldClipboard}); this.flushUi(); }});
+    }
+    if (!entries.length) {
+      const edit = this.state?.menus?.edit;
+      if (edit?.length) return edit;
+    }
+    return entries;
   }
 
   runCommand(cmd) {
@@ -1378,6 +1431,15 @@ class StudioPage {
     addEventListener("pointerdown", e => {
       if (!e.target.closest(".menu, #menubar")) this.closeMenus();
     }, true);
+    // Right-click belongs to the engine: the browser's own context menu never opens in the editor.
+    // Panels with their own menus (viewports, outliner, menus) handle the event first; everything
+    // else gets the engine's fallback menu here.
+    document.addEventListener("contextmenu", e => {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      const entries = this.fallbackMenu(e.target);
+      if (entries.length) this.openMenu(entries, e.clientX, e.clientY);
+    });
     // Pointer lock while playing: mouse movement looks around.
     document.addEventListener("pointerlockchange", () => {
       const locked = document.pointerLockElement === this.canvas;

@@ -1753,6 +1753,276 @@ TEST(studio_save_load_and_textures) {
   CHECK(f.cmd(R"({"cmd":"submitDialog","name":"export","values":{"title":"Lab"}})")["text"].as_string().find("\"Lab\"") != std::string::npos);
 }
 
+// ---- deterministic undo / redo ---------------------------------------------
+
+namespace {
+
+std::string studio_doc(const studio::Studio& s) {
+  game::Level l = s.level();
+  l.camera = {};
+  return game::to_text(l, 0);
+}
+
+/// Replays a pseudo-random editing session (every kind of document edit, selection
+/// changes, transactions, undo / redo and history jumps in between) and records, per
+/// history step, the document after the step and the selection before / after it.
+struct UndoSession {
+  StudioFixture f;
+  u32 rng;
+  std::vector<std::string> doc_after;                 // per history index
+  std::vector<std::vector<game::ActorId>> sel_before, sel_after;
+  std::vector<std::string> trace;                     // state after every operation (for replay comparison)
+  u32 txn = 0;
+
+  explicit UndoSession(u32 seed) : rng(seed) {
+    f.cmd(R"({"cmd":"new","template":"basic"})");
+    f.frames(1);
+    record_base();
+  }
+  u32 next() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; }
+  u32 below(u32 n) { return n ? next() % n : 0; }
+  f32 range(f32 a, f32 b) { return a + (b - a) * static_cast<f32>(next() % 10000) / 10000.0f; }
+  std::vector<game::ActorId> ids() const {
+    std::vector<game::ActorId> out;
+    for (const game::Actor& a : f.s->level().actors) out.push_back(a.id);
+    return out;
+  }
+  game::ActorId any() { const auto v = ids(); return v.empty() ? 0 : v[below(static_cast<u32>(v.size()))]; }
+  void record_base() {
+    doc_after.assign(1, studio_doc(*f.s));
+    sel_before.assign(1, {});
+    sel_after.assign(1, f.s->selection());
+  }
+  json::Value run(json::Value c) { return f.s->command(c); }
+  static json::Value cmd(const char* name) { json::Value c = json::Value::object(); c.set("cmd", name); return c; }
+  static json::Value vec(Vec3 v) { json::Value a = json::Value::array(); a.push(v.x); a.push(v.y); a.push(v.z); return a; }
+
+  /// One random operation. Returns false for history navigation (no recording needed).
+  void op() {
+    const std::size_t index0 = f.s->history_index(), size0 = f.s->history().size();
+    const std::vector<game::ActorId> before = f.s->selection();
+    const std::string doc0 = studio_doc(*f.s);
+    bool navigation = false;
+    switch (below(26)) {
+      case 0: case 1: {
+        static const char* items[] = {"cube", "sphere", "cylinder", "cone", "capsule", "torus", "ramp", "empty", "pendulum", "chain", "orb", "goal", "hazard", "spinner"};
+        f.s->spawn(items[below(14)], Vec3{range(-20, 20), range(-20, 20), range(0, 4)});
+        break;
+      }
+      case 2: { std::vector<game::ActorId> sel; for (u32 k = 0, n = 1 + below(3); k < n; ++k) if (game::ActorId id = any()) sel.push_back(id); f.s->select(sel, below(2) == 0); break; }
+      case 3: { json::Value c = cmd("set"); c.set("path", "transform.position"); c.set("value", vec({range(-30, 30), range(-30, 30), range(0, 6)})); run(c); break; }
+      case 4: {
+        static const char* colors[] = {"#ff0000", "#00ff00", "#2266cc", "#abcdef", "#101010"};
+        json::Value c = cmd("set"); c.set("path", "components.mesh.material.color"); c.set("value", colors[below(5)]); run(c); break;
+      }
+      case 5: {
+        static const char* types[] = {"mesh", "light", "body", "collider", "joint", "pickup", "trigger", "rotator", "mover"};
+        json::Value c = cmd("addComponent"); c.set("type", types[below(9)]); run(c); break;
+      }
+      case 6: {
+        static const char* types[] = {"mesh", "light", "body", "colliders", "joints", "pickup", "trigger", "rotator", "mover"};
+        json::Value c = cmd("removeComponent"); c.set("type", types[below(9)]); c.set("index", 0); run(c); break;
+      }
+      case 7: f.s->duplicate_selection(Vec3{1, 0, 0}); break;
+      case 8: if (below(3) == 0) f.s->delete_selection(); break;
+      case 9: { std::vector<game::ActorId> kids = f.s->selection(); f.s->attach(kids, below(3) ? any() : 0); break; }
+      case 10: { json::Value c = cmd("setFolder"); c.set("folder", below(2) ? "Props" : ""); run(c); break; }
+      case 11: f.s->set_hidden(f.s->selection(), below(2) == 0); break;
+      case 12: { json::Value c = cmd("lock"); c.set("value", below(2) == 0); run(c); break; }
+      case 13: if (game::ActorId id = any()) f.s->rename(id, "Renamed " + std::to_string(below(50))); break;
+      case 14: f.s->group_selection(); break;
+      case 15: f.frames(1); f.s->snap_to_floor(); break;
+      case 16: { json::Value c = cmd("setWorld"); c.set("path", "world.timeOfDay"); c.set("value", range(0, 1)); run(c); break; }
+      case 17: {
+        // One continuous scrub: many edits, one transaction token.
+        const std::string token = "scrub-" + std::to_string(++txn);
+        for (u32 k = 0, n = 2 + below(5); k < n; ++k) {
+          json::Value c = cmd("set");
+          c.set("path", "transform.scale");
+          c.set("value", vec({range(0.5f, 2), range(0.5f, 2), range(0.5f, 2)}));
+          c.set("transaction", token);
+          run(c);
+        }
+        break;
+      }
+      case 18: f.s->copy_selection(); f.s->paste(); break;
+      case 19: if (below(3) == 0) f.s->cut_selection(); break;
+      case 20: {
+        json::Value c = cmd("importTexture");
+        c.set("name", "tex"); c.set("src", "data:image/png;base64,AAAA"); c.set("width", 1); c.set("height", 1);
+        run(c);
+        break;
+      }
+      case 21: if (!f.s->level().textures.empty()) { json::Value c = cmd("removeTexture"); c.set("id", f.s->level().textures[0].id); run(c); } break;
+      case 22: if (f.s->selection().size() >= 2) { json::Value c = cmd("connect"); c.set("kind", "hinge"); run(c); } break;
+      case 23: navigation = true; if (below(2)) f.s->undo(); else f.s->redo(); break;
+      case 24: if (below(4) == 0) { navigation = true; f.s->jump_history(below(static_cast<u32>(f.s->history().size()))); } break;
+      default: {
+        // Keep Simulation Changes: simulate a few frames, keep the poses of the selection.
+        if (f.s->selection().empty()) break;
+        if (!f.s->play(game::SimMode::simulate)) break;
+        f.frames(4);
+        f.s->keep_simulation_changes();
+        break;
+      }
+    }
+    f.frames(1);
+    const std::size_t index1 = f.s->history_index();
+    if (!navigation) {
+      if (index1 == index0 + 1 && f.s->history().size() == index1 + 1) {
+        doc_after.resize(index1);  // a new step discards the old redo branch
+        sel_before.resize(index1);
+        sel_after.resize(index1);
+        doc_after.push_back(studio_doc(*f.s));
+        sel_before.push_back(before);
+        sel_after.push_back(f.s->selection());
+      } else if (index1 == index0 && f.s->history().size() == size0 && studio_doc(*f.s) != doc0) {
+        doc_after[index1] = studio_doc(*f.s);  // a merged transaction step
+        sel_after[index1] = f.s->selection();
+      } else if (index1 + 1 == index0 && f.s->history().size() == size0 - 1) {
+        // A transaction that returned to its start removed its own step.
+        doc_after.resize(index1 + 1);
+        sel_before.resize(index1 + 1);
+        sel_after.resize(index1 + 1);
+      }
+    }
+    std::string t = std::to_string(index1) + "/" + std::to_string(f.s->history().size()) + ":";
+    for (game::ActorId id : f.s->selection()) t += std::to_string(id) + ",";
+    trace.push_back(t + studio_doc(*f.s));
+  }
+};
+
+}  // namespace
+
+TEST(studio_undo_redo_is_exact_and_deterministic) {
+  for (u32 seed : {0x1234567u, 0xC0FFEEu, 20261022u}) {
+    UndoSession a(seed), b(seed);
+    for (int i = 0; i < 260; ++i) { a.op(); b.op(); }
+    // Same inputs, same results: two editors replaying one session agree at every step.
+    CHECK(a.trace == b.trace);
+    studio::Studio& s = *a.f.s;
+    const std::size_t steps = s.history().size();
+    std::printf("    seed %u: %zu history steps, %zu actors\n", seed, steps, s.level().actors.size());
+    CHECK(steps > 15);
+    CHECK(a.doc_after.size() == steps);
+    // Undo to the start: each state equals the one recorded when its step was made, the
+    // selection is the one before the undone step.
+    s.jump_history(steps - 1);
+    CHECK(studio_doc(s) == a.doc_after[steps - 1]);
+    for (std::size_t i = steps - 1; i > 0; --i) {
+      s.undo();
+      CHECK(s.history_index() == i - 1);
+      CHECK(studio_doc(s) == a.doc_after[i - 1]);
+      std::vector<game::ActorId> expected;
+      for (game::ActorId id : a.sel_before[i]) if (s.level().find(id)) expected.push_back(id);
+      CHECK(s.selection() == expected);
+    }
+    CHECK(!s.can_undo());
+    // Redo to the end: each state again, with the selection right after the step.
+    for (std::size_t i = 1; i < steps; ++i) {
+      s.redo();
+      CHECK(studio_doc(s) == a.doc_after[i]);
+      CHECK(s.selection() == a.sel_after[i]);
+    }
+    CHECK(!s.can_redo());
+    // Random walks and jumps reproduce the same states.
+    for (int k = 0; k < 120; ++k) {
+      const std::size_t target = a.below(static_cast<u32>(steps));
+      if (a.below(2)) s.jump_history(target);
+      else {
+        while (s.history_index() > target) s.undo();
+        while (s.history_index() < target) s.redo();
+      }
+      CHECK(studio_doc(s) == a.doc_after[target]);
+    }
+    // Every state survives save and load unchanged.
+    s.jump_history(steps / 2);
+    StudioFixture g;
+    CHECK(g.s->load_level_text(s.level_text(), "copy"));
+    CHECK(studio_doc(*g.s) == studio_doc(s));
+  }
+}
+
+TEST(studio_undo_transactions_and_dirty_state) {
+  StudioFixture f;
+  f.cmd(R"({"cmd":"new","template":"basic"})");
+  f.frames(1);
+  CHECK(!f.s->dirty());
+  const game::ActorId id = f.s->spawn("cube", Vec3{0, 0, 1});
+  CHECK(f.s->dirty());
+  const std::size_t base = f.s->history().size();
+  // A scrub (one token) is one step, whatever the number of edits.
+  for (int i = 1; i <= 10; ++i) f.cmd((R"({"cmd":"set","path":"transform.position","value":[)" + std::to_string(i) + R"(,0,1],"transaction":"t1"})").c_str());
+  CHECK(f.s->history().size() == base + 1);
+  CHECK_NEAR(f.s->level().find(id)->transform.position.x, 10, 1e-5f);
+  // Typed values (no token) are separate steps.
+  f.cmd(R"({"cmd":"set","path":"transform.position","value":[3,0,1]})");
+  f.cmd(R"({"cmd":"set","path":"transform.position","value":[4,0,1]})");
+  CHECK(f.s->history().size() == base + 3);
+  // Setting the current value again changes nothing and adds no step.
+  f.cmd(R"({"cmd":"set","path":"transform.position","value":[4,0,1]})");
+  CHECK(f.s->history().size() == base + 3);
+  // A scrub that ends where it started leaves no step behind.
+  f.cmd(R"({"cmd":"set","path":"transform.position","value":[9,0,1],"transaction":"t2"})");
+  f.cmd(R"({"cmd":"set","path":"transform.position","value":[4,0,1],"transaction":"t2"})");
+  CHECK(f.s->history().size() == base + 3);
+  // The same token after another edit starts a new step.
+  f.cmd(R"({"cmd":"set","path":"transform.position","value":[5,0,1],"transaction":"t3"})");
+  f.cmd(R"({"cmd":"set","path":"components.mesh.material.color","value":"#ff0000","transaction":"t3"})");
+  f.cmd(R"({"cmd":"set","path":"transform.position","value":[6,0,1],"transaction":"t3"})");
+  CHECK(f.s->history().size() == base + 6);
+  // Dirty follows the saved state through undo and redo.
+  f.cmd(R"({"cmd":"saved"})");
+  CHECK(!f.s->dirty());
+  f.s->undo();
+  CHECK(f.s->dirty());
+  f.s->redo();
+  CHECK(!f.s->dirty());
+  f.s->undo();
+  f.cmd(R"({"cmd":"set","path":"transform.position","value":[7,7,1]})");  // new branch: the saved state is gone
+  CHECK(f.s->dirty());
+  // Alt-drag duplicate + move is one step; undo removes the copy and restores the selection.
+  f.s->select({id});
+  const std::size_t actors = f.s->level().actors.size(), steps = f.s->history().size();
+  studio::Viewport& v = f.s->viewport(0);
+  v.camera.position = {-10, -10, 8};
+  v.camera.yaw = 45;
+  v.camera.pitch = -30;
+  f.s->set_tool(studio::Tool::translate);
+  f.frames(2);
+  Mat4 m;
+  f.s->world().actor_matrix(id, m);
+  f32 cx, cy, ax, ay;
+  CHECK(f.s->to_screen(v, m.translation(), cx, cy));
+  CHECK(f.s->to_screen(v, m.translation() + Vec3{1, 0, 0}, ax, ay));
+  const f32 len = std::hypot(ax - cx, ay - cy);
+  const f32 gx = cx + (ax - cx) / len * 60, gy = cy + (ay - cy) / len * 60;
+  CHECK(f.s->gizmo_hit(v, gx, gy) == 1);
+  f.s->pointer(0, 0, gx, gy, 0, 1, 4, 0);
+  CHECK(v.drag == studio::Drag::gizmo);
+  f.s->pointer(0, 1, gx + 40, gy, -1, 1, 4, 0);
+  f.s->pointer(0, 2, gx + 40, gy, 0, 0, 4, 0);
+  CHECK(f.s->level().actors.size() == actors + 1);
+  CHECK(f.s->history().size() == steps + 1);
+  CHECK(f.s->history().back().label == "Duplicate and move");
+  CHECK(f.s->selection().size() == 1 && f.s->selection()[0] != id);
+  f.s->undo();
+  CHECK(f.s->level().actors.size() == actors);
+  CHECK(f.s->selection().size() == 1 && f.s->selection()[0] == id);
+  // An Alt-click without movement leaves nothing behind.
+  f.frames(1);
+  f.s->pointer(0, 0, gx, gy, 0, 1, 4, 0);
+  f.s->pointer(0, 2, gx, gy, 0, 0, 4, 0);
+  CHECK(f.s->level().actors.size() == actors);
+  CHECK(f.s->history().size() == steps + 1);
+  // Undo while playing is refused (the level is not edited during play).
+  CHECK(f.s->play(game::SimMode::simulate));
+  const std::size_t idx = f.s->history_index();
+  f.s->undo();
+  CHECK(f.s->history_index() == idx);
+  f.s->stop();
+}
+
 TEST(studio_player_only) {
   StudioFixture f(true);
   CHECK(f.s->level().actors.empty());

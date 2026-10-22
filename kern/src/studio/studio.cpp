@@ -87,13 +87,18 @@ bool Studio::load_level(game::Level level, bool reset_history) {
   if (play_ != PlayState::editing) stop();
   end_gizmo(false);
   level_ = std::move(level);
+  selection_.clear();
   if (reset_history) {
     history_.clear();
-    history_.push_back({"Open " + level_.name, level_});
+    HistoryEntry e;
+    e.label = "Open " + level_.name;
+    e.level = level_;
+    e.serial = next_serial_++;
+    history_.push_back(std::move(e));
     history_index_ = 0;
-    dirty_ = false;
+    saved_serial_ = history_[0].serial;
+    save_due_ = -1;
   }
-  selection_.clear();
   // Viewport cameras from the level.
   ViewCamera& c = views_[0].camera;
   c.position = level_.camera.position;
@@ -129,27 +134,63 @@ std::string Studio::level_text() const {
   return game::to_text(copy, 2);
 }
 
-void Studio::commit(const char* label, game::Level before) {
-  (void)before;
-  const bool merge = !coalesce_.empty() && coalesce_ == last_coalesce_ && now_ - last_coalesce_time_ < 1500 && history_index_ > 0 &&
-                     history_index_ + 1 == history_.size();
-  last_coalesce_ = coalesce_;
-  last_coalesce_time_ = now_;
-  coalesce_.clear();
-  if (merge) {
-    history_.back().second = level_;
-    dirty_ = true;
-    save_due_ = now_ + prefs_.autosave_seconds * 1000;
-    changed();
-    return;
+namespace {
+
+/// Document equality for the history: everything that is saved except the
+/// editor camera (camera moves are not undo steps).
+bool same_document(const game::Level& a, const game::Level& b) {
+  if (a.name != b.name || a.next_id != b.next_id || a.actors.size() != b.actors.size() || a.textures.size() != b.textures.size()) return false;
+  if (json::stringify(game::world_to_json(a.world)) != json::stringify(game::world_to_json(b.world))) return false;
+  for (std::size_t i = 0; i < a.textures.size(); ++i) {
+    const game::TextureAsset &x = a.textures[i], &y = b.textures[i];
+    if (x.id != y.id || x.name != y.name || x.width != y.width || x.height != y.height) return false;
+    if (x.src != y.src && (!x.src || !y.src || *x.src != *y.src)) return false;
   }
-  history_.resize(history_index_ + 1);
-  history_.push_back({label, level_});
-  if (history_.size() > 200) history_.erase(history_.begin() + 1);
-  history_index_ = history_.size() - 1;
-  dirty_ = true;
+  for (std::size_t i = 0; i < a.actors.size(); ++i)
+    if (json::stringify(game::actor_to_json(a.actors[i])) != json::stringify(game::actor_to_json(b.actors[i]))) return false;
+  return true;
+}
+
+}  // namespace
+
+bool Studio::commit(const char* label, game::Level before, std::vector<ActorId> selection_before) {
+  const std::string key = std::move(coalesce_), transaction = std::move(transaction_);
+  coalesce_.clear();
+  transaction_.clear();
+  if (same_document(before, level_)) {  // nothing to undo (the selection may still have changed)
+    changed();
+    return false;
+  }
+  const bool merge = !key.empty() && !transaction.empty() && history_index_ > 0 && history_index_ + 1 == history_.size() &&
+                     history_.back().merge_key == key && history_.back().transaction == transaction;
+  if (merge) {
+    HistoryEntry& e = history_.back();
+    e.level = level_;
+    e.selection_after = selection_;
+    e.serial = next_serial_++;
+    // A continuous edit that ends where it started is no step at all.
+    if (same_document(history_[history_index_ - 1].level, level_)) {
+      history_.pop_back();
+      --history_index_;
+    }
+  } else {
+    history_.resize(history_index_ + 1);  // a new edit discards the redo branch
+    HistoryEntry e;
+    e.label = label;
+    e.level = level_;
+    e.selection_before = std::move(selection_before);
+    e.selection_after = selection_;
+    e.merge_key = key;
+    e.transaction = transaction;
+    e.serial = next_serial_++;
+    history_.push_back(std::move(e));
+    // The oldest state becomes the new base: every remaining step still undoes exactly.
+    while (history_.size() > kMaxHistory) history_.erase(history_.begin());
+    history_index_ = history_.size() - 1;
+  }
   save_due_ = now_ + prefs_.autosave_seconds * 1000;
   changed();
+  return true;
 }
 
 void Studio::changed() {
@@ -159,27 +200,51 @@ void Studio::changed() {
   touch();
 }
 
-void Studio::restore_snapshot(std::size_t index) {
-  history_index_ = index;
-  last_coalesce_.clear();
-  level_ = history_[index].second;
-  dirty_ = true;
+void Studio::step_history(bool forward) {
+  const game::EditorCamera camera = level_.camera;  // the viewport camera is not part of the history
+  if (forward) {
+    ++history_index_;
+    level_ = history_[history_index_].level;
+    selection_ = history_[history_index_].selection_after;
+  } else {
+    selection_ = history_[history_index_].selection_before;
+    --history_index_;
+    level_ = history_[history_index_].level;
+  }
+  level_.camera = camera;
   save_due_ = now_ + prefs_.autosave_seconds * 1000;
   changed();
 }
 
 void Studio::undo() {
-  if (play_ != PlayState::editing || !can_undo()) return;
+  if (play_ != PlayState::editing) { report("Stop playing to undo", "warn"); return; }
   end_gizmo(false);
-  report("Undo " + history_[history_index_].first);
-  restore_snapshot(history_index_ - 1);
+  if (!can_undo()) return;
+  report("Undo " + history_[history_index_].label);
+  step_history(false);
 }
 
 void Studio::redo() {
-  if (play_ != PlayState::editing || !can_redo()) return;
+  if (play_ != PlayState::editing) { report("Stop playing to redo", "warn"); return; }
   end_gizmo(false);
-  restore_snapshot(history_index_ + 1);
-  report("Redo " + history_[history_index_].first);
+  if (!can_redo()) return;
+  step_history(true);
+  report("Redo " + history_[history_index_].label);
+}
+
+bool Studio::jump_history(std::size_t index) {
+  if (play_ != PlayState::editing || index >= history_.size()) return false;
+  end_gizmo(false);
+  while (history_index_ > index) step_history(false);
+  while (history_index_ < index) step_history(true);
+  report("History: " + history_[history_index_].label);
+  return true;
+}
+
+void Studio::mark_saved() {
+  if (!history_.empty()) saved_serial_ = history_[history_index_].serial;
+  save_due_ = -1;
+  touch();
 }
 
 std::string Studio::take_autosave(f64 now_ms) {
@@ -278,13 +343,15 @@ ActorId Studio::add_actor(game::Actor actor, bool select_it) {
     actor.name = unique_name(l, actor.name.empty() ? std::string("Actor") : actor.name);
     actor.id = 0;
     id = l.add(std::move(actor)).id;
+    if (select_it) select({id});
     return true;
   });
-  if (id && select_it) select({id});
   return id;
 }
 
-void Studio::delete_selection() {
+void Studio::delete_selection() { delete_selection("Delete"); }
+
+void Studio::delete_selection(const char* label) {
   if (selection_.empty()) return;
   std::unordered_set<ActorId> doomed(selection_.begin(), selection_.end());
   // Children go with their parents.
@@ -295,14 +362,14 @@ void Studio::delete_selection() {
       if (a.parent && doomed.count(a.parent) && !doomed.count(a.id)) { doomed.insert(a.id); grew = true; }
   }
   const std::size_t n = doomed.size();
-  edit("Delete", [&](game::Level& l) {
+  edit(label, [&](game::Level& l) {
     l.actors.erase(std::remove_if(l.actors.begin(), l.actors.end(), [&](const game::Actor& a) { return doomed.count(a.id) > 0; }), l.actors.end());
     for (game::Actor& a : l.actors)
       for (game::JointComponent& j : a.joints)
         if (doomed.count(j.target)) j.target = 0;
+    selection_.clear();
     return true;
   });
-  selection_.clear();
   report("Deleted " + std::to_string(n) + (n == 1 ? " actor" : " actors"));
 }
 
@@ -327,8 +394,18 @@ void Studio::duplicate_selection(Vec3 offset) {
   if (roots.empty()) return;
   const std::vector<game::Actor> copy = subtree_copy(level_, roots);
   std::vector<ActorId> fresh;
-  edit("Duplicate", [&](game::Level& l) { clone_into(l, copy, fresh, offset); return true; });
+  edit("Duplicate", [&](game::Level& l) { clone_into(l, copy, fresh, offset); select(fresh); return true; });
+}
+
+void Studio::duplicate_in_place() {
+  const std::vector<ActorId> roots = selection_roots();
+  if (roots.empty()) return;
+  const std::vector<game::Actor> copy = subtree_copy(level_, roots);
+  std::vector<ActorId> fresh;
+  clone_into(level_, copy, fresh, {});
   select(fresh);
+  changed();
+  world_->sync(level_);  // the gizmo reads the copies' placement right away
 }
 
 void Studio::copy_selection() {
@@ -348,33 +425,33 @@ void Studio::copy_selection() {
 bool Studio::paste() {
   if (clipboard_.empty()) return false;
   std::vector<ActorId> fresh;
-  edit("Paste", [&](game::Level& l) { clone_into(l, clipboard_, fresh, {1, 1, 0}); return true; });
-  select(fresh);
+  edit("Paste", [&](game::Level& l) { clone_into(l, clipboard_, fresh, {1, 1, 0}); select(fresh); return true; });
   return true;
 }
 
 void Studio::cut_selection() {
   copy_selection();
-  delete_selection();
+  delete_selection("Cut");
+}
+
+void Studio::reparent(game::Level& l, const std::vector<ActorId>& children, ActorId parent) {
+  const Mat4 parent_inv = parent ? internal::inverse(l.world_matrix(parent)) : Mat4{};
+  for (ActorId c : children) {
+    game::Actor* a = l.find(c);
+    if (!a || a->parent == parent) continue;
+    // Keep the world placement.
+    const Mat4 world = l.world_matrix(c);
+    a->parent = parent;
+    a->transform = game::matrix_transform(parent_inv * world);
+    if (parent) a->folder.clear();
+  }
 }
 
 bool Studio::attach(const std::vector<ActorId>& children, ActorId parent) {
   if (parent && !level_.find(parent)) return false;
   for (ActorId c : children)
     if (c == parent || (parent && level_.is_ancestor(c, parent))) { report("Cannot attach an actor to its own child", "warn"); return false; }
-  return edit(parent ? "Attach" : "Detach", [&](game::Level& l) {
-    const Mat4 parent_inv = parent ? internal::inverse(l.world_matrix(parent)) : Mat4{};
-    for (ActorId c : children) {
-      game::Actor* a = l.find(c);
-      if (!a || a->parent == parent) continue;
-      // Keep the world placement.
-      const Mat4 world = l.world_matrix(c);
-      a->parent = parent;
-      a->transform = game::matrix_transform(parent_inv * world);
-      if (parent) a->folder.clear();
-    }
-    return true;
-  });
+  return edit(parent ? "Attach" : "Detach", [&](game::Level& l) { reparent(l, children, parent); return true; });
 }
 
 bool Studio::rename(ActorId id, const std::string& name) {
@@ -401,9 +478,9 @@ void Studio::group_selection() {
       a->parent = gid;
       a->transform = game::matrix_transform(inv * world);
     }
+    select({gid});
     return true;
   });
-  select({gid});
 }
 
 void Studio::snap_to_floor() {
