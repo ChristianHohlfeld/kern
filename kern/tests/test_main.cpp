@@ -1701,6 +1701,75 @@ TEST(logic_tween_and_every) {
   CHECK(std::fabs(inst->get("Ticks").as_number() - 4) <= 1);
 }
 
+TEST(game_logic_graphs_drive_the_world) {
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId me = add_soldier(l, {0, 0, 0.8f});
+  // A sensor volume with its own graph: entering it scores and opens the "Door" (moves it up over 1 s).
+  game::Actor zone;
+  zone.name = "Zone";
+  zone.transform.position = {6, 0, 0};
+  game::ColliderComponent s;
+  s.shape = game::ColliderShape::box;
+  s.size = {2, 2, 2};
+  s.center = {0, 0, 1};
+  s.sensor = true;
+  zone.colliders.push_back(s);
+  zone.logic = logic_graph(R"({"variables":[{"name":"Visits","type":"int","value":0}],
+    "nodes":[{"id":1,"type":"game.overlap_begin"},{"id":2,"type":"var.add","params":{"variable":"Visits"}},
+      {"id":3,"type":"game.add_score","values":{"points":5}},{"id":4,"type":"flow.call","params":{"name":"OpenDoor"}}],
+    "links":[[1,"then",2,"exec"],[2,"then",3,"exec"],[3,"then",4,"exec"]]})");
+  const game::ActorId zone_id = l.add(zone).id;
+  game::Actor door;
+  door.name = "Door";
+  door.transform.position = {10, 0, 1.5f};
+  door.mesh = game::MeshComponent{};
+  door.mesh->size = {0.3f, 3, 3};
+  door.logic = logic_graph(R"({"nodes":[{"id":1,"type":"event.custom","params":{"name":"OpenDoor"}},
+      {"id":2,"type":"flow.tween","params":{"ease":"linear"},"values":{"duration":1}},
+      {"id":3,"type":"actor.set_location"},{"id":4,"type":"vector.lerp","values":{"a":[10,0,1.5],"b":[10,0,4.5]}}],
+    "links":[[1,"then",2,"play"],[2,"update",3,"exec"],[2,"alpha",4,"alpha"],[4,"result",3,"location"]]})");
+  const game::ActorId door_id = l.add(door).id;
+  // The level graph: Interact spawns a copy of the Cube in front of the player; Begin Play greets.
+  l.logic = logic_graph(R"({"nodes":[{"id":1,"type":"event.begin"},{"id":2,"type":"game.message","values":{"text":"Welcome"}},
+      {"id":3,"type":"game.input","params":{"action":"interact","edge":"pressed"}},{"id":4,"type":"actor.spawn","params":{"template":"Cube"},"values":{"location":[0,5,0.5]}},
+      {"id":5,"type":"debug.print","values":{"screen":false}},{"id":6,"type":"actor.name"}],
+    "links":[[1,"then",2,"exec"],[3,"then",4,"exec"],[4,"then",5,"exec"],[4,"spawned",6,"target"],[6,"name",5,"text"]]})");
+  CHECK(game::validate(l).empty() || std::none_of(game::validate(l).begin(), game::validate(l).end(), [](const game::Issue& i) { return i.error; }));
+  CHECK(f.world->start(l, game::SimMode::play));
+  CHECK(f.world->logic_runtime() != nullptr);
+  CHECK(f.world->hud().message == "Welcome");
+  Camera cam;
+  game::PlayInput in;
+  auto tick = [&](int n) { for (int i = 0; i < n; ++i) { f.world->step(1.0f / 60, in); f.world->update_camera(cam, 1.0f / 60, in); } };
+  tick(10);
+  // Walk into the zone.
+  f.world->teleport(me, {6, 0, 0.8f});
+  tick(5);
+  CHECK(f.world->hud().score == 5);
+  CHECK(f.world->logic_runtime()->find(zone_id)->get("Visits").as_int() == 1);
+  tick(70);
+  Mat4 m;
+  CHECK(f.world->actor_matrix(door_id, m));
+  CHECK(std::fabs(m.translation().z - 4.5f) < 0.05f);
+  // Interact spawns a replicated copy of the Cube.
+  in.interact = true;
+  tick(2);
+  in.interact = false;
+  tick(2);
+  std::vector<game::GameWorld::PropertyChange> props;
+  std::vector<game::GameWorld::SpawnChange> spawns;
+  f.world->take_replicated_changes(props, spawns);
+  CHECK(spawns.size() == 1);
+  const game::ActorId copy = spawns.empty() ? 0 : spawns[0].id;
+  CHECK(copy && f.world->level().find(copy) && f.world->level().find(copy)->name == "Cube");
+  bool printed = false;
+  for (const std::string& e : f.world->events()) printed |= e == "Logic: Cube";
+  CHECK(printed);
+  CHECK(!props.empty());  // the door's moves (a body-less actor) replicate as transform changes
+}
+
 TEST(game_character_mover) {
   GameFixture f;
   game::Level l = game::basic_level();
@@ -2678,6 +2747,88 @@ TEST(net_game_soldier_replication) {
   for (int i = 0; i < 30; ++i) frame();
   CHECK(cw.hud().health < 75);
   CHECK(cw.hud().damage_age < 1.0f);
+  server.stop();
+  client.stop();
+  renderer.shutdown();
+}
+
+TEST(net_game_replicates_logic_changes) {
+  Renderer renderer;
+  game::NightWindows windows;
+  ShaderExtension* ext[1] = {&windows};
+  RendererOptions o;
+  renderer.init(o, Span<ShaderExtension* const>(ext, 1));
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  add_soldier(l, {0, 0, 0.8f});
+  game::Actor door;
+  door.name = "Door";
+  door.transform.position = {10, 0, 1.5f};
+  door.mesh = game::MeshComponent{};
+  door.mesh->size = {0.3f, 3, 3};
+  const game::ActorId door_id = l.add(door).id;
+  // Any player's Interact: the door jumps up, its light turns red and a crate is spawned.
+  game::Actor crate;
+  crate.name = "Crate";
+  crate.transform.position = {30, 30, 0.5f};
+  crate.mesh = game::MeshComponent{};
+  crate.body = game::BodyComponent{};
+  l.add(crate);
+  l.logic = logic_graph(R"({"nodes":[{"id":1,"type":"game.input","params":{"action":"interact"}},
+      {"id":2,"type":"actor.find","values":{"name":"Door"}},{"id":3,"type":"actor.set_location","values":{"location":[10,0,4.5]}},
+      {"id":4,"type":"actor.set_color","values":{"color":[1,0,0]}},{"id":5,"type":"actor.spawn","params":{"template":"Crate"},"values":{"location":[2,2,3]}}],
+    "links":[[1,"then",3,"exec"],[2,"actor",3,"target"],[3,"then",4,"exec"],[2,"actor",4,"target"],[4,"then",5,"exec"]]})");
+  net::LoopbackNetwork hub(9);
+  hub.simulator().settings.latency_ms = 20;
+  auto ts = hub.create(), t1 = hub.create();
+  game::GameWorld sw(renderer, &windows), cw(renderer, &windows);
+  game::NetGame server(sw), client(cw);
+  CHECK(server.host(l, *ts));
+  CHECK(client.join(l, *t1, ts->address()));
+  f64 time = 0;
+  game::PlayInput host_in, in;
+  auto frame = [&](int n) {
+    for (int i = 0; i < n; ++i) {
+      time += 1.0 / 60;
+      hub.advance_time(time);
+      server.update(time, 1.0f / 60, host_in);
+      client.update(time, 1.0f / 60, in);
+      sw.sound_cues().clear();
+      cw.sound_cues().clear();
+    }
+  };
+  frame(150);
+  CHECK(client.playing());
+  CHECK(cw.logic_runtime() == nullptr);  // replicas run no graphs
+  in.interact = true;
+  frame(10);
+  in.interact = false;
+  frame(30);
+  Mat4 m;
+  CHECK(cw.actor_matrix(door_id, m) && std::fabs(m.translation().z - 4.5f) < 0.01f);
+  CHECK(cw.level().find(door_id)->mesh->material.color.y < 0.05f);
+  int crates = 0;
+  for (const game::Actor& a : cw.level().actors) crates += a.name == "Crate" ? 1 : 0;
+  CHECK(crates == 2);
+  // A player joining later sees the same world.
+  auto t2 = hub.create();
+  game::GameWorld lw(renderer, &windows);
+  game::NetGame late(lw);
+  CHECK(late.join(l, *t2, ts->address()));
+  for (int i = 0; i < 150; ++i) {
+    time += 1.0 / 60;
+    hub.advance_time(time);
+    server.update(time, 1.0f / 60, host_in);
+    client.update(time, 1.0f / 60, {});
+    late.update(time, 1.0f / 60, {});
+    sw.sound_cues().clear(); cw.sound_cues().clear(); lw.sound_cues().clear();
+  }
+  CHECK(late.playing());
+  CHECK(lw.actor_matrix(door_id, m) && std::fabs(m.translation().z - 4.5f) < 0.01f);
+  crates = 0;
+  for (const game::Actor& a : lw.level().actors) crates += a.name == "Crate" ? 1 : 0;
+  CHECK(crates == 2);
+  late.stop();
   server.stop();
   client.stop();
   renderer.shutdown();

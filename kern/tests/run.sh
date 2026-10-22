@@ -23,8 +23,15 @@ done
 for p in "${pids[@]}"; do wait "$p"; done
 sources=()
 while IFS= read -r f; do sources+=("$f"); done < <(find "$root/src" -name '*.cpp' | sort)
-"${CXX:-c++}" -std=c++20 -O1 -g -fno-exceptions -fno-rtti -fsanitize=address,undefined -fno-sanitize-recover=undefined \
-  -Wall -Wextra -Wno-unused-parameter -Werror \
-  -I"$root/include" -I"$root/third_party/box3d/include" -I"$here" "${sources[@]}" "$here/gl_stub.cpp" "$here/test_main.cpp" \
-  "${objects[@]}" -lm -o "$out/kern_tests"
+sources+=("$here/gl_stub.cpp" "$here/test_main.cpp")
+# One object per source, compiled in parallel (all cores).
+cxx="${CXX:-c++}"
+flags=(-std=c++20 -O1 -g -fno-exceptions -fno-rtti -fsanitize=address,undefined -fno-sanitize-recover=undefined
+       -Wall -Wextra -Wno-unused-parameter -Werror -I"$root/include" -I"$root/third_party/box3d/include" -I"$here")
+mkdir -p "$out/obj"
+export cxx
+printf '%s\n' "${sources[@]}" | xargs -P "${KERN_JOBS:-$(nproc)}" -I{} bash -c 'src="$1"; shift; o="'"$out"'/obj/$(echo "$src" | sed "s|/|_|g").o"; "$cxx" "$@" -c "$src" -o "$o"' _ {} "${flags[@]}"
+cpp_objects=()
+for f in "${sources[@]}"; do cpp_objects+=("$out/obj/$(echo "$f" | sed "s|/|_|g").o"); done
+"$cxx" -fsanitize=address,undefined "${cpp_objects[@]}" "${objects[@]}" -lm -o "$out/kern_tests"
 (cd "$here" && "$out/kern_tests" "$@")

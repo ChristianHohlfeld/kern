@@ -24,12 +24,14 @@ const check = (ok, what) => { checks++; if (!ok) { failures++; console.log("FAIL
 process.on("uncaughtException", e => { annotate("e2e crashed: " + (e?.stack || e)); console.error(e); process.exit(1); });
 process.on("unhandledRejection", e => { annotate("e2e crashed: " + (e?.stack || e)); console.error(e); process.exit(1); });
 
-const shot = (page, name) => page.screenshot({path: path.join(shots, name), timeout: 180000}).catch(e => console.log("screenshot", name, "skipped:", e.message.split("\n")[0]));
+// Screenshots are slow with software WebGL: only when KERN_E2E_SHOTS names a folder.
+const shot = (page, name) => !process.env.KERN_E2E_SHOTS ? Promise.resolve()
+  : page.screenshot({path: path.join(shots, name), timeout: 180000}).catch(e => console.log("screenshot", name, "skipped:", e.message.split("\n")[0]));
 const browser = await chromium.launch({args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]});
 
 // Software WebGL (SwiftShader) renders the city at about one frame per second,
 // so every check waits for its effect instead of a fixed time.
-async function openStudio(url, viewport = {width: 1280, height: 780}) {
+async function openStudio(url, viewport = {width: 1024, height: 640}) {
   const ctx = await browser.newContext({viewport, acceptDownloads: true});
   const page = await ctx.newPage();
   const errors = [];

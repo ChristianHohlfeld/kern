@@ -176,7 +176,16 @@ bool GameWorld::set_property(ActorId id, const std::string& path, const json::Va
   updated.logic = std::move(a->logic);
   *a = std::move(updated);
   // Presentation follows (meshes, lights read the level every frame; bodies keep their shapes).
-  if (path.rfind("transform", 0) == 0 && !body_of_actor_.count(id)) world_[id] = level_.world_matrix(id);
+  if (path.rfind("transform", 0) == 0) {
+    auto b = body_of_actor_.find(id);
+    if (b == body_of_actor_.end() || !b->second->body.valid()) world_[id] = level_.world_matrix(id);
+    else {  // a body (static colliders included) follows its actor's new transform
+      const Mat4 wm = level_.world_matrix(id);
+      const Transform t = matrix_transform(wm);
+      physics_.set_pose(b->second->body, physics::Pose{t.position, euler_to_quat(t.rotation)});
+      b->second->prev = physics_.pose(b->second->body);
+    }
+  }
   if (a->mesh) sync_actor_mesh(*a, world_[id]);
   if (mode_ != SimMode::replica) {
     PropertyChange c{id, path, *target};
@@ -289,6 +298,32 @@ bool GameWorld::teleport(ActorId id, Vec3 position, const Vec3* rotation_deg) {
     physics_.set_pose(b.body, p);
     b.prev = p;
     physics_.set_awake(b.body, true);
+    // Static bodies are not in the snapshots (they never move by themselves): replicate the move.
+    if (b.plan.motion == Motion::fixed && b.plan.owner == id && mode_ != SimMode::replica) {
+      Mat4 parent;
+      if (a->parent) parent = level_.world_matrix(a->parent);
+      f64 inv[16];
+      Vec3 local = position;
+      if (a->parent && invert(parent, inv)) {
+        Mat4 pi;
+        for (int i = 0; i < 16; ++i) pi.m[i] = static_cast<f32>(inv[i]);
+        local = pi.transform_point(position);
+      }
+      a->transform.position = local;
+      if (rotation_deg) a->transform.rotation = *rotation_deg;
+      auto record = [&](const char* path, Vec3 v) {
+        json::Value arr = json::Value::array();
+        arr.push(static_cast<f64>(v.x));
+        arr.push(static_cast<f64>(v.y));
+        arr.push(static_cast<f64>(v.z));
+        PropertyChange c{id, path, arr};
+        prop_changes_.push_back(c);
+        for (PropertyChange& q : prop_log_) if (q.actor == id && q.path == path) { q.value = c.value; return; }
+        if (prop_log_.size() < 4096) prop_log_.push_back(std::move(c));
+      };
+      record("transform.position", local);
+      if (rotation_deg) record("transform.rotation", *rotation_deg);
+    }
     return true;
   }
   // No body: the actor's transform (relative to its parent).

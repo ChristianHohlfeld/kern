@@ -9,6 +9,7 @@
 //   world.stop();                            // back to the edited level
 #pragma once
 
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -150,6 +151,9 @@ struct SimStats {
   u32 bodies = 0, awake = 0, shapes = 0, joints = 0, broken_joints = 0, contacts = 0;
   u64 steps = 0;
 };
+
+/// The gameplay nodes of Kern Logic are registered (always true; links logic_nodes.cpp).
+bool logic_nodes_registered();
 
 class GameWorld {
  public:
@@ -470,7 +474,8 @@ class GameWorld {
   std::unique_ptr<logic::Runtime> logic_;
   u32 logic_seed_ = 0x9e3779b9u;
   bool logic_events_ = false;
-  bool starting_replica_ = false;       // start() for a network replica: no logic           // the level has graphs: shapes report sensor / hit events
+  bool starting_replica_ = false;
+  std::map<std::pair<ActorId, ActorId>, int> overlaps_;  // (sensor, visitor) -> shapes inside       // start() for a network replica: no logic           // the level has graphs: shapes report sensor / hit events
   std::vector<PropertyChange> prop_changes_, prop_log_;
   std::vector<SpawnChange> spawn_changes_, spawn_log_;
   std::unordered_map<ActorId, std::pair<Vec3, Quat>> replica_poses_;

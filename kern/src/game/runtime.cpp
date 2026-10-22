@@ -407,7 +407,7 @@ struct GameWorld::Traffic {
   f32 yaw() const { return horizontal ? (dir > 0 ? 0.0f : kPi) : (dir > 0 ? kPi * 0.5f : -kPi * 0.5f); }
 };
 
-GameWorld::GameWorld(Renderer& renderer, NightWindows* windows) : r_(renderer), windows_(windows) {}
+GameWorld::GameWorld(Renderer& renderer, NightWindows* windows) : r_(renderer), windows_(windows) { (void)logic_nodes_registered(); }
 
 GameWorld::~GameWorld() {
   stop();
@@ -1249,6 +1249,7 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   pawns_.clear();
   logic_.reset();
   logic_host_.reset();
+  overlaps_.clear();
   health_.clear();
   shots_.clear();
   view_valid_ = false;
@@ -1805,15 +1806,25 @@ void GameWorld::handle_events() {
       ActorId id = static_cast<ActorId>(physics_.shape_user(shape));
       return id ? id : actor_for_body(body);
     };
+    // Visitors count as their whole actor (a player's capsule and head are one visitor): an
+    // overlap begins with the first shape inside and ends with the last one leaving.
+    auto visitor_of = [&](physics::Shape shape, physics::Body body) {
+      const ActorId owner = actor_for_body(body);
+      return owner ? owner : who(shape, body);
+    };
     for (const physics::TouchEvent& e : physics_.sensor_begin()) {
-      const ActorId sensor = who(e.shape_a, e.body_a), visitor = who(e.shape_b, e.body_b);
+      const ActorId sensor = who(e.shape_a, e.body_a), visitor = visitor_of(e.shape_b, e.body_b);
       if (!sensor || !visitor || !alive_[sensor]) continue;
+      if (overlaps_[{sensor, visitor}]++ > 0) continue;
       logic_fire("game.overlap_begin", sensor, visitor);
       logic_fire("game.overlapped_begin", visitor, sensor);
     }
     for (const physics::TouchEvent& e : physics_.sensor_end()) {
-      const ActorId sensor = who(e.shape_a, e.body_a), visitor = who(e.shape_b, e.body_b);
+      const ActorId sensor = who(e.shape_a, e.body_a), visitor = visitor_of(e.shape_b, e.body_b);
       if (!sensor || !visitor) continue;
+      auto it = overlaps_.find({sensor, visitor});
+      if (it == overlaps_.end() || --it->second > 0) continue;
+      overlaps_.erase(it);
       logic_fire("game.overlap_end", sensor, visitor);
       logic_fire("game.overlapped_end", visitor, sensor);
     }

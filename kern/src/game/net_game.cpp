@@ -8,7 +8,7 @@ namespace kern::game {
 namespace {
 
 constexpr int kReliable = 0, kUnreliable = 1;
-enum Msg : u16 { kWelcome = 1, kRefuse, kPawn, kUnpawn, kAlive, kInput, kSnapshot, kCues, kShots };
+enum Msg : u16 { kWelcome = 1, kRefuse, kPawn, kUnpawn, kAlive, kInput, kSnapshot, kCues, kShots, kProperty, kSpawn };
 constexpr f32 kWorldBound = 8192;    // metres from the origin a networked pose may be
 constexpr int kMaxEntities = 255;
 constexpr int kInputHistory = 4;
@@ -41,6 +41,23 @@ struct ActorMsg {
   bool alive = true;
   template <class S>
   bool serialize(S& s) { return net::serialize_u32(s, actor) && net::serialize_bool(s, alive); }
+};
+
+struct PropertyMsg {
+  u32 actor = 0;
+  std::string path, value;  // value: JSON text
+  template <class S>
+  bool serialize(S& s) { return net::serialize_u32(s, actor) && net::serialize_string(s, path, 200) && net::serialize_string(s, value, 1000); }
+};
+
+struct SpawnMsg {
+  u32 source = 0, id = 0;
+  Vec3 position, rotation;
+  template <class S>
+  bool serialize(S& s) {
+    return net::serialize_u32(s, source) && net::serialize_u32(s, id) && net::serialize_compressed_vec3(s, position, kWorldBound, 0.001f) &&
+           net::serialize_compressed_vec3(s, rotation, 720, 0.01f);
+  }
 };
 
 template <class S>
@@ -298,6 +315,14 @@ void NetGame::server_update(f64 time, f32 dt, const PlayInput& input) {
       if (world_.player()) server_->send(slot, kReliable, kPawn, PawnMsg{255, static_cast<u32>(world_.player()), static_cast<u32>(world_.pawn_source(world_.player()))});
       for (std::size_t i = 0; i < remotes_.size(); ++i)
         if (remotes_[i]->active && remotes_[i]->pawn) server_->send(slot, kReliable, kPawn, PawnMsg{static_cast<i32>(i), static_cast<u32>(remotes_[i]->pawn), static_cast<u32>(world_.pawn_source(remotes_[i]->pawn))});
+      // What logic changed so far: spawned actors, then property changes (in order).
+      {
+        std::vector<GameWorld::PropertyChange> props;
+        std::vector<GameWorld::SpawnChange> spawns;
+        world_.replicated_state(props, spawns);
+        for (const auto& sp : spawns) server_->send(slot, kReliable, kSpawn, SpawnMsg{static_cast<u32>(sp.source), static_cast<u32>(sp.id), sp.position, sp.rotation});
+        for (const auto& p : props) server_->send(slot, kReliable, kProperty, PropertyMsg{static_cast<u32>(p.actor), p.path, json::stringify(p.value)});
+      }
       for (ActorId dead : world_.dead_actors()) server_->send(slot, kReliable, kAlive, ActorMsg{static_cast<u32>(dead), false});
       r.pawn = world_.add_pawn(0);
       if (r.pawn) server_->broadcast(kReliable, kPawn, PawnMsg{slot, static_cast<u32>(r.pawn), static_cast<u32>(world_.pawn_source(r.pawn))});
@@ -341,6 +366,13 @@ void NetGame::server_update(f64 time, f32 dt, const PlayInput& input) {
   world_.take_alive_changes(changes);
   world_.step(dt, input);
   world_.take_alive_changes(changes);
+  {
+    std::vector<GameWorld::PropertyChange> props;
+    std::vector<GameWorld::SpawnChange> spawns;
+    world_.take_replicated_changes(props, spawns);
+    for (const auto& sp : spawns) server_->broadcast(kReliable, kSpawn, SpawnMsg{static_cast<u32>(sp.source), static_cast<u32>(sp.id), sp.position, sp.rotation});
+    for (const auto& p : props) server_->broadcast(kReliable, kProperty, PropertyMsg{static_cast<u32>(p.actor), p.path, json::stringify(p.value)});
+  }
   for (const auto& [id, alive] : changes) server_->broadcast(kReliable, kAlive, ActorMsg{static_cast<u32>(id), alive});
   // Shots fired this frame (tracers and impacts on every client).
   {
@@ -475,6 +507,18 @@ void NetGame::client_update(f64 time, f32 dt, const PlayInput& input) {
         case kAlive: {
           ActorMsg a;
           if (net::read(*m, a) && welcomed_) world_.set_alive(static_cast<ActorId>(a.actor), a.alive);
+          break;
+        }
+        case kSpawn: {
+          SpawnMsg sp;
+          if (net::read(*m, sp) && welcomed_ && !world_.level().find(static_cast<ActorId>(sp.id)))
+            world_.spawn_copy(static_cast<ActorId>(sp.source), sp.position, sp.rotation, static_cast<ActorId>(sp.id));
+          break;
+        }
+        case kProperty: {
+          PropertyMsg p;
+          json::Value v;
+          if (net::read(*m, p) && welcomed_ && json::parse(p.value, v)) world_.set_property(static_cast<ActorId>(p.actor), p.path, v);
           break;
         }
         default: break;

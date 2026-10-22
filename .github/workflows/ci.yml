@@ -1,48 +1,150 @@
 name: CI
 
+# One pipeline: the site is built once and published as soon as it is built;
+# native and browser tests run in parallel and do not hold the deployment up.
+#   native  unit tests with ASan / UBSan
+#   build   Kern Studio + example games (parallel ThinLTO, object cache kept between runs)
+#   e2e     the browser test against the built Studio
+#   deploy  main only: publishes the site to the gh-pages branch
+#           https://christianhohlfeld.github.io/kern/
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-test:
+  native:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native unit tests (ASan/UBSan)
+        run: CXX=g++ CC=gcc kern/tests/run.sh
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      KERN_OBJ_CACHE: /home/runner/kern-obj
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: wasi-sdk 25 (cached)
+        id: sdk
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/wasi-sdk
+          key: wasi-sdk-25.0
       - name: Install wasi-sdk 25
+        if: steps.sdk.outputs.cache-hit != 'true'
         run: |
-          curl -sSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-linux.tar.gz | tar xz -C /tmp
-          echo "WASI_SDK=/tmp/wasi-sdk-25.0-x86_64-linux" >> "$GITHUB_ENV"
-      - name: Native unit tests (ASan/UBSan)
-        run: CXX=g++ CC=gcc kern/tests/run.sh
+          mkdir -p /home/runner/wasi-sdk
+          curl -sSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-linux.tar.gz | tar xz -C /home/runner/wasi-sdk --strip-components=1
+      - name: Object cache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/kern-obj
+          key: kern-obj-${{ github.sha }}
+          restore-keys: kern-obj-
       - name: Build Kern Studio and the example games
         run: |
           set -euo pipefail
+          export WASI_SDK=/home/runner/wasi-sdk
           tools/build_studio.sh
           kern/build.sh --app kern/examples/hello/hello.wasm kern/examples/hello/hello.cpp
           kern/build.sh --app kern/examples/orbrun/orbrun.wasm kern/examples/orbrun/orbrun.cpp
-          for f in kern/web/kern.mjs kern/web/app.mjs kern/web/studio/studio.mjs kern/web/studio/game.mjs; do node --check "$f"; done
+          for f in kern/web/kern.mjs kern/web/app.mjs kern/web/studio/*.mjs tools/net_relay.mjs; do node --check "$f"; done
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p _site/editor _site/generated _site/kern/web/studio _site/kern/examples
+          cp site/index.html _site/
+          cp generated/studio.html _site/editor/index.html
+          cp generated/kern_studio.wasm _site/generated/
+          cp kern/web/kern.mjs kern/web/app.mjs _site/kern/web/
+          cp kern/web/studio/*.mjs kern/web/studio/*.html kern/web/studio/*.css _site/kern/web/studio/
+          for g in hello orbrun; do
+            mkdir -p _site/kern/examples/$g
+            cp kern/examples/$g/index.html kern/examples/$g/$g.wasm _site/kern/examples/$g/
+          done
+          touch _site/.nojekyll
+          du -sh _site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: _site
+          include-hidden-files: true
+          retention-days: 7
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: _site
+      - name: Publish to the gh-pages branch
+        run: |
+          set -euo pipefail
+          cd _site
+          touch .nojekyll
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Pages: ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: _site
+      - name: Playwright (cached)
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/e2e
+            ~/.cache/ms-playwright
+          key: playwright-1.56.0
       - name: Browser end-to-end test
         run: |
           set -euo pipefail
-          npm install --prefix /tmp/e2e --no-audit --no-fund playwright@1.56.0
+          mkdir -p generated && cp _site/editor/index.html generated/studio.html && cp _site/generated/kern_studio.wasm generated/
+          [ -d /tmp/e2e/node_modules/playwright ] || npm install --prefix /tmp/e2e --no-audit --no-fund playwright@1.56.0
           /tmp/e2e/node_modules/.bin/playwright install --with-deps chromium || { echo "::error::playwright install failed"; exit 1; }
           python3 -m http.server 8771 --bind 127.0.0.1 >/tmp/http.log 2>&1 &
           sleep 1
           mkdir -p artifacts/e2e
-          NODE_PATH=/tmp/e2e/node_modules KERN_E2E_SHOTS=artifacts/e2e node kern/tests/e2e/studio_e2e.mjs http://127.0.0.1:8771
-      - name: Keep Kern Studio and the screenshots
+          NODE_PATH=/tmp/e2e/node_modules node kern/tests/e2e/studio_e2e.mjs http://127.0.0.1:8771
+      - name: Keep the screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kern-studio
-          path: |
-            generated/studio.html
-            artifacts/e2e/
-          if-no-files-found: warn
+          name: e2e-screenshots
+          path: artifacts/e2e/
+          if-no-files-found: ignore
