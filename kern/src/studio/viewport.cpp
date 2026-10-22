@@ -159,6 +159,20 @@ game::PlayInput Studio::play_input() const {
   in.reload = held("KeyR") || touch_.reload;
   in.crouch = held("KeyC") || held("ControlLeft") || touch_.crouch;
   in.interact = held("KeyF") || touch_.interact;
+  // Engine touch controls (sticks, look drag, buttons; see game/touch.h).
+  const game::PlayInput& t = touch_ctl_in_;
+  in.move_x = clamp(in.move_x + t.move_x, -1.0f, 1.0f);
+  in.move_y = clamp(in.move_y + t.move_y, -1.0f, 1.0f);
+  in.up = clamp(in.up + t.up, -1.0f, 1.0f);
+  in.jump = in.jump || t.jump;
+  in.boost = in.boost || t.boost;
+  in.fire = in.fire || t.fire;
+  in.aim = in.aim || t.aim;
+  in.reload = in.reload || t.reload;
+  in.crouch = in.crouch || t.crouch;
+  in.interact = in.interact || t.interact;
+  in.look_x += t.look_x * prefs_.mouse_sensitivity;
+  in.look_y += t.look_y * prefs_.mouse_sensitivity * (prefs_.invert_y ? -1.0f : 1.0f);
   in.look_x += touch_look_x_ * prefs_.mouse_sensitivity;
   in.look_y += touch_look_y_ * prefs_.mouse_sensitivity * (prefs_.invert_y ? -1.0f : 1.0f);
   // Gamepad on top.
@@ -311,6 +325,27 @@ void Studio::marquee_select(Viewport& v, u32 mods) {
   report("Selected " + std::to_string(selection_.size()) + " actors");
 }
 
+bool Studio::touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
+  if (type == 0) {
+    const bool switched = !input_.touch();
+    input_.pointer_down(true);
+    if (switched) {
+      // Touch from now on: give the mouse back and lay the sticks out before this finger lands.
+      if (mouse_captured_) {
+        mouse_captured_ = false;
+        json::Value a = json::Value::object();
+        a.set("action", "releasePointer");
+        push_ui(std::move(a));
+      }
+      play_buttons_ = 0;
+      update_touch_controls(0);
+      touch();
+    }
+  }
+  if (play_ != PlayState::playing || ejected_) return false;
+  return touch_ctl_.pointer(type, id, x, y, time_ms);
+}
+
 json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 buttons, u32 mods, f32 wheel_delta) {
   json::Value result = json::Value::object();
   if (index >= 4) return result;
@@ -319,7 +354,7 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
   modifiers_ = mods;
   // Playing: the mouse looks around (captured) and clicks recapture it.
   if (play_ == PlayState::playing && !ejected_ && index == active_view_) {
-    if (type == down) {
+    if (type == down && !input_.touch()) {
       if (!mouse_captured_) {
         mouse_captured_ = true;
         json::Value a = json::Value::object();
@@ -516,6 +551,7 @@ void Studio::frame(f64 now_ms) {
   last_frame_ = now_ms;
   if (raw > 0) fps_ = fps_ <= 0 ? static_cast<f32>(1000.0 / raw) : fps_ * 0.9f + static_cast<f32>(100.0 / raw);
   update_cameras(dt);
+  update_touch_controls(dt);
   if (play_ != PlayState::editing) {
     const game::PlayInput in = play_input();
     // In multi-player Play the active viewport's player gets the input; the others idle.

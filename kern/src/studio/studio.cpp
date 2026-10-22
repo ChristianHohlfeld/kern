@@ -756,11 +756,7 @@ bool Studio::net_join(u64 server) {
   play_ = PlayState::playing;
   paused_ = false;
   ejected_ = false;
-  mouse_captured_ = true;
-  json::Value a = json::Value::object();
-  a.set("action", "capturePointer");
-  a.set("viewport", active_view_);
-  push_ui(std::move(a));
+  capture_play_pointer();
   report("Joining the game...");
   ++scene_revision_;
   return true;
@@ -799,6 +795,30 @@ void Studio::update_net(f32 dt, const game::PlayInput& in) {
   }
 }
 
+void Studio::capture_play_pointer() {
+  // Touch devices never lock the pointer (SpawnCity: requestPointerLock only on desktop).
+  if (input_.touch()) { mouse_captured_ = false; return; }
+  mouse_captured_ = true;
+  json::Value a = json::Value::object();
+  a.set("action", "capturePointer");
+  a.set("viewport", active_view_);
+  push_ui(std::move(a));
+}
+
+void Studio::update_touch_controls(f32 dt) {
+  touch_ctl_in_ = game::PlayInput{};
+  const bool on = play_ == PlayState::playing && !ejected_ && input_.touch() && !paused_;
+  const game::Actor* a = on ? world_->level().find(world_->player()) : nullptr;
+  const game::ControllerComponent* c = a && a->controller ? &*a->controller : nullptr;
+  const Viewport& v = views_[active_view_];
+  touch_ctl_.set_frame(v.css_width, v.css_height, safe_[0], safe_[1], safe_[2], safe_[3]);
+  const game::Hud& h = world_->hud();
+  touch_ctl_.set_controller(c, c && a->weapon.has_value(), !h.soldier || h.health != 0.0f);
+  if (!c) { touch_ctl_.release_all(); return; }
+  const f32 fov = play_camera_valid_ ? play_camera_.fov * 57.29578f : c->camera_fov;
+  touch_ctl_.update(dt, touch_ctl_in_, fov);
+}
+
 bool Studio::soldier_pawn() const {
   if (!world_->running()) return false;
   const game::Actor* a = world_->level().find(world_->player());
@@ -812,7 +832,7 @@ bool Studio::play(game::SimMode mode) {
     if (!world_->set_mode(mode)) { report(last_error(), "warn"); return false; }
     play_ = mode == game::SimMode::play ? PlayState::playing : PlayState::simulating;
     ejected_ = false;
-    mouse_captured_ = play_ == PlayState::playing;
+    mouse_captured_ = play_ == PlayState::playing && !input_.touch();
     touch();
     return true;
   }
@@ -857,15 +877,12 @@ bool Studio::play(game::SimMode mode) {
   play_ = mode == game::SimMode::play ? PlayState::playing : PlayState::simulating;
   paused_ = false;
   ejected_ = false;  // true only after F8 (Eject) from Play
-  mouse_captured_ = play_ == PlayState::playing;
-  if (play_ == PlayState::playing) {
-    json::Value a = json::Value::object();
-    a.set("action", "capturePointer");
-    a.set("viewport", active_view_);
-    push_ui(std::move(a));
-  }
-  report(play_ == PlayState::playing ? "Playing - WASD / arrows to move, mouse to look, Shift+F1 frees the mouse, F8 ejects, Esc stops"
-                                     : "Simulating - physics runs, Ctrl+drag grabs bodies, K keeps the selected actors' poses");
+  mouse_captured_ = false;
+  if (play_ == PlayState::playing) capture_play_pointer();
+  touch_ctl_.release_all();
+  if (play_ != PlayState::playing) report("Simulating - physics runs, Ctrl+drag grabs bodies, K keeps the selected actors' poses");
+  else if (input_.touch()) report("Playing - left stick moves, right stick or a drag looks around, the buttons act");
+  else report("Playing - WASD / arrows to move, mouse to look, Shift+F1 frees the mouse, F8 ejects, Esc stops");
   ++scene_revision_;
   return true;
 }
@@ -910,7 +927,7 @@ void Studio::eject() {
   } else if (world_->set_mode(game::SimMode::play)) {
     play_ = PlayState::playing;
     ejected_ = false;
-    mouse_captured_ = true;
+    mouse_captured_ = !input_.touch();
     report("Possessed the player");
   } else {
     report("No player to possess", "warn");

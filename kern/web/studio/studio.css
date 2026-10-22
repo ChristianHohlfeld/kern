@@ -331,3 +331,11 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 
 .tb.logic{display:inline-flex;align-items:center;gap:5px;padding:0 10px 0 8px;font-weight:600}
 .tb.logic.on{background:var(--accent-soft);color:var(--text-hi)}
+
+/* ---- Play on touch devices: the game fills the screen ---- */
+#touchExit { display: none; }
+#app.touch-play #viewArea { position: fixed; inset: 0; z-index: 60; }
+#app.touch-play .vp-bar, #app.touch-play .vp-info, #app.touch-play .vp-hint { display: none !important; }
+#app.touch-play #touchExit { display: block; position: absolute; z-index: 8; left: max(8px, env(safe-area-inset-left)); top: max(8px, env(safe-area-inset-top));
+  height: 36px; min-width: 56px; padding: 0 10px; border-radius: 10px; border: 1.5px solid #ff8a6a99; background: #2a1410e0; color: #fff;
+  font: 800 10px Inter, system-ui, sans-serif; letter-spacing: .06em; touch-action: none; }

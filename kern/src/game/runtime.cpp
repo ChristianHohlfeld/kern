@@ -868,6 +868,7 @@ void GameWorld::compute_world_matrices(f32 time, f32 alpha) {
         p.rotation = quat_normalize(Quat{q.rotation.x + (r.x - q.rotation.x) * alpha, q.rotation.y + (r.y - q.rotation.y) * alpha,
                                          q.rotation.z + (r.z - q.rotation.z) * alpha, q.rotation.w + (r.w - q.rotation.w) * alpha});
       }
+      if (id == player_) { presented_player_ = p; presented_player_id_ = id; }
       Mat4 m = Mat4::trs(p.position, p.rotation, b->second->scale);
       const Pawn* pawn = a->controller && a->controller->mode == ControlMode::hovercar ? pawn_of(id) : nullptr;
       if (pawn && mode_ != SimMode::replica) {
@@ -2328,7 +2329,7 @@ bool GameWorld::update_camera(Camera& cam, f32 dt, const PlayInput& in) {
     return true;
   }
   view_valid_ = false;
-  const physics::Pose pose = physics_.pose(body);
+  const physics::Pose pose = presented_player_id_ == player_ ? presented_player_ : physics_.pose(body);
   const Vec3 v = physics_.linear_velocity(body);
   const f32 speed = length(v);
   camera_yaw_ -= in.look_x;

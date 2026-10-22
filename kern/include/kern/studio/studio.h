@@ -17,6 +17,7 @@
 #include "kern/core/json.h"
 #include "kern/game/runtime.h"
 #include "kern/game/net_game.h"
+#include "kern/game/touch.h"
 #include "kern/game/sound.h"
 #include "kern/net/transport.h"
 #include "kern/gfx/renderer.h"
@@ -173,6 +174,12 @@ class Studio {
   void set_viewport_rect(u32 index, Rect rect, f32 css_width, f32 css_height, f32 dpr, bool visible);
   /// Pointer: type 0 down, 1 move, 2 up, 3 cancel, 4 wheel, 5 leave. buttons: DOM bits.
   json::Value pointer(u32 viewport, u32 type, f32 x, f32 y, i32 button, i32 buttons, u32 modifiers, f32 wheel);
+  /// Touch / pen fingers on the active viewport while playing (engine touch controls). True when used.
+  bool touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms);
+  const game::InputArbiter& input_device() const { return input_; }
+  /// The camera of the possessed player this frame (Play).
+  const Camera& play_camera() const { return play_camera_; }
+  const game::TouchControls& touch_controls() const { return touch_ctl_; }
   /// Keyboard (key = KeyboardEvent.key, code = KeyboardEvent.code). modifiers: 1 shift, 2 ctrl/meta, 4 alt.
   json::Value key(std::string_view key, std::string_view code, bool down, u32 modifiers, bool repeat);
   void blur();
@@ -432,7 +439,16 @@ class Studio {
   u32 play_buttons_ = 0;                  // mouse buttons held while the game has the mouse
   f32 touch_look_x_ = 0, touch_look_y_ = 0;  // degrees this frame from touch look
   bool soldier_pawn() const;
-  game::PlayInput touch_;                 // on-screen joystick and buttons (exported games on touch devices)
+  game::PlayInput touch_;                 // on-screen input sent by the page (gameInput command)
+  game::InputArbiter input_;              // touch or mouse+keyboard (+ gamepad), the last used wins
+  game::TouchControls touch_ctl_;         // engine-drawn touch sticks and buttons (Play on touch devices)
+  game::PlayInput touch_ctl_in_;          // what the touch controls give this frame
+  f32 safe_[4] = {0, 0, 0, 0};            // safe-area insets left, top, right, bottom (css px)
+  /// Takes the mouse for Play (pointer lock), never on touch devices.
+  void capture_play_pointer();
+  /// Keeps the touch controls in step with the viewport, the possessed player and the device.
+  void update_touch_controls(f32 dt);
+  json::Value touch_json() const;
   f64 now_ = 0, last_frame_ = -1;
   f32 fps_ = 0;
   u64 revision_ = 1;

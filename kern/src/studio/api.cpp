@@ -93,6 +93,12 @@ const char* kern_studio_pointer(u32 viewport, u32 type, f32 x, f32 y, i32 button
   return answer(g_host->studio->pointer(viewport, type, x, y, button, buttons, modifiers, wheel));
 }
 
+/// A touch or pen finger (type: 0 down, 1 move, 2 up, 3 cancel) in css px of the active viewport.
+/// Returns 1 when the engine's touch controls used it.
+KERN_EXPORT(kern_studio_touch) i32 kern_studio_touch(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
+  return live() && g_host->studio->touch_pointer(type, id, x, y, time_ms) ? 1 : 0;
+}
+
 KERN_EXPORT(kern_studio_look) void kern_studio_look(f32 dx, f32 dy) { if (live()) g_host->studio->look(dx, dy); }
 
 KERN_EXPORT(kern_studio_key)

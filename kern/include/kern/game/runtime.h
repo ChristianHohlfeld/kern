@@ -398,6 +398,10 @@ class GameWorld {
   void create_joints(const Actor& a);
   f32 shake_ = 0;
   Vec3 camera_eye_;
+  // The player's body pose as drawn this frame (interpolated between physics steps): the
+  // camera follows this, not the latest physics state, or fast bodies shake on screen.
+  physics::Pose presented_player_;
+  ActorId presented_player_id_ = 0;
   f32 camera_yaw_ = 0, camera_pitch_ = 18, camera_zoom_ = 1;
   bool camera_reset_ = true;
   Hud hud_;

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <set>
 #include <vector>
 
 #include "gl_stub.h"
@@ -3427,6 +3428,207 @@ TEST(studio_soldier_input_and_hud) {
   f.cmd(R"({"cmd":"stop"})");
 }
 
+TEST(input_device_arbiter_rules) {
+  // Desktop: fine pointer, no touch.
+  game::InputArbiter d;
+  d.set_platform(true, false, 0);
+  CHECK(!d.touch());
+  d.pointer_down(true);   // a touch screen laptop: touching switches to touch
+  CHECK(d.touch());
+  d.key_down();           // any key: desktop again
+  CHECK(!d.touch());
+  // Phone: coarse pointer with touch points starts in touch; a mouse click keeps it, a keyboard does not.
+  game::InputArbiter p;
+  p.set_platform(false, true, 5);
+  CHECK(p.touch());
+  p.pointer_down(false);
+  CHECK(p.touch());
+  p.mouse_moved();
+  CHECK(p.touch());
+  p.key_down();
+  CHECK(!p.touch());
+  p.pointer_down(true);
+  CHECK(p.touch());
+  // A headless browser without fine pointer and without touch is a desktop.
+  game::InputArbiter h;
+  h.set_platform(false, false, 0);
+  CHECK(!h.touch());
+  // The gamepad is tracked separately and does not change the layout.
+  h.gamepad_used();
+  CHECK(h.gamepad() && !h.touch());
+  h.key_down();
+  CHECK(!h.gamepad());
+}
+
+TEST(touch_controls_layout_and_sticks) {
+  game::ControllerComponent c;
+  c.mode = game::ControlMode::soldier;
+  game::TouchControls t;
+  t.set_frame(844, 390, 47, 0, 47, 21);  // iPhone landscape with notch insets
+  t.set_controller(&c, true, true);
+  const game::TouchView& v = t.view();
+  CHECK(v.visible);
+  // 168 px sticks flush with the safe corners.
+  CHECK_NEAR(v.move.size, 168, 0.01f);
+  CHECK_NEAR(v.move.x, 47, 0.01f);
+  CHECK_NEAR(v.move.y, 390 - 21 - 168, 0.01f);
+  CHECK_NEAR(v.look.x, 844 - 47 - 168, 0.01f);
+  // Soldier buttons: jump, reload, aim, crouch, use; none overlaps a stick or leaves the screen.
+  std::set<std::string> ids;
+  for (const game::TouchButton& b : v.buttons) {
+    ids.insert(b.id);
+    CHECK(b.x >= 0 && b.y >= 0 && b.x + b.w <= 844 && b.y + b.h <= 390);
+    for (const game::TouchStick* s : {&v.move, &v.look}) {
+      const bool apart = b.x + b.w <= s->x || b.x >= s->x + s->size || b.y + b.h <= s->y || b.y >= s->y + s->size;
+      CHECK(apart);
+    }
+  }
+  CHECK(ids == std::set<std::string>({"jump", "reload", "aim", "crouch", "interact"}));
+  game::PlayInput in;
+  // Move stick: deflection counts from where the thumb lands (no jump), up is forward.
+  const f32 mx = v.move.x + 84, my = v.move.y + 84;
+  CHECK(t.pointer(0, 1, mx + 30, my + 20, 0));
+  t.update(1 / 60.0f, in, 62);
+  CHECK(in.move_x == 0 && in.move_y == 0);
+  t.pointer(1, 1, mx + 30, my + 20 - 35.28f, 16);  // half the radius (70.56 px) up
+  t.update(1 / 60.0f, in, 62);
+  CHECK_NEAR(in.move_y, 0.5f, 0.01f);
+  CHECK(!in.boost);
+  t.pointer(1, 1, mx + 30, my + 20 - 200, 32);     // to the rim forwards: sprint, clamped
+  t.update(1 / 60.0f, in, 62);
+  CHECK_NEAR(in.move_y, 1.0f, 0.001f);
+  CHECK(in.boost);
+  CHECK(v.move.live && v.move.accent);
+  // Look stick: 1:1 drag (0.0068 rad = 0.39 degrees per px across).
+  const f32 lx = v.look.x + 84, ly = v.look.y + 84;
+  CHECK(t.pointer(0, 2, lx, ly, 40));
+  t.pointer(1, 2, lx + 20, ly, 200);  // slow: no flick gain
+  t.update(1 / 60.0f, in, 62);
+  CHECK_NEAR(in.look_x, 20 * 0.0068f * 57.29578f, 0.01f);
+  CHECK(in.move_y > 0.99f);           // both thumbs at once
+  // Edge turn: held beyond the ring, the view keeps turning every frame.
+  t.pointer(1, 2, lx + 140, ly, 400);
+  t.update(1 / 60.0f, in, 62);
+  t.update(1 / 60.0f, in, 62);
+  CHECK(in.look_x > 3.5f && in.look_x < 4.1f);    // ~4.2 rad/s * 1/60 s in degrees
+  // Pulling back stops the turn at once.
+  t.pointer(1, 2, lx + 140 - 50, ly, 420);
+  t.update(1 / 60.0f, in, 62);
+  t.update(1 / 60.0f, in, 62);
+  CHECK(in.look_x == 0);
+  // Releasing springs the sticks back.
+  t.pointer(2, 1, 0, 0, 500);
+  t.pointer(2, 2, 0, 0, 500);
+  t.update(1 / 60.0f, in, 62);
+  CHECK(in.move_x == 0 && in.move_y == 0 && in.look_x == 0 && !in.boost);
+  // The screen fires (and keeps aiming while the finger drags); several fingers can fire.
+  CHECK(t.pointer(0, 3, 422, 120, 600));
+  t.update(1 / 60.0f, in, 62);
+  CHECK(in.fire && v.fire);
+  t.pointer(1, 3, 432, 120, 700);
+  t.update(1 / 60.0f, in, 62);
+  CHECK(in.look_x > 0);
+  t.pointer(2, 3, 432, 120, 710);
+  t.update(1 / 60.0f, in, 62);
+  CHECK(!in.fire);
+  // Buttons: jump is held, aim and crouch toggle.
+  auto centre = [&](const char* id, f32& x, f32& y) {
+    for (const game::TouchButton& b : v.buttons)
+      if (b.id == id) { x = b.x + b.w / 2; y = b.y + b.h / 2; }
+  };
+  f32 bx = 0, by = 0;
+  centre("jump", bx, by);
+  t.pointer(0, 4, bx, by, 800);
+  t.update(1 / 60.0f, in, 62);
+  CHECK(in.jump && !in.fire);
+  t.pointer(2, 4, bx, by, 850);
+  centre("aim", bx, by);
+  t.pointer(0, 5, bx, by, 900);
+  t.pointer(2, 5, bx, by, 950);
+  t.update(1 / 60.0f, in, 62);
+  CHECK(in.aim && !in.jump);
+  // Zoomed in (aiming): the same drag turns less.
+  CHECK(t.pointer(0, 6, 422, 120, 1000));
+  t.pointer(1, 6, 442, 120, 1300);
+  t.update(1 / 60.0f, in, 31);
+  CHECK_NEAR(in.look_x, 10 * 0.0068f * 57.29578f, 0.02f);
+  t.release_all();
+  t.pointer(0, 5, bx, by, 1400);
+  t.update(1 / 60.0f, in, 62);
+  CHECK(!in.aim);
+  // Cars: the left stick steers and drives, boost is a button, the screen looks (no fire).
+  game::ControllerComponent car;
+  car.mode = game::ControlMode::hovercar;
+  t.set_controller(&car, false, true);
+  CHECK(v.move.label == "STEER / GAS");
+  bool boost = false;
+  for (const game::TouchButton& b : v.buttons) boost = boost || b.id == "boost";
+  CHECK(boost);
+  CHECK(t.pointer(0, 7, 422, 120, 1500));
+  t.pointer(1, 7, 452, 120, 1700);
+  t.update(1 / 60.0f, in, 62);
+  CHECK(!in.fire && in.look_x > 0);
+  // A narrow portrait screen still fits both sticks.
+  t.set_frame(390, 844, 0, 47, 0, 34);
+  CHECK(v.move.x + v.move.size <= v.look.x);
+  t.set_controller(nullptr, false, true);
+  CHECK(!v.visible);
+}
+
+TEST(studio_touch_play_without_pointer_lock) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"device","platform":{"fine":false,"coarse":true,"touchPoints":5},"safe":[0,0,0,0]})")["ok"].as_bool());
+  CHECK(f.s->status()["input"]["device"].as_string() == "touch");
+  CHECK(f.cmd(R"({"cmd":"new","template":"shootingRange"})")["ok"].as_bool());
+  f.s->take_ui();
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  // Touch devices never ask for pointer lock.
+  const json::Value ui = f.s->take_ui();
+  for (std::size_t i = 0; i < ui.size(); ++i) CHECK(ui[i]["action"].as_string() != "capturePointer");
+  CHECK(!f.s->status()["captured"].as_bool());
+  f.frames(10);
+  json::Value st = f.s->status();
+  CHECK(st["touch"].is_object());
+  CHECK(st["touch"]["buttons"].size() == 5);
+  const f64 sx = st["touch"]["move"]["x"].as_number() + 84, sy = st["touch"]["move"]["y"].as_number() + 84;
+  // The left thumb walks forwards.
+  Mat4 a, b;
+  CHECK(f.s->world().actor_matrix(f.s->world().player(), a));
+  CHECK(f.s->touch_pointer(0, 11, static_cast<f32>(sx), static_cast<f32>(sy), f.now));
+  CHECK(f.s->touch_pointer(1, 11, static_cast<f32>(sx), static_cast<f32>(sy - 60), f.now + 10));
+  f.frames(40);
+  CHECK(f.s->world().actor_matrix(f.s->world().player(), b));
+  CHECK(distance(a.translation(), b.translation()) > 1);
+  CHECK(f.s->status()["touch"]["move"]["live"].as_bool());
+  f.s->touch_pointer(2, 11, 0, 0, f.now);
+  // A finger on the screen fires.
+  CHECK(f.s->touch_pointer(0, 12, 480, 200, f.now));
+  f.frames(12);
+  f.s->touch_pointer(2, 12, 480, 200, f.now);
+  CHECK(f.s->status()["hud"]["soldier"]["ammo"].as_number() < 30);
+  // The look stick turns the view.
+  const f32 yaw = f.s->world().camera_yaw();
+  st = f.s->status();
+  const f32 lx = static_cast<f32>(st["touch"]["look"]["x"].as_number() + 84), ly = static_cast<f32>(st["touch"]["look"]["y"].as_number() + 84);
+  f.s->touch_pointer(0, 13, lx, ly, f.now);
+  f.s->touch_pointer(1, 13, lx + 40, ly, f.now + 200);
+  f.frames(2);
+  f.s->touch_pointer(2, 13, lx + 40, ly, f.now);
+  CHECK(std::fabs(f.s->world().camera_yaw() - yaw) > 8);
+  // A key press switches to the desktop layout: the overlay goes away.
+  f.s->key("w", "KeyW", true, 0, false);
+  f.s->key("w", "KeyW", false, 0, false);
+  f.frames(1);
+  st = f.s->status();
+  CHECK(st["input"]["device"].as_string() == "mouse");
+  CHECK(!st["touch"].is_object());
+  // A finger switches back to the touch layout.
+  f.cmd(R"({"cmd":"device","event":"touch"})");
+  f.frames(1);
+  CHECK(f.s->status()["touch"].is_object());
+  f.cmd(R"({"cmd":"stop"})");
+}
+
 TEST(studio_player_presets_and_gameplay_blocks) {
   StudioFixture f;
   CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
@@ -3902,6 +4104,37 @@ TEST(studio_play_orb_run) {
   f.frames(1);
   f.s->world().actor_matrix(car, m2);
   CHECK(distance(m0.translation(), m2.translation()) < 0.01f);
+}
+
+TEST(studio_fast_player_does_not_shake_on_screen) {
+  // A fast car (and a rolling ball) at an uneven frame rate: the camera follows the pose that is
+  // drawn (interpolated between physics steps), so the player keeps still on screen.
+  for (const char* tpl : {"orbRun", "physicsLab"}) {
+    StudioFixture f;
+    if (std::string(tpl) != "orbRun") CHECK(f.cmd((std::string(R"({"cmd":"new","template":")") + tpl + "\"}").c_str())["ok"].as_bool());
+    CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+    if (!f.s->world().player()) continue;
+    f.s->key("w", "KeyW", true, 0, false);
+    f.s->key("Shift", "ShiftLeft", true, 0, false);
+    f.frames(90);
+    std::vector<f32> angles;
+    const f64 dts[] = {1000.0 / 41, 1000.0 / 97, 1000.0 / 60, 1000.0 / 144, 1000.0 / 52};
+    for (int i = 0; i < 100; ++i) {
+      f.s->frame(f.now += dts[i % 5]);
+      Mat4 m;
+      CHECK(f.s->world().actor_matrix(f.s->world().player(), m));
+      const Camera& c = f.s->play_camera();
+      const Vec3 fwd = normalize(c.target - c.eye), to = normalize(m.translation() - c.eye);
+      angles.push_back(std::acos(clamp(dot(fwd, to), -1.0f, 1.0f)) * 57.29578f);
+    }
+    f.s->key("w", "KeyW", false, 0, false);
+    f.s->key("Shift", "ShiftLeft", false, 0, false);
+    // Shake = how much the frame-to-frame change itself changes (smooth drift is fine).
+    f32 worst = 0;
+    for (std::size_t i = 2; i < angles.size(); ++i) worst = max_of(worst, std::fabs((angles[i] - angles[i - 1]) - (angles[i - 1] - angles[i - 2])));
+    std::printf("    %s: worst on-screen shake %.3f deg\n", tpl, worst);
+    CHECK(worst < 0.25f);
+  }
 }
 
 TEST(studio_simulate_keep_changes) {

@@ -8,7 +8,7 @@
 // packaging standalone games.
 import {loadKern} from "../kern.mjs";
 import {LogicEditor, LOGIC_STYLE} from "./logic.mjs";
-import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE, GamepadInput, backgroundTicker, buildGameHtml, startAudio, KernNet, openNetwork} from "./game.mjs";
+import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE, GamepadInput, backgroundTicker, TouchOverlay, TOUCH_STYLE, watchInputDevice, routeTouch, buildGameHtml, startAudio, KernNet, openNetwork} from "./game.mjs";
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = escHtml;
@@ -183,8 +183,10 @@ class StudioPage {
       if (!this.engine.contextRestored()) this.toast("The WebGL context could not be restored: " + this.kern.lastError());
     });
     const style = document.createElement("style");
-    style.textContent = HUD_STYLE;
+    style.textContent = HUD_STYLE + "\n" + TOUCH_STYLE;
     document.head.append(style);
+    watchInputDevice(this.engine);
+    $("#touchExit").addEventListener("click", () => { this.engine.command({cmd: "stop"}); this.flushUi(); });
     fillIcons();
     this.buildViewports();
     // The logic editor covers the viewports while it is open (like a Blueprint editor tab).
@@ -237,6 +239,7 @@ class StudioPage {
       importSoundFile: file => self.importSound(file),
       packageHtml: async title => self.gameHtml(self.engine.command({cmd: "packageText"}).text, title),
       frames: () => self.frameCount,
+      get net() { const n = self.net; return {kind: n.kind, self: n.self, host: n.host, sent: n.sent, received: n.received}; },
     };
   }
 
@@ -259,10 +262,7 @@ class StudioPage {
       (this.gamepad ||= new GamepadInput(this.engine)).poll();
       this.engine.frame(time);
       this.audio?.pump();
-      if (this.net.active) {
-        this.net.flush();
-        if (this.status && !this.status.net && this.state?.play?.state === "editing") this.net.close();  // left the game
-      }
+      if (this.net.active) this.net.flush();
       this.flushUi();
       const rev = this.engine.revision();
       if (rev !== this.revision) {
@@ -271,6 +271,10 @@ class StudioPage {
         this.render(this.state);
       }
       this.status = this.engine.status();
+      // Left the game (Stop, the host went away): close the transport. Only once the engine had a
+      // game on it - while a join waits for the host's hello there is no game yet.
+      if (this.status.net) this.netSeen = true;
+      else if (this.netSeen) { this.netSeen = false; if (this.net.active) this.net.close(); }
       this.renderStatus(this.status);
       if (time - this.lastTexturePoll > 200) { this.lastTexturePoll = time; this.engine.pollTextures(MAX_TEXTURE_SIDE); this.engine.pollSounds(this.audio); }
       if (time - this.lastSavePoll > 500) { this.lastSavePoll = time; this.autosave(time); }
@@ -440,24 +444,26 @@ class StudioPage {
     const pos = e => { const r = el.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     const send = (type, e, extra = {}) => {
       const [x, y] = pos(e);
-      return this.engine.pointer(i, type, x, y, {button: e.pointerType === "touch" && this.state?.play?.state === "playing" ? -1 : e.button, buttons: e.buttons, mods: modifiers(e), ...extra});
+      return this.engine.pointer(i, type, x, y, {button: e.pointerType !== "mouse" && this.state?.play?.state === "playing" ? -1 : e.button, buttons: e.buttons, mods: modifiers(e), ...extra});
     };
     el.addEventListener("pointerdown", e => {
       if (e.target.closest(".vp-bar, .k-hud-banner")) return;
       this.closeMenus();
       if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
       try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      // Fingers on the playing viewport drive the engine's touch controls (sticks, look, buttons).
+      if (this.state?.viewports?.[i]?.active && routeTouch(this.engine, POINTER.down, e, pos)) { this.flushUi(); e.preventDefault(); return; }
       send(POINTER.down, e);
       this.flushUi();
       e.preventDefault();
     });
     el.addEventListener("pointermove", e => {
       if (document.pointerLockElement === this.canvas) return;
-      // Coalesced events keep fast drags precise.
+      if (routeTouch(this.engine, POINTER.move, e, pos)) return;
       send(POINTER.move, e);
     });
-    el.addEventListener("pointerup", e => { send(POINTER.up, e); this.flushUi(); });
-    el.addEventListener("pointercancel", e => send(POINTER.cancel, e));
+    el.addEventListener("pointerup", e => { if (!routeTouch(this.engine, POINTER.up, e, pos)) send(POINTER.up, e); this.flushUi(); });
+    el.addEventListener("pointercancel", e => { if (!routeTouch(this.engine, POINTER.cancel, e, pos)) send(POINTER.cancel, e); });
     el.addEventListener("pointerleave", e => { if (!e.buttons) send(POINTER.leave, e); });
     el.addEventListener("wheel", e => {
       e.preventDefault();
@@ -539,6 +545,18 @@ class StudioPage {
       const showHud = clientHud ? true : (active || (st.net?.local && v.index === 0)) && st.hud && (st.play === "playing" || st.hud.status === "won" || st.hud.status === "lost");
       const html = clientHud ? hudHtml(clientHud) : showHud ? hudHtml(st.hud) : "";
       if (html !== v.hudKey) { v.hudKey = html; v.hud.innerHTML = html; v.hud.hidden = !html; }
+      // Playing on a touch device: the game takes the whole screen (EXIT stops), like SpawnCity.
+      if (v.index === 0) {
+        const immersive = st.play === "playing" && !s.play.ejected && st.input?.device === "touch";
+        if (immersive !== this.immersive) {
+          this.immersive = immersive;
+          $("#app").classList.toggle("touch-play", immersive);
+          if (immersive) this.engine.command({cmd: "layout", layout: "single"});
+        }
+      }
+      // Engine touch controls (only on the active viewport while playing on a touch device).
+      if (active && st.touch) { (this.touchOverlay ||= new TouchOverlay(v.el)).attach(v.el); this.touchOverlay.update(st.touch); }
+      else if (active) this.touchOverlay?.update(null);
       // Info line.
       let info = "";
       if (vst) {
@@ -568,7 +586,7 @@ class StudioPage {
       let hint = "";
       if (drag === "fly") hint = `Flying · WASD move · Q/E down/up · wheel speed ${st.camera?.speed ?? ""} · Shift faster · Z/C zoom`;
       else if (drag === "grab") hint = "Grabbing - release to throw";
-      else if (active && st.play === "playing" && !st.captured && !s.play.ejected && st.hud?.status === "playing") hint = "Click the viewport to control the game · Esc stops · F8 ejects";
+      else if (active && st.play === "playing" && !st.captured && !s.play.ejected && st.hud?.status === "playing" && st.input?.device !== "touch") hint = "Click the viewport to control the game · Esc stops · F8 ejects";
       else if (active && st.play === "simulating") hint = s.play.ejected ? "Ejected · free camera · F8 possess · Esc stop" : "Simulating · Ctrl+drag grabs bodies · K keeps poses · Esc stops";
       if (hint !== v.hintKey) { v.hintKey = hint; v.hint.textContent = hint; v.hint.hidden = !hint; }
       const gz = active && st.gizmo ? (st.gizmo.delta ? `Δ ${st.gizmo.delta.map(n => n.toFixed(2)).join("  ")} m` : st.gizmo.angle != null ? `${st.gizmo.angle.toFixed(1)}°` : `× ${st.gizmo.factor.map(n => n.toFixed(2)).join("  ")}`) : "";
@@ -763,6 +781,8 @@ class StudioPage {
   render(s) {
     const logicOpen = !!s.logic?.open;
     $("#logicEditor").hidden = !logicOpen;
+    // Closing the editor must not leave the keyboard focus on a hidden control (keys would vanish).
+    if (!logicOpen && document.activeElement?.closest?.("#logicEditor")) document.activeElement.blur();
     $("#logicBtn")?.classList.toggle("on", logicOpen);
     if (logicOpen) this.logic.render(s.logic);
     this.renderToolbar(s);
@@ -1611,7 +1631,7 @@ class StudioPage {
       if (this.menuStack?.length && down && e.key === "Escape") { this.closeMenus(); e.preventDefault(); return; }
       if (editable(e.target)) return;
       // Inside the logic editor only undo / redo / save reach the level (Delete, letters... are the graph's).
-      if (e.target.closest?.("#logicEditor")) {
+      if (e.target.closest?.("#logicEditor:not([hidden])")) {
         const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
         if (!(mod && (k === "z" || k === "y" || k === "s"))) return;
       }

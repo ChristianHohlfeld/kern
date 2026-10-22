@@ -449,6 +449,30 @@ const vpCenter = async (page, i = 0) => {
   await shot(game, "game.png");
   check(gerrors.length === 0, "no page errors in the game" + (gerrors.length ? ": " + gerrors.join(" | ") : ""));
   await gctx.close();
+
+  // The same game on a phone: the engine detects touch, draws its sticks and never locks the pointer.
+  const tctx = await browser.newContext({viewport: {width: 844, height: 390}, hasTouch: true, isMobile: true, deviceScaleFactor: 1});
+  const phone = await tctx.newPage();
+  const terrors = [];
+  phone.on("pageerror", e => terrors.push(e.message));
+  await phone.goto(pathToFileURL(gameFile).href);
+  await phone.waitForFunction(() => window.KernGame, null, {timeout: 90000});
+  const tst = await until(async () => { const st = await phone.evaluate(() => window.KernGame.status); return st.touch && st; }, 30000);
+  check(tst?.input?.device === "touch", "a phone is detected as a touch device");
+  check(await phone.locator(".k-touch .ts").count() === 2, "the touch sticks are drawn");
+  const cdp = await tctx.newCDPSession(phone);
+  const touch = (type, pts) => cdp.send("Input.dispatchTouchEvent", {type, touchPoints: pts.map(([x, y], i) => ({x, y, id: i + 1}))});
+  const mx = tst.touch.move.x + tst.touch.move.size / 2, my = tst.touch.move.y + tst.touch.move.size / 2;
+  await touch("touchStart", [[mx, my]]);
+  for (let k = 1; k <= 6; k++) await touch("touchMove", [[mx, my - k * 14]]);
+  const moving = await until(async () => (await phone.evaluate(() => window.KernGame.status.hud?.speed)) > 1.5, 30000);
+  check(moving, "the left touch stick moves the player");
+  check(await phone.evaluate(() => window.KernGame.status.touch?.move?.live) === true, "the stick shows the thumb");
+  await touch("touchEnd", []);
+  check(await phone.evaluate(() => !document.pointerLockElement), "touch play never locks the pointer");
+  await shot(phone, "game-phone.png");
+  check(terrors.length === 0, "no page errors on the phone" + (terrors.length ? ": " + terrors.join(" | ") : ""));
+  await tctx.close();
 }
 
 // ---- module build (development page) ------------------------------------------------

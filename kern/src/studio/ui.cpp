@@ -120,6 +120,11 @@ json::Value Studio::key(std::string_view key, std::string_view code, bool down, 
   modifiers_ = mods;
   // Held keys use the physical position (WASD stays WASD on AZERTY / QWERTZ), shortcuts the
   // printed letter: Ctrl+Z is the key labelled Z on a German keyboard, as in every editor.
+  if (down && !repeat && code != "Unidentified" && !code.empty()) {
+    const bool was_touch = input_.touch();
+    input_.key_down();
+    if (was_touch) { touch_ctl_.release_all(); touch(); }
+  }
   if (down) keys_.insert(std::string(code));
   else keys_.erase(std::string(code));
   std::string c(code);
@@ -983,6 +988,47 @@ static json::Value hud_json(const game::Hud& h, bool player) {
   return hud;
 }
 
+json::Value Studio::touch_json() const {
+  const game::TouchView& t = touch_ctl_.view();
+  auto r = [](f32 v) { return internal::round_num(v, 10); };
+  auto stick = [&](const game::TouchStick& s) {
+    json::Value j = json::Value::object();
+    j.set("x", r(s.x));
+    j.set("y", r(s.y));
+    j.set("size", r(s.size));
+    j.set("kx", internal::round_num(s.knob_x, 1000));
+    j.set("ky", internal::round_num(s.knob_y, 1000));
+    j.set("live", s.live);
+    j.set("accent", s.accent);
+    j.set("label", s.label);
+    return j;
+  };
+  json::Value j = json::Value::object();
+  j.set("move", stick(t.move));
+  j.set("look", stick(t.look));
+  json::Value buttons = json::Value::array();
+  for (const game::TouchButton& b : t.buttons) {
+    json::Value o = json::Value::object();
+    o.set("id", b.id);
+    o.set("label", b.label);
+    o.set("x", r(b.x));
+    o.set("y", r(b.y));
+    o.set("w", r(b.w));
+    o.set("h", r(b.h));
+    o.set("round", b.round);
+    o.set("pressed", b.pressed);
+    o.set("on", b.on);
+    char hex[8];
+    std::snprintf(hex, sizeof hex, "#%06x", b.color & 0xffffff);
+    o.set("color", std::string(hex));
+    buttons.push(std::move(o));
+  }
+  j.set("buttons", std::move(buttons));
+  j.set("fire", t.fire);
+  if (t.fire) { j.set("fireX", r(t.fire_x)); j.set("fireY", r(t.fire_y)); }
+  return j;
+}
+
 json::Value Studio::status() {
   json::Value s = json::Value::object();
   s.set("revision", static_cast<f64>(revision_));
@@ -991,6 +1037,13 @@ json::Value Studio::status() {
   s.set("play", play_names[static_cast<u32>(play_)]);
   s.set("paused", paused_);
   s.set("captured", mouse_captured_);
+  {
+    json::Value in = json::Value::object();
+    in.set("device", input_.touch() ? "touch" : "mouse");
+    in.set("gamepad", input_.gamepad());
+    s.set("input", std::move(in));
+  }
+  if (touch_ctl_.view().visible && play_ == PlayState::playing && input_.touch()) s.set("touch", touch_json());
   if (logic_open_ && world_->running()) s.set("logicTrace", logic_trace_json());
   if (logic::Runtime* rt = world_->running() ? world_->logic_runtime() : nullptr) {
     json::Value lg = json::Value::object();
@@ -1418,6 +1471,7 @@ json::Value Studio::run(const json::Value& c) {
     pad_connected_ = c["connected"].as_bool(true);
     if (!pad_connected_) return ok();
     g.gamepad = true;
+    if (c["active"].as_bool(false)) input_.gamepad_used();
     g.move_x = clamp(static_cast<f32>(num("lx")), -1.0f, 1.0f);
     g.move_y = clamp(static_cast<f32>(num("ly")), -1.0f, 1.0f);
     g.look_stick_x = clamp(static_cast<f32>(num("rx")), -1.0f, 1.0f);
@@ -1432,6 +1486,28 @@ json::Value Studio::run(const json::Value& c) {
     g.up = (c["rb"].as_bool() ? 1.0f : 0.0f) - (c["lb"].as_bool() ? 1.0f : 0.0f);
     if (c["start"].as_bool() && !pad_start_ && play_ != PlayState::editing) toggle_pause();
     pad_start_ = c["start"].as_bool();
+    return ok();
+  }
+  if (name == "touchRelease") { touch_ctl_.release_all(); return ok(); }
+  if (name == "device") {
+    // What the page knows about the device and which one was used last (SpawnCity's rules:
+    // touch switches to touch, a mouse only on a fine-pointer device, any key to desktop).
+    if (c["platform"].is_object()) {
+      const json::Value& p = c["platform"];
+      input_.set_platform(p["fine"].as_bool(true), p["coarse"].as_bool(false), static_cast<i32>(p["touchPoints"].as_number(0)));
+    }
+    if (c["safe"].is_array() && c["safe"].size() == 4)
+      for (u32 i = 0; i < 4; ++i) safe_[i] = static_cast<f32>(c["safe"][i].as_number(0));
+    const std::string ev = c["event"].as_string();
+    const bool was_touch = input_.touch();
+    if (ev == "mouse") input_.pointer_down(false);
+    else if (ev == "mousemove") input_.mouse_moved();
+    else if (ev == "touch") input_.pointer_down(true);
+    if (was_touch != input_.touch()) {
+      touch_ctl_.release_all();
+      if (!input_.touch()) touch_.fire = false;
+      touch();
+    }
     return ok();
   }
   if (name == "releasePointer") { mouse_captured_ = false; touch(); return ok(); }

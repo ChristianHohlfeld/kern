@@ -47,6 +47,8 @@ export class StudioEngine {
     return this.result(this.e.kern_studio_pointer(viewport, type, x, y, button, buttons, mods, wheel));
   }
   look(dx, dy) { this.e.kern_studio_look(dx, dy); }
+  /** A touch / pen finger in css px of the active viewport; true when the engine's touch controls took it. */
+  touch(type, id, x, y, time) { return this.e.kern_studio_touch(type, id, x, y, time) === 1; }
   blur() { this.e.kern_studio_blur(); }
   setViewport(i, x, y, w, h, cssW, cssH, dpr, visible) { this.e.kern_studio_set_viewport(i, x, y, w, h, cssW, cssH, dpr, visible ? 1 : 0); }
   takeAutosave(now) { return this.text(this.e.kern_studio_take_autosave(now)); }
@@ -467,12 +469,111 @@ export class GamepadInput {
     const b = i => !!p.buttons[i]?.pressed, v = i => p.buttons[i]?.value ?? 0, ax = i => p.axes[i] ?? 0;
     const s = {cmd: "gamepad", connected: true, lx: ax(0), ly: -ax(1), rx: ax(2), ry: ax(3), lt: v(6), rt: v(7),
       a: b(0), b: b(1), x: b(2), y: b(3), lb: b(4), rb: b(5), l3: b(10), start: b(9)};
+    // Any pressed button or a stick past .22 marks the pad as the device in use (SpawnCity pad-input).
+    s.active = p.buttons.slice(0, 17).some(x => x?.pressed) || p.axes.slice(0, 4).some(a => Math.abs(a) > 0.22);
     const key = JSON.stringify(s);
     // Sticks at rest and nothing pressed: send once, then stay quiet.
     if (key !== this.last || Math.abs(s.rx) > 0.05 || Math.abs(s.ry) > 0.05) { this.last = key; this.engine.command(s); }
     this.connected = true;
     return p;
   }
+}
+
+/** Styles of the engine-drawn touch controls (see TouchOverlay). */
+export const TOUCH_STYLE = `.k-touch{position:absolute;inset:0;pointer-events:none;z-index:6;font:700 10px Inter,system-ui,sans-serif;letter-spacing:.05em;text-transform:uppercase;color:#f2f4f7;user-select:none;-webkit-user-select:none}
+.k-touch .ts{position:absolute;border-radius:50%;border:1.5px solid rgba(255,255,255,.2);box-sizing:border-box}
+.k-touch .ts.live{border-color:rgba(255,255,255,.5)}.k-touch .ts.accent{border-color:#f5b301}
+.k-touch .ts i{position:absolute;width:31%;height:31%;border-radius:50%;background:rgba(255,255,255,.16);border:1.5px solid rgba(255,255,255,.42);transform:translate(-50%,-50%);box-sizing:border-box}
+.k-touch .ts.live i{background:rgba(255,255,255,.34);border-color:rgba(255,255,255,.75)}
+.k-touch .ts span{position:absolute;left:0;right:0;top:-15px;text-align:center;opacity:.5;font-size:9px;white-space:nowrap}
+.k-touch .tb{position:absolute;display:grid;place-items:center;border:2px solid rgba(255,255,255,.7);box-sizing:border-box;border-radius:50%;font-size:10px;font-weight:900;text-shadow:0 1px 2px #000;transition:transform .06s}
+.k-touch .tb.sq{border-radius:10px}.k-touch .tb.pressed{transform:scale(.94);border-color:#fff;background:#ff7a1acc!important}
+.k-touch .tb.on{border-color:#f5b301;color:#f5b301}
+.k-touch-on .k-hud-top{top:58px}
+.k-touch-on .k-hp,.k-touch-on .k-ammo,.k-touch-on .k-hud-speed{left:auto;right:max(14px,env(safe-area-inset-right));bottom:auto}
+.k-touch-on .k-ammo,.k-touch-on .k-hud-speed{top:10px}.k-touch-on .k-hp{top:66px}.k-touch-on .k-ammo b{font-size:30px}
+.k-touch .tf{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;border:2px solid rgba(255,138,106,.8);box-shadow:0 0 12px rgba(255,90,60,.5)}`;
+
+/**
+ * Draws the touch controls the engine lays out and drives (status.touch, see
+ * kern/game/touch.h): sticks, buttons and the firing finger. Purely visual; the
+ * fingers go to the engine (StudioEngine.touch).
+ */
+export class TouchOverlay {
+  constructor(parent) {
+    this.el = document.createElement("div");
+    this.el.className = "k-touch";
+    this.el.hidden = true;
+    this.key = "";
+    parent.appendChild(this.el);
+  }
+  attach(parent) {
+    if (this.el.parentNode === parent) return;
+    this.el.parentNode?.classList.remove("k-touch-on");
+    parent.appendChild(this.el);
+  }
+  update(t) {
+    // The parent knows the corners belong to the thumbs (the HUD moves up, see TOUCH_STYLE).
+    this.el.parentNode?.classList.toggle("k-touch-on", !!t);
+    if (!t) { if (!this.el.hidden) { this.el.hidden = true; this.key = ""; } return; }
+    this.el.hidden = false;
+    const key = JSON.stringify(t);
+    if (key === this.key) return;
+    this.key = key;
+    const px = v => `${Math.round(v)}px`;
+    const stick = (s, id) => `<div class="ts${s.live ? " live" : ""}${s.accent ? " accent" : ""}" data-stick="${id}" style="left:${px(s.x)};top:${px(s.y)};width:${px(s.size)};height:${px(s.size)}">` +
+      `<span>${escHtml(s.label)}</span><i style="left:${50 + 31 * s.kx}%;top:${50 + 31 * s.ky}%"></i></div>`;
+    let html = stick(t.move, "move") + stick(t.look, "look");
+    for (const b of t.buttons)
+      html += `<div class="tb${b.round ? "" : " sq"}${b.pressed ? " pressed" : ""}${b.on ? " on" : ""}" data-touch="${escHtml(b.id)}" style="left:${px(b.x)};top:${px(b.y)};width:${px(b.w)};height:${px(b.h)};background:${b.color}b8">${escHtml(b.label)}</div>`;
+    if (t.fire) html += `<div class="tf" style="left:${px(t.fireX)};top:${px(t.fireY)}"></div>`;
+    this.el.innerHTML = html;
+  }
+}
+
+/**
+ * Tells the engine what device this is and which one the player uses right now
+ * (SpawnCity's rules, decided in C++: touch switches to the touch layout, a mouse
+ * only on fine-pointer devices, any key to desktop), plus the safe-area insets.
+ */
+export function watchInputDevice(engine) {
+  const mq = q => matchMedia(q).matches;
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
+  document.body.appendChild(probe);
+  const safe = () => { const c = getComputedStyle(probe); return [c.paddingLeft, c.paddingTop, c.paddingRight, c.paddingBottom].map(v => parseFloat(v) || 0); };
+  const platform = () => engine.command({cmd: "device", safe: safe(),
+    platform: {fine: mq("(hover: hover) and (pointer: fine)"), coarse: mq("(pointer: coarse)"), touchPoints: navigator.maxTouchPoints || 0}});
+  platform();
+  addEventListener("resize", platform);
+  addEventListener("orientationchange", platform);
+  let touch = mq("(pointer: coarse)");
+  addEventListener("pointerdown", e => {
+    touch = e.pointerType !== "mouse";
+    engine.command({cmd: "device", event: touch ? "touch" : "mouse"});
+  }, true);
+  addEventListener("pointermove", e => {
+    if (touch && e.pointerType === "mouse" && !document.pointerLockElement && (e.movementX || e.movementY)) {
+      engine.command({cmd: "device", event: "mousemove"});
+      touch = engine.status()?.input?.device === "touch";
+    }
+  }, true);
+  addEventListener("keydown", () => { touch = false; }, true);
+}
+
+/**
+ * Routes a viewport's touch / pen pointers to the engine's touch controls.
+ * `pos(e)` gives css px in the viewport; returns true when the event was used.
+ */
+export function routeTouch(engine, type, e, pos) {
+  if (e.pointerType === "mouse") return false;
+  if (type === POINTER.move) {
+    let used = false;
+    for (const c of e.getCoalescedEvents?.() || [e]) { const [x, y] = pos(c); used = engine.touch(type, c.pointerId, x, y, c.timeStamp) || used; }
+    return used;
+  }
+  const [x, y] = pos(e);
+  return engine.touch(type, e.pointerId, x, y, e.timeStamp);
 }
 
 /**
@@ -614,25 +715,14 @@ export const PLAYER_STYLE = `html,body{margin:0;height:100%;overflow:hidden;back
 #hint{position:fixed;left:0;right:0;bottom:10px;text-align:center;opacity:.6;font-size:12px;pointer-events:none;text-shadow:0 1px 2px #000}
 #error{position:fixed;inset:auto 12px 40px 12px;padding:10px 14px;border-radius:6px;background:#7a1f1f;display:none}
 #loading{position:fixed;inset:0;display:grid;place-items:center;font-size:13px;letter-spacing:.2em;text-transform:uppercase;opacity:.6}
-#stick{position:fixed;left:24px;bottom:36px;width:136px;height:136px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.22);touch-action:none}
-#stick div{position:absolute;left:43px;top:43px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.42)}
-.tbtn{position:fixed;border-radius:50%;border:2px solid rgba(255,255,255,.28);background:rgba(255,255,255,.12);color:#fff;font:600 14px system-ui;touch-action:none}
-#jump{right:28px;bottom:48px;width:86px;height:86px}
-#boost{right:128px;bottom:36px;width:64px;height:64px}
-#restart{right:20px;top:16px;width:44px;height:44px;font-size:20px}
-#fire{right:34px;bottom:150px;width:92px;height:92px;background:rgba(255,80,60,.28)}
-#aim{right:140px;bottom:160px;width:60px;height:60px}
-#reload{right:150px;bottom:236px;width:54px;height:54px;font-size:12px}
-#crouch{right:214px;bottom:44px;width:58px;height:58px;font-size:12px}
-.tbtn.on{background:rgba(120,200,255,.45)}
+#restart{position:fixed;left:max(8px,env(safe-area-inset-left));top:max(8px,env(safe-area-inset-top));width:44px;height:40px;border-radius:10px;border:1.5px solid rgba(255,255,255,.3);background:rgba(10,13,18,.56);color:#fff;font:600 18px system-ui;touch-action:none;z-index:7}
 [hidden]{display:none!important}
-${HUD_STYLE}`;
+${HUD_STYLE}
+${TOUCH_STYLE}`;
 
 export const PLAYER_BODY = `<canvas id="gl" tabindex="0" aria-label="Game view"></canvas><div id="hud" class="k-hud"></div><div id="loading">Loading</div>
 <div id="hint">WASD / arrows move · Space jump · Shift boost · mouse look (click to capture, Esc frees) · P pause · R restart · gamepad supported</div>
-<div id="stick" hidden aria-label="Move"><div></div></div><button class="tbtn" id="jump" hidden>Jump</button><button class="tbtn" id="boost" hidden>Boost</button>
-<button class="tbtn" id="fire" hidden>Fire</button><button class="tbtn" id="aim" hidden>Aim</button><button class="tbtn" id="reload" hidden>Reload</button><button class="tbtn" id="crouch" hidden>Crouch</button>
-<button class="tbtn" id="restart" hidden aria-label="Restart">↻</button><div id="error" role="alert"></div>`;
+<button id="restart" hidden aria-label="Restart">↻</button><div id="error" role="alert"></div>`;
 
 /**
  * Joins ES module sources into one inline module: import lines and export
@@ -701,24 +791,31 @@ export async function startGame({levelText = null, template = null, bytes = null
   }
   const $ = id => document.getElementById(id);
   $("loading").hidden = true;
-  const hud = $("hud"), stick = $("stick"), knob = stick.firstElementChild;
-  if (coarse) { stick.hidden = $("jump").hidden = $("boost").hidden = $("restart").hidden = false; $("hint").hidden = true; }
+  const hud = $("hud");
+  const overlay = new TouchOverlay(document.body);
+  watchInputDevice(engine);
   canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); engine.contextLost(); kern.resetTables(); });
   canvas.addEventListener("webglcontextrestored", () => { kern.attachContext(canvas, gl); engine.contextRestored(); });
 
   // Mouse: click captures the pointer for mouse look; touch drags orbit the camera.
   // Touch drags look around; only mouse buttons fire and aim (touch has its own buttons).
-  const send = (type, e) => engine.pointer(0, type, e.clientX, e.clientY, {button: e.pointerType === "touch" ? -1 : e.button, buttons: e.buttons, mods: modifiers(e), wheel: e.deltaY ?? 0});
+  // Touch and pen fingers go to the engine's touch controls; the mouse looks (pointer lock) and fires.
+  const send = (type, e) => engine.pointer(0, type, e.clientX, e.clientY, {button: e.pointerType === "mouse" ? e.button : -1, buttons: e.buttons, mods: modifiers(e), wheel: e.deltaY ?? 0});
+  const at = e => [e.clientX, e.clientY];
   canvas.addEventListener("pointerdown", e => {
     canvas.focus();
     try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    e.preventDefault();
+    if (routeTouch(engine, POINTER.down, e, at)) return;
     if (e.pointerType === "mouse" && document.pointerLockElement !== canvas) canvas.requestPointerLock?.()?.catch?.(() => {});
     send(POINTER.down, e);
-    e.preventDefault();
   });
-  canvas.addEventListener("pointermove", e => { if (document.pointerLockElement !== canvas) send(POINTER.move, e); });
-  canvas.addEventListener("pointerup", e => send(POINTER.up, e));
-  canvas.addEventListener("pointercancel", e => send(POINTER.cancel, e));
+  canvas.addEventListener("pointermove", e => { if (!routeTouch(engine, POINTER.move, e, at) && document.pointerLockElement !== canvas) send(POINTER.move, e); });
+  canvas.addEventListener("pointerup", e => { if (!routeTouch(engine, POINTER.up, e, at)) send(POINTER.up, e); });
+  canvas.addEventListener("pointercancel", e => { if (!routeTouch(engine, POINTER.cancel, e, at)) send(POINTER.cancel, e); });
+  // No finger left on the screen: nothing can still be held (SpawnCity's ground truth).
+  addEventListener("touchend", e => { if (!e.touches.length) engine.command({cmd: "touchRelease"}); });
+  addEventListener("visibilitychange", () => { if (document.hidden) engine.command({cmd: "touchRelease"}); });
   canvas.addEventListener("wheel", e => { e.preventDefault(); send(POINTER.wheel, e); }, {passive: false});
   canvas.addEventListener("contextmenu", e => e.preventDefault());
   document.addEventListener("mousemove", e => { if (document.pointerLockElement === canvas) engine.look(e.movementX, e.movementY); });
@@ -740,50 +837,8 @@ export async function startGame({levelText = null, template = null, bytes = null
   addEventListener("keyup", e => key(e, false));
   addEventListener("blur", () => engine.blur());
 
-  // Touch joystick and buttons.
-  let stickId = null;
-  const stickMove = e => {
-    const r = stick.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, max = r.width / 2;
-    let dx = (e.clientX - cx) / max, dy = (e.clientY - cy) / max;
-    const len = Math.hypot(dx, dy);
-    if (len > 1) { dx /= len; dy /= len; }
-    knob.style.transform = `translate(${dx * max * 0.6}px,${dy * max * 0.6}px)`;
-    engine.command({cmd: "gameInput", moveX: dx, moveY: -dy});
-  };
-  const stickEnd = () => { stickId = null; knob.style.transform = ""; engine.command({cmd: "gameInput", moveX: 0, moveY: 0}); };
-  stick.addEventListener("pointerdown", e => { stickId = e.pointerId; stick.setPointerCapture(e.pointerId); stickMove(e); e.preventDefault(); });
-  stick.addEventListener("pointermove", e => { if (e.pointerId === stickId) stickMove(e); });
-  stick.addEventListener("pointerup", stickEnd);
-  stick.addEventListener("pointercancel", stickEnd);
-  const hold = (id, on, off) => {
-    const b = $(id);
-    b.addEventListener("pointerdown", e => { e.preventDefault(); engine.command(on); });
-    b.addEventListener("pointerup", () => engine.command(off));
-    b.addEventListener("pointercancel", () => engine.command(off));
-  };
-  hold("jump", {cmd: "gameInput", jump: true, up: 1}, {cmd: "gameInput", jump: false, up: 0});
-  hold("boost", {cmd: "gameInput", boost: true}, {cmd: "gameInput", boost: false});
-  hold("fire", {cmd: "gameInput", fire: true}, {cmd: "gameInput", fire: false});
-  hold("reload", {cmd: "gameInput", reload: true}, {cmd: "gameInput", reload: false});
-  hold("crouch", {cmd: "gameInput", crouch: true}, {cmd: "gameInput", crouch: false});
-  let aimOn = false;  // aim toggles on touch
-  $("aim").addEventListener("pointerdown", e => { e.preventDefault(); aimOn = !aimOn; $("aim").classList.toggle("on", aimOn); engine.command({cmd: "gameInput", aim: aimOn}); });
-  // The fire button also looks: dragging it steers the aim like the right half of the screen.
-  {
-    const b = $("fire");
-    let last = null;
-    b.addEventListener("pointerdown", e => { last = {x: e.clientX, y: e.clientY}; b.setPointerCapture(e.pointerId); });
-    b.addEventListener("pointermove", e => {
-      if (!last) return;
-      engine.command({cmd: "gameInput", lookX: e.clientX - last.x, lookY: e.clientY - last.y});
-      last = {x: e.clientX, y: e.clientY};
-    });
-    const end = () => { last = null; };
-    b.addEventListener("pointerup", end);
-    b.addEventListener("pointercancel", end);
-  }
   const gamepad = new GamepadInput(engine);
-  let soldierShown = false;
+  let touchShown = false;
   $("restart").addEventListener("click", () => engine.command({cmd: "restart"}));
   hud.addEventListener("click", e => { if (e.target.closest("[data-hud=restart]")) engine.command({cmd: "restart"}); });
 
@@ -805,12 +860,9 @@ export async function startGame({levelText = null, template = null, bytes = null
     const st = engine.status();
     const html = hudHtml(st?.hud) + (st?.paused ? `<div class="k-hud-banner k-paused"><div>Paused</div><small>Click to continue</small></div>` : "");
     if (html !== hudKey) { hudKey = html; hud.innerHTML = html; }
-    const soldier = coarse && !!st?.hud?.soldier;
-    if (soldier !== soldierShown) {
-      soldierShown = soldier;
-      for (const id of ["fire", "aim", "reload", "crouch"]) $(id).hidden = !soldier;
-      $("boost").textContent = soldier ? "Sprint" : "Boost";
-    }
+    overlay.update(st?.touch);
+    const onTouch = st?.input?.device === "touch";
+    if (onTouch !== touchShown) { touchShown = onTouch; $("restart").hidden = !onTouch; $("hint").hidden = onTouch; }
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

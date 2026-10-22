@@ -508,7 +508,7 @@ class CppGen {
     s += "  Instance& g = *static_cast<Instance*>(self);\n";
     s += "  f64* s = g.slots();\n  i32* st = g.stack();\n  i32* et = g.exec_table();\n  i32* ct = g.counters();\n  const i32 base = st[0];\n";
     s += "  auto push = [&](int p, int e) { if (st[0] >= CodeLayout::kStack) return false; st[1 + 2 * st[0]] = p; st[2 + 2 * st[0]] = e; ++st[0]; return true; };\n";
-    s += "  (void)et; (void)push;\n";
+    s += "  (void)et; (void)push; (void)entry;\n";
     s += "  for (;;) {\n";
     s += "    if (pc < 0) {\n      if (st[0] <= base) return 0;\n      --st[0];\n      pc = st[1 + 2 * st[0]];\n      entry = st[2 + 2 * st[0]];\n    }\n";
     s += "    if (++ct[0] > ct[1]) return 1;\n";
