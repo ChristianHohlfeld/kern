@@ -1549,6 +1549,12 @@ TEST(game_soldier_moves_shoots_and_respawns) {
   CHECK(f.world->health_of(me) > hurt + 10);
 }
 
+template <class V>
+bool no_errors(const V& issues) {
+  for (const auto& i : issues) if (i.error) return false;
+  return true;
+}
+
 namespace {
 struct FakeLogicHost : logic::Host {
   f64 t = 0;
@@ -1585,7 +1591,7 @@ TEST(logic_flow_variables_and_latent_nodes) {
       {"id":8,"type":"debug.print","values":{"text":"later"}}],
     "links":[[1,"then",2,"exec"],[2,"body",3,"exec"],[2,"index",3,"amount"],[2,"completed",4,"exec"],
       [6,"value",5,"b"],[5,"result",4,"text"],[4,"then",7,"exec"],[7,"completed",8,"exec"]]})");
-  CHECK(std::none_of(logic::check(g).begin(), logic::check(g).end(), [](const logic::Issue& i) { return i.error; }));
+  CHECK(no_errors(logic::check(g)));
   logic::Instance* inst = rt.add(g, 0, "Level");
   rt.begin();
   CHECK(inst->get("Sum").as_number() == 15);
@@ -1736,7 +1742,7 @@ TEST(game_logic_graphs_drive_the_world) {
       {"id":3,"type":"game.input","params":{"action":"interact","edge":"pressed"}},{"id":4,"type":"actor.spawn","params":{"template":"Cube"},"values":{"location":[0,5,0.5]}},
       {"id":5,"type":"debug.print","values":{"screen":false}},{"id":6,"type":"actor.name"}],
     "links":[[1,"then",2,"exec"],[3,"then",4,"exec"],[4,"then",5,"exec"],[4,"spawned",6,"target"],[6,"name",5,"text"]]})");
-  CHECK(game::validate(l).empty() || std::none_of(game::validate(l).begin(), game::validate(l).end(), [](const game::Issue& i) { return i.error; }));
+  CHECK(game::validate(l).empty() || no_errors(game::validate(l)));
   CHECK(f.world->start(l, game::SimMode::play));
   CHECK(f.world->logic_runtime() != nullptr);
   CHECK(f.world->hud().message == "Welcome");
@@ -2652,7 +2658,7 @@ TEST(net_client_server) {
 TEST(game_shooting_range_template) {
   GameFixture f;
   const game::Level l = game::shooting_range_level();
-  CHECK(game::validate(l).empty() || std::none_of(game::validate(l).begin(), game::validate(l).end(), [](const game::Issue& i) { return i.error; }));
+  CHECK(game::validate(l).empty() || no_errors(game::validate(l)));
   CHECK(f.world->start(l, game::SimMode::play));
   const game::Actor* p = f.world->level().find(f.world->player());
   CHECK(p && p->controller && p->controller->mode == game::ControlMode::soldier);
@@ -3648,7 +3654,7 @@ TEST(studio_logic_editor_commands) {
   const logic::Graph& dg = *f.s->level().find(dummy)->logic;
   CHECK(dg.machines.back().transitions.back().trigger == logic::TriggerKind::condition);
   CHECK(dg.variable(dg.machines.back().transitions.back().variable) != nullptr);
-  CHECK(logic::check(dg).empty() || std::none_of(logic::check(dg).begin(), logic::check(dg).end(), [](const logic::Issue& i) { return i.error; }));
+  CHECK(logic::check(dg).empty() || no_errors(logic::check(dg)));
 }
 
 TEST(studio_multiplayer_play) {
