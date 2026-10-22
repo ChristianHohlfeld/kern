@@ -155,3 +155,27 @@ Befehle (`{"cmd": …}`):
 
 - `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave, Packaging, Player-Modus
 - `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Modul-Version und schmales Fenster
+
+## Als App installieren (Android, iOS, Desktop)
+
+Kern Studio unter `/editor/` ist eine installierbare Web-App:
+
+- **Installieren:**
+  - Chrome und Edge (Android, Windows, macOS, Linux) zeigen in der Titelleiste **Install**.
+  - Auf dem iPhone und iPad erklärt der Button die zwei Schritte: Teilen, dann *Zum Home-Bildschirm*.
+  - Die App startet danach im Vollbild (`display: fullscreen`). Notches und Statusleiste bleiben frei
+    (`viewport-fit=cover` mit Safe-Area-Abständen).
+- **Offline:** Der Service Worker (`site/editor/sw.js`) holt die Seite immer zuerst aus dem Netz. Nur
+  wenn das Netz fehlt, startet die zuletzt geladene Version aus dem Cache. Icons und Manifest kommen
+  aus dem Cache und werden im Hintergrund aufgefrischt.
+- **Nie eine alte Version:**
+  - Jeder Deploy schreibt den Build-SHA als ersten Kommentar in die Seite und als `build.json` daneben.
+  - Die Seite fragt `build.json` beim Start, bei jeder Rückkehr zur App, wenn das Netz zurückkommt,
+    und alle 60 s ab. Diese Abfrage geht an keinem Cache vorbei.
+  - Ist ein neuer Build da, lädt Studio sofort neu, solange nichts verloren gehen kann: im Editier-Modus
+    ohne ungespeicherte Änderungen.
+  - Sonst erscheint **New version available · Update / Later**. Beim Update wird das Level per Autosave
+    mitgenommen und beim nächsten Start angeboten.
+  - Unten rechts steht die laufende Version, gelb, wenn online eine neuere bereitliegt.
+- **Icons:** 192, 512 und maskable 512 im Manifest, dazu ein Apple Touch Icon (180) und ein Favicon
+  (`site/editor/icons`).

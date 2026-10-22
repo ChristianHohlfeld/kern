@@ -342,3 +342,18 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 #toolbar::-webkit-scrollbar { display: none; }
 /* Narrower windows: the toolbar keeps the play group and drops the snap labels first. */
 @media (max-width: 1150px) { #toolbar .snap select { max-width: 64px; } }
+
+/* ---- app: install, version, update ---- */
+#installBtn { height: 22px; margin-right: 8px; padding: 0 9px; border-radius: 11px; border: 1px solid var(--accent); background: var(--accent-soft); color: #dce9ff; font: 600 11px var(--font); cursor: pointer; }
+#installHint { position: fixed; z-index: 95; top: 34px; right: 8px; max-width: 280px; padding: 10px 12px; border-radius: 8px; background: #20242c; border: 1px solid #3a4250; color: #e8eef7; font-size: 12px; line-height: 1.45; box-shadow: 0 8px 24px #0008; }
+#buildTag { margin-left: 8px; font-size: 10px; }
+#buildTag.newer { color: #ffcf6a; }
+#updatePill { position: fixed; z-index: 96; left: 50%; top: calc(max(8px, env(safe-area-inset-top)) + 40px); transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+  padding: 7px 8px 7px 14px; border-radius: 20px; border: 1px solid #7ff0c5; background: #0d1118f0; color: #eafff7; font: 600 12px var(--font); box-shadow: 0 8px 24px #000a; }
+#updatePill[hidden] { display: none; }
+#updatePill button { padding: 5px 12px; border-radius: 14px; border: 0; background: #3fbf8a; color: #06261a; font: 800 11px var(--font); cursor: pointer; }
+#updatePill button.ghost { background: transparent; border: 1px solid #ffffff55; color: #cfe; font-weight: 600; }
+/* installed app: room for notches and the iOS status bar */
+@media (display-mode: fullscreen), (display-mode: standalone) {
+  #app { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
+}

@@ -75,7 +75,11 @@ jobs:
           set -euo pipefail
           mkdir -p _site/editor _site/generated _site/kern/web/studio _site/kern/examples
           cp site/index.html _site/
-          cp generated/studio.html _site/editor/index.html
+          # The editor as an installable app: build SHA as the page's first comment, build.json for
+          # the update check, the manifest, the service worker and the icons (site/editor).
+          { echo "<!--BUILD_SHA:${GITHUB_SHA}-->"; cat generated/studio.html; } > _site/editor/index.html
+          printf '{"sha":"%s"}\n' "${GITHUB_SHA}" > _site/editor/build.json
+          cp -r site/editor/. _site/editor/
           cp generated/kern_studio.wasm _site/generated/
           cp kern/web/kern.mjs kern/web/app.mjs _site/kern/web/
           cp kern/web/studio/*.mjs kern/web/studio/*.html kern/web/studio/*.css _site/kern/web/studio/

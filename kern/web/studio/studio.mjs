@@ -776,7 +776,14 @@ class StudioPage {
       else if (f.type.startsWith("image/")) this.importTexture(f);
       else if (f.type.startsWith("audio/") || /\.(wav|mp3|ogg|oga|m4a|aac|flac|opus|webm)$/i.test(f.name)) for (const file of e.dataTransfer.files) await this.importSound(file);
     });
-    addEventListener("beforeunload", e => { if (this.engine.dirty()) { this.autosave(Infinity); e.preventDefault(); e.returnValue = ""; } });
+    addEventListener("beforeunload", e => {
+      if (!this.engine.dirty()) return;
+      this.autosave(Infinity);
+      // Reloading into a new build: the autosave carries the level over (offered on the next start).
+      if (window.__kernReloadForUpdate) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
   }
 
   render(s) {

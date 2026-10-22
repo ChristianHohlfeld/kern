@@ -2,8 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#151516">
+<meta name="description" content="Kern Studio: a game engine editor in the browser. Build, play and share games, offline too.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kern">
 <title>Kern Studio</title>
 <link rel="stylesheet" href="./studio.css">
 </head>
@@ -14,6 +23,8 @@
     <nav id="menubar" role="menubar"></nav>
     <div class="doc-tab"><span id="levelName">Untitled</span><i id="dirtyDot" title="Unsaved changes"></i></div>
     <div class="spacer"></div>
+    <button id="installBtn" type="button" hidden title="Install Kern Studio as an app (works offline, full screen)">⤓ Install</button>
+    <div id="installHint" hidden role="note">In Safari tap <b>Share</b> ↑ and then <b>Add to Home Screen</b>: Kern Studio then starts full screen like an app and works offline.</div>
     <div id="fps" class="mono dim"></div>
   </header>
 
@@ -113,6 +124,7 @@
     <button class="sb icon" id="muteBtn" title="Sound on / off" data-icon="speaker"></button>
     <div id="meter" title="Output level"><i></i><i></i></div>
     <div id="selInfo" class="dim"></div>
+    <div id="buildTag" class="mono dim" title="Version"></div>
   </footer>
 
   <div id="menuLayer"></div>
@@ -124,6 +136,115 @@
   <input type="file" id="fileTexture" accept="image/png,image/jpeg,image/webp" hidden>
   <input type="file" id="fileSound" accept="audio/*,.wav,.mp3,.ogg,.oga,.m4a,.aac,.flac,.webm,.opus" hidden>
 </div>
+<script>
+// Kern Studio as an app (Android, iOS, desktop): offline through the service worker, and never an
+// old version. The deployed page carries its build SHA (first comment of the document); every
+// deploy also publishes ./build.json. The page asks for build.json (no-store, unique query: no CDN,
+// HTTP cache or worker can answer) on start, whenever you come back to it, when the network returns
+// and every 60 s. A newer build reloads at once while nothing would be lost (editing, no unsaved
+// changes); otherwise an UPDATE button waits for you (the level is autosaved and offered again).
+(function () {
+  var first = document.firstChild, m = first && first.nodeType === 8 && /BUILD_SHA:([0-9a-f]{7,40})/.exec(first.nodeValue || "");
+  var mine = m && m[1];
+  var online = location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if (online && "serviceWorker" in navigator && mine)
+    navigator.serviceWorker.register("./sw.js", {scope: "./", updateViaCache: "none"}).catch(function () {});
+  if (!mine) return;  // a local or development build: no version checks
+  var pending = null, reloading = false, lastCheck = 0, pill = null;
+  function studio() { return window.KernStudio; }
+  function safe() {
+    var k = studio();
+    if (!k) return true;  // still loading
+    try { return k.status && k.status.play === "editing" && !k.engine.dirty(); } catch (e) { return false; }
+  }
+  function tag(sha) {
+    var el = document.getElementById("buildTag");
+    if (!el) return;
+    el.textContent = "v " + mine.slice(0, 7) + (sha && sha !== mine ? " · new " + sha.slice(0, 7) : "");
+    el.title = sha && sha !== mine ? "A newer version is online" : "Up to date";
+    el.classList.toggle("newer", !!(sha && sha !== mine));
+  }
+  function fresh(sha) {
+    if (reloading) return;
+    // Loop guard: if the CDN still serves the old page after two reloads, wait for a click.
+    var key = "kernUpdateTries:" + sha, tries = 0;
+    try { tries = +sessionStorage.getItem(key) || 0; sessionStorage.setItem(key, String(tries + 1)); } catch (e) {}
+    if (tries >= 2) { showPill(); return; }
+    reloading = true;
+    window.__kernReloadForUpdate = true;
+    var jobs = [];
+    try { if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations)
+      jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.update().catch(function () {}); })); })); } catch (e) {}
+    Promise.race([Promise.all(jobs), new Promise(function (r) { setTimeout(r, 1500); })]).then(function () {
+      var u = new URL(location.href);
+      u.searchParams.set("v", sha.slice(0, 12));
+      location.replace(u.toString());
+    });
+  }
+  function showPill() {
+    if (pill && pill.isConnected) { if (Date.now() - (+pill.dataset.later || 0) > 600000) pill.hidden = false; return; }
+    pill = document.createElement("div");
+    pill.id = "updatePill";
+    pill.setAttribute("role", "status");
+    pill.innerHTML = '<span>New version available</span><button type="button" data-u="go">Update</button><button type="button" data-u="later" class="ghost">Later</button>';
+    pill.addEventListener("pointerdown", function (e) { e.stopPropagation(); }, true);
+    pill.addEventListener("click", function (e) {
+      var b = e.target.closest && e.target.closest("[data-u]");
+      if (!b) return;
+      e.preventDefault();
+      if (b.dataset.u === "later") { pill.hidden = true; pill.dataset.later = String(Date.now()); return; }
+      if (!pending) return;
+      try { sessionStorage.removeItem("kernUpdateTries:" + pending); } catch (_) {}
+      fresh(pending);
+    });
+    document.body.appendChild(pill);
+  }
+  function seen(sha, reason) {
+    tag(sha);
+    if (!sha || sha === mine) return;
+    pending = sha;
+    if (safe() && (reason === "load" || reason === "resume" || reason === "interval")) fresh(sha);
+    else showPill();
+  }
+  function check(reason) {
+    var now = Date.now();
+    if (reason !== "load" && reason !== "resume" && now - lastCheck < 10000) return;
+    lastCheck = now;
+    fetch("./build.json?t=" + now, {cache: "no-store", credentials: "same-origin"})
+      .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+      .then(function (j) { seen(String((j && j.sha) || ""), reason); })
+      .catch(function () {});
+  }
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") check("resume"); });
+  window.addEventListener("pageshow", function (e) { if (e.persisted) check("resume"); });
+  window.addEventListener("focus", function () { check("focus"); });
+  window.addEventListener("online", function () { check("resume"); });
+  setInterval(function () { check("interval"); }, 60000);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { tag(null); check("load"); });
+  else { tag(null); check("load"); }
+})();
+
+// Install as an app: Chrome / Edge / Android get the browser's own prompt; iOS has no API, so the
+// button explains the two taps (Share, Add to Home Screen). Hidden when already installed.
+(function () {
+  var standalone = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone === true;
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (/macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  var deferred = null;
+  function button() { return document.getElementById("installBtn"); }
+  function sync() { var b = button(); if (b) b.hidden = standalone || !(deferred || ios); }
+  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); deferred = e; sync(); });
+  window.addEventListener("appinstalled", function () { standalone = true; deferred = null; sync(); });
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("#installBtn");
+    var hint = document.getElementById("installHint");
+    if (!b) { if (hint) hint.hidden = true; return; }
+    e.preventDefault();
+    if (deferred) { deferred.prompt(); deferred.userChoice.finally(function () { deferred = null; sync(); }); return; }
+    if (ios && hint) hint.hidden = !hint.hidden;
+  });
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", sync); else sync();
+})();
+</script>
 <script type="module">
 import {startStudio} from "./studio.mjs";
 startStudio({url: new URL("../../../generated/kern_studio.wasm", import.meta.url)}).catch(error => {
