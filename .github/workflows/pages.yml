@@ -5,15 +5,16 @@ name: Pages
 #   /editor/                  Kern Editor (single file)
 #   /kern/web/editor/player.html   Roll & Collect in the player
 #   /kern/examples/*/         hello, orbrun, scenegame
+# Live: https://christianhohlfeld.github.io/kern/
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+# Published as the gh-pages branch: GitHub enables Pages for a repository on
+# its own when that branch appears (served over HTTPS).
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
@@ -52,15 +53,13 @@ jobs:
           cp kern/examples/scenegame/roll-and-collect.e3d _site/kern/examples/scenegame/
           touch _site/.nojekyll
           du -sh _site
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish to the gh-pages branch
+        run: |
+          set -euo pipefail
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Pages: ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
