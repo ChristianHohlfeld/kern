@@ -60,8 +60,22 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
 
 ## 3. Zeitschritt und Sub-Steps
 
-- **Fester Zeitschritt:** Standard 60 Hz (`WorldSettings.step_hz`), nie gröber als 30 Hz.
-  - Kern rendert zwischen den beiden letzten Physikständen („Fix Your Timestep", `GameWorld::step`).
+- **Fester Zeitschritt:** Standard 60 Hz (`WorldSettings.step_hz`), nie gröber als 30 Hz. Box3D bekommt
+  nie ein variables dt.
+- **Akkumulator nach Glenn Fiedler** ([Fix Your Timestep](https://gafferongames.com/post/fix_your_timestep/),
+  `GameWorld::step`):
+  - Der Frame liefert Zeit, die Simulation verbraucht sie in festen Schritten h.
+  - Der Rest bleibt im Akkumulator.
+  - Kern rendert zwischen den beiden letzten Physikständen (alpha = Rest / h).
+  - Ein langer Frame wird auf 0,25 s begrenzt, höchstens 0,1 s Simulation pro Frame
+    („Spiral of Death"). Ist man trotzdem im Rückstand, fallen ganze Schritte weg; die Phase
+    bleibt erhalten.
+  - Die Simulationszeit zählt Schritte (`step_count_`) statt Gleitkommazeit aufzusummieren.
+  - Eingaben gelten pro festem Schritt. Steuerungen, die seltener rechnen (eine Policy mit
+    50 Hz), zählen Schritte, nicht Sekunden.
+  - Gleiche Eingaben ergeben damit Bit für Bit denselben Ablauf
+    ([Deterministic Lockstep](https://gafferongames.com/post/deterministic_lockstep/); gilt für
+    gleiche Maschine und gleichen Build).
   - Die Play-Kamera folgt der **interpolierten** Pose (`presented_player_`). Mit der rohen
     Physik-Pose wackelten schnelle Autos und Kugeln im Bild; `studio_fast_player_does_not_shake_on_screen`
     sichert das ab.
@@ -69,7 +83,8 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
   chains will stretch less with more sub-steps" (`box3d:docs/simulation.md:155-159`).
   - *[gemessen]* Hüfte der Ente bei 4 Sub-Steps: Die Gelenklücke wuchs unter Last auf 5 cm und federte
     zurück. Bei 16 Sub-Steps bleibt sie unter 1 mm.
-  - Studio erhöht beim Einfügen eines Roboters die Sub-Steps des Levels auf 16 und meldet das.
+  - Studio stellt beim Einfügen eines Roboters 16 Sub-Steps und dessen Schrittrate ein (Micro Duck:
+    100 Hz, `kWalkerStepHz`) und meldet das.
 - Die Gelenksteifigkeit ist **durch die Sub-Step-Rate gedeckelt**: `constraintHertz` wird auf 0,25 ×
   Sub-Step-Rate begrenzt, Kontakt-Hertz auf 0,125 × (`box3d:src/joint.c:1484-1486`,
   `src/physics_world.c:1127-1129`).
@@ -94,11 +109,23 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
 
 - **Immer ein endliches maximales Motormoment bzw. eine maximale Motorkraft setzen**
   (`box3d:docs/simulation.md:1419-1429`).
-- **Positionsservos nach Erins dokumentiertem Rezept:** jeden Schritt
-  `motorSpeed = clamp(gain × (Ziel − Winkel), ±ω_max)`, `maxMotorTorque` = Haltemoment des Servos
-  (`box3d:docs/simulation.md:1240-1243`). `gain × dt` deutlich unter 1 halten.
+- **Positionsservos sind die Gelenkfeder des Revolute-Joints** mit Zielwinkel
+  (`b3RevoluteJoint_SetTargetAngle`, Feder implizit gelöst, bei jeder Steifigkeit stabil).
   - In Kern: `JointComponent::servo` → `GameWorld::drive_servos`.
-  - Die Gelenkfeder mit Zielwinkel ist stabil, hat aber keine Momentgrenze.
+  - Steifigkeit (N·m/rad) und Dämpfung (N·m·s/rad) sind physikalische Servowerte.
+    `World::set_joint_spring` rechnet sie mit der axialen effektiven Masse in Box3Ds Hertz und
+    Dämpfungsgrad um, genau wie `revolute_joint.c` (eine Umrechnung an der Grenze).
+  - Das Haltemoment entsteht durch Begrenzen des Fehlers auf Moment / Steifigkeit, wie die
+    sättigende PWM eines Dynamixel.
+  - Erins anderes Rezept, `motorSpeed = gain × Fehler` mit Maximalmoment
+    (`box3d:docs/simulation.md:1240-1243`), ist eine starre Geschwindigkeitsregelung ohne
+    Nachgiebigkeit. Für Roboter mit trainierter Policy passt es nicht, denn die Policy hat einen
+    nachgiebigen PD-Servo gelernt.
+- **Die Physik nicht umgehen.** Keine Zusatzmomente, die etwas „nachbilden" sollen. Keine gesetzten
+  Geschwindigkeiten an Bodies mit Gelenken oder Kontakten. Keine Gyros, Sperren oder Stützkräfte für
+  Roboter. In der echten Welt gibt es sie auch nicht.
+  - Was Box3D nicht abbilden kann, etwa die Rotorträgheit eines Getriebes (MuJoCo „armature")
+    ohne Getriebe-Joint, wird dokumentiert und nicht vorgetäuscht (`docs/walker.md` Abschnitt 6).
 - **Gelenkreibung** ist ein Motor mit Geschwindigkeit 0 und kleinem Maximalmoment
   (`box3d:docs/simulation.md:1431-1434`). Erins Ragdoll nutzt 5 N·m × einen Faktor pro Gelenk
   (`box3d:shared/human.c:347-393`).
@@ -132,6 +159,11 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
   - kein schnelles Drehen.
 - Bewegungssperren sind weiche Constraints. Kern sperrt Nicken und Rollen nur bei eigenen Controllern
   (Fahrzeuge, Charaktere, Flieger), nie bei Walkern.
+- Importierte Roboter bekommen ihre Masseneigenschaften aus der Beschreibung (MJCF/URDF): Masse,
+  Schwerpunkt und vollen Trägheitstensor (`BodyComponent::center_of_mass`, `inertia`,
+  `World::set_mass_data`). Die Kollisionsformen bestimmen dann nur noch den Kontakt.
+- Gelenke, die in einer anderen als ihrer Nullstellung gebaut werden, tragen den Winkel dieser Pose als
+  `JointComponent::reference`. Der Joint liest dann den Winkel der Beschreibung.
 
 ## 8. Continuous Collision, Events, Schlaf
 
@@ -148,8 +180,9 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
 2. Ein Body pro starrem Segment; Kinder, die nur ein Mesh haben, werden als Shapes eingeschweißt.
 3. Nachbarmassen innerhalb von etwa 10:1 halten und eine Mindestmasse pro Glied setzen (§2).
 4. In der Ruhepose bauen, mit Limits um 0 und Achsen im Frame des Actors (§4).
-5. Servos mit Haltemoment und moderatem Gain verwenden, Gelenkreibung als Motor mit Geschwindigkeit 0 (§5).
+5. Servos als Gelenkfeder mit physikalischer Steifigkeit, Dämpfung und Haltemoment; Gelenkreibung als
+   Motor mit Geschwindigkeit 0 (§5). Keine Hilfskräfte.
 6. Für das Level 8–16 Sub-Steps einstellen, oder sie beim Einfügen des Presets erhöhen (§3).
 7. Eigenkollision mit einer negativen Gruppe filtern (§4).
 8. Einen nativen Test schreiben: Der Preset steht, seine Gelenke halten (Lücke < 1 % der Gliedlänge)
-   und er erfüllt seine Aufgabe (läuft, fährt, schwingt).
+   und er erfüllt seine Aufgabe (läuft, fährt, schwingt), deterministisch.

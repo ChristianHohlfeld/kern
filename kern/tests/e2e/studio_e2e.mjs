@@ -380,11 +380,14 @@ const vpCenter = async (page, i = 0) => {
   }
 
   // Help.
+  await page.evaluate(() => { window.__keys = []; addEventListener("keydown", e => window.__keys.push(e.code + (e.defaultPrevented ? "!" : ""))); });
   await page.keyboard.press("F1");
   {
     const shown = await until(async () => (await page.locator(".dialog .keys tr").count()) > 10);
     const why = shown ? "" : await page.evaluate(() => `focus=${document.activeElement?.tagName}#${document.activeElement?.id}.${document.activeElement?.className} ` +
-      `dialogs=${document.querySelectorAll(".dialog").length} logic=${!document.getElementById("logicEditor")?.hidden} locked=${!!document.pointerLockElement}`);
+      `dialogs=${document.querySelectorAll(".dialog").length} logic=${!document.getElementById("logicEditor")?.hidden} locked=${!!document.pointerLockElement} keys=${(window.__keys || []).join(",")} ` +
+      `layer=${document.getElementById("dialogLayer")?.innerHTML.length ?? "-"} menus=${document.querySelectorAll(".menu-pop, .popup").length} ` +
+      `frames=${window.KernStudio.frames()} direct=${(() => { const r = window.KernStudio.command({cmd: "dialog", name: "controls"}); return r.ok + "/" + document.querySelectorAll(".dialog .keys tr").length; })()}`);
     check(shown, "F1 shows the controls" + (why ? ` (${why})` : ""));
   }
   await page.keyboard.press("Escape");

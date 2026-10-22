@@ -79,10 +79,10 @@ Ein Actor hat Name, Eltern-Actor, Outliner-Ordner, Hidden/Locked, Tags, Transfor
 |---|---|
 | Static Mesh | Box, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp mit PBR-Material (Farbe, Roughness, Metallic, Emissive, Opacity, Unlit, Schatten, zweiseitig, Textur mit Tiling); „Generate collision“ erzeugt einen passenden Collider |
 | Point Light | Farbe, Intensität, Radius |
-| Rigid Body (Box3D) | Static, Kinematic, Dynamic; Masse (0 = aus der Dichte), Dämpfung, Gravity Scale, Bullet, Sleep, Achsensperren, Startgeschwindigkeit; Aufprall-Sound mit Schwelle |
+| Rigid Body (Box3D) | Static, Kinematic, Dynamic; Masse (0 = aus der Dichte), Dämpfung, Gravity Scale, Bullet, Sleep, Achsensperren, Startgeschwindigkeit; Aufprall-Sound mit Schwelle. Importierte Roboter tragen zusätzlich Schwerpunkt und Trägheitstensor (`centerOfMass`, `inertia` im Leveldokument) |
 | Collider (mehrere) | Fit to mesh, Box, Sphere, Capsule, Convex Hull; Offset, Rotation, Dichte, Reibung, Restitution, Rollwiderstand, Sensor, Kanäle (Kategorie/Maske/Gruppe) |
-| Constraint (mehrere) | Hinge, Slider, Ball, Fixed, Distance/Rope, Wheel, Motor, Parallel, No Collision; Anker und Achse lokal, Limits, Motor, Feder, Ruhelänge, Bruchkraft und -moment |
-| Player Controller | Hover Car, Rolling Ball, Character, Flyer, Vehicle; Geschwindigkeit, Beschleunigung, Wenderate, Sprung, Boost, Schwebehöhe, Kamera (Chase, First Person, Top Down); Motor-Loop, Sprung- und Boost-Sound |
+| Constraint (mehrere) | Hinge, Slider, Ball, Fixed, Distance/Rope, Wheel, Motor, Parallel, No Collision; Anker und Achse lokal, Limits, Motor, Feder, Ruhelänge, Bruchkraft und -moment. Hinge: Referenzwinkel der Baupose (`reference`); Servo mit Ziel, Steifigkeit, Dämpfung, Reibung und Haltemoment (`servo*`, siehe [`physics.md`](physics.md) Abschnitt 5) |
+| Player Controller | Hover Car, Rolling Ball, Character, Flyer, Vehicle, Soldier, Walker; Geschwindigkeit, Beschleunigung, Wenderate, Sprung, Boost, Schwebehöhe, Kamera (Chase, First Person, Top Down); Motor-Loop, Sprung- und Boost-Sound |
 | Pickup | Punkte, Partikelfarbe, Respawn, Sound |
 | Trigger | Goal, Hazard, Checkpoint, Message; Sound (Automatic = passend zur Aktion) |
 | Audio Source | Sound, Lautstärke, Pitch, Loop, Autoplay, Startverzögerung, Bus; 3D: innerer Radius, Falloff, Roll-off (Inverse, Linear, Exponential), Doppler, Pitch nach Geschwindigkeit |
@@ -97,7 +97,7 @@ Fehler wie verwaiste Referenzen oder ungültige Werte verhindern Play; Warnungen
 
 ## Place Actors
 
-Basic: Cube, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp, Empty Actor · Lights: Point Light · Physics: Physics Cube, Physics Sphere, Physics Barrel, Crate Stack, Pendulum, Hinged Door, Chain, See-Saw · Gameplay: Hover Car, Rolling Ball, Character, Drone, Orb, Star, Goal, Hazard, Checkpoint, Message Trigger, Moving Platform, Spinner · Audio: Audio Source, Ambient Wind, City Ambience, Radio · Procedural: Procedural City.
+Basic: Cube, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp, Empty Actor · Lights: Point Light · Physics: Physics Cube, Physics Sphere, Physics Barrel, Crate Stack, Pendulum, Hinged Door, Chain, See-Saw · Players: Soldier, Character, Hover Car, Rolling Ball, Drone, Micro Duck · Gameplay: Orb, Star, Goal, Hazard, Checkpoint, Message Trigger, Moving Platform, Spinner · Audio: Audio Source, Ambient Wind, City Ambience, Radio · Procedural: Procedural City.
 
 ## Sound
 
@@ -192,6 +192,12 @@ Actors werden repliziert, auch an Spieler, die später dazukommen.
   - Spiel: Respawn und Lag-Kompensation im Online-Spiel.
   - Optik: Andere Spieler sehen die animierte Gelenkfigur mit Waffe, dazu Mündungsfeuer, Tracer,
     Einschusslöcher und Splitter.
+- **Micro Duck:** Pollen Robotics' zweibeiniger Roboter mit seinem echten, trainierten Netz
+  (velstand v8).
+  - Steuerung: W/S laufen, A/D drehen, Leertaste quakt.
+  - Ohne Eingabe steht die Ente; gestürzt steht sie selbst wieder auf.
+  - Beim Einfügen stellt Studio die Physik auf 100 Hz mit 16 Sub-Steps.
+  - Details: [`walker.md`](walker.md).
 - **Geräteerkennung:** Die Engine erkennt Touch, Maus+Tastatur und Gamepad selbst und schaltet auf
   das zuletzt benutzte um (`src/game/touch.cpp`).
   - Auf Touch erscheinen 168-px-Sticks in den Ecken: links bewegen, rechts schauen mit Edge-Turn.

@@ -39,9 +39,27 @@ struct GameWorld::SimJoint {
   JointKind kind = JointKind::hinge;
   std::size_t index = 0;          // into the actor's joints
   bool broken = false;
-  // Hinge servo: the motor holds servo_target (radians) at servo_gain x error, servo_torque N*m.
+  // Hinge servo (JointComponent::servo, see GameWorld::drive_servos): target in radians,
+  // stiffness N*m/rad, damping N*m*s/rad, friction and torque limit N*m.
   bool servo = false;
-  f32 servo_target = 0, servo_gain = 18, servo_torque = 1;
+  f32 servo_target = 0, servo_stiffness = 0, servo_damping = 0, servo_friction = 0, servo_torque = 1;
+};
+
+/// A walker's controller state (walker.cpp): the Micro Duck's velstand policy and its servo bus.
+struct GameWorld::WalkerBrain {
+  ActorId actor = 0;
+  physics::Body trunk;
+  SimJoint* joint[14] = {};        // in the policy's joint order
+  i32 decimation = 4, delay = 4;   // physics steps per control tick; command latency in steps
+  u64 step = 0;                    // physics steps since start (the control clock)
+  f32 action[14] = {};             // the last action (raw network output)
+  f32 target[14] = {};             // joint targets of the last control tick (radians)
+  f32 joint_speed[14] = {};        // joint speeds of the last control tick (real rad/s)
+  f32 command[3] = {}, head[4] = {};  // smoothed twist (vx, vy, wz) and head command
+  f32 quack = 0;                   // real seconds left of the quack nod
+  std::vector<std::vector<f32>> pending;  // targets on their way to the servos, oldest first
+  PlayInput input;
+  bool has_input = false;
 };
 
 class GameWorld::LogicHost : public logic::Host {

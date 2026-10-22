@@ -992,6 +992,11 @@ void GameWorld::create_joints(const Actor& a) {
     };
     js.frame_a = local_frame(ba);
     js.frame_b = local_frame(bb);
+    if (j.kind == JointKind::hinge && j.reference != 0) {
+      // The joint reads `reference` in the build pose: frame A turned back by it about the hinge axis.
+      const Quat back = Quat::axis_angle({0, 0, 1}, -j.reference * kDeg);
+      js.frame_a.rotation = quat_normalize(js.frame_a.rotation * back);
+    }
     js.enable_spring = j.enable_spring;
     // Spring stiffness stays below half the step rate (Box3D "Distance Joint": stiffer springs go unstable).
     const f32 max_hertz = 0.5f * clamp(level_.world.step_hz, 15.0f, 480.0f) * static_cast<f32>(clamp(level_.world.substeps, 1, 16));
@@ -1000,7 +1005,8 @@ void GameWorld::create_joints(const Actor& a) {
     js.enable_limit = j.enable_limit;
     js.enable_motor = j.enable_motor;
     if (j.servo) {
-      // Servo chains (small robots) need stiff joints: the default softness lets light links stretch.
+      // Servo chains (small robots) need stiff joints: the default softness lets light links stretch
+      // (Box3D clamps this to a quarter of the sub-step rate).
       js.constraint_hertz = min_of(240.0f, max_hertz);
       js.constraint_damping_ratio = 2;
     }
@@ -1087,7 +1093,9 @@ void GameWorld::create_joints(const Actor& a) {
     if (j.servo && j.kind == JointKind::hinge) {
       sj->servo = true;
       sj->servo_target = j.servo_target * kDeg;
-      sj->servo_gain = j.servo_gain;
+      sj->servo_stiffness = j.servo_stiffness;
+      sj->servo_damping = j.servo_damping;
+      sj->servo_friction = j.servo_friction;
       sj->servo_torque = j.max_motor_force;
     }
     joints_.push_back(std::move(sj));
@@ -1150,7 +1158,10 @@ physics::Body GameWorld::create_body(const BodyPlan& plan) {
     }
   }
   if (owner) {
-    if (owner->body && owner->body->mass > 0 && plan.motion == Motion::dynamic) physics_.set_mass(body, owner->body->mass);
+    if (owner->body && owner->body->mass > 0 && plan.motion == Motion::dynamic) {
+      if (owner->body->explicit_inertia()) physics_.set_mass_data(body, owner->body->mass, owner->body->center_of_mass, owner->body->inertia);
+      else physics_.set_mass(body, owner->body->mass);
+    }
     physics::MotionLocks locks;
     if (owner->body) for (int i = 0; i < 3; ++i) { locks.linear[i] = owner->body->lock_linear[i]; locks.angular[i] = owner->body->lock_angular[i]; }
     if (owner->controller && owner->controller->mode != ControlMode::rolling && owner->controller->mode != ControlMode::walker)
@@ -1177,6 +1188,7 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   paused_ = false;
   accumulator_ = 0;
   sim_time_ = 0;
+  step_count_ = 0;
   time_of_day_ = level.world.time_of_day;
   broken_joints_ = 0;
   events_.clear();
@@ -1224,6 +1236,7 @@ bool GameWorld::start(const Level& level, SimMode mode) {
 
   // Joints.
   for (const Actor& a : level_.actors) create_joints(a);
+  create_walkers();
 
   // City traffic: kinematic cars on the lanes.
   for (const Actor& a : level_.actors) {
@@ -1336,6 +1349,7 @@ void GameWorld::stop() {
   if (!running()) return;
   release_soldier_art();
   grab_.end();
+  walkers_.clear();
   joints_.clear();
   traffic_.clear();
   bodies_.clear();
@@ -1411,17 +1425,23 @@ void GameWorld::step(f32 dt, const PlayInput& input) {
   last_input_ = input;
   if (!running() || paused_) return;
   if (shots_.size() > 192) shots_.erase(shots_.begin(), shots_.begin() + 64);  // nobody presents them (headless server)
+  // Fix Your Timestep (Glenn Fiedler): the frame produces time, the simulation consumes it in fixed
+  // steps h; the remainder carries over and the renderer draws between the last two states.
+  // A long frame (a hitch, a background tab) is clamped, and so is the number of steps per frame
+  // (the "spiral of death": a step that costs more than h would otherwise never catch up) - then
+  // the game runs slower for a moment instead of dropping its fixed step.
   const f64 h = 1.0 / static_cast<f64>(clamp(level_.world.step_hz, 15.0f, 480.0f));
-  accumulator_ += clamp(dt, 0.0f, 0.1f);
+  accumulator_ += clamp(static_cast<f64>(dt), 0.0, 0.25);
+  const u32 max_steps = static_cast<u32>(std::ceil(0.1 / h));  // at most 0.1 s of simulation per frame
   u32 steps = 0;
-  while (accumulator_ >= h && steps < 8) {
+  while (accumulator_ >= h && steps < max_steps) {
     for (auto& b : bodies_)
       if (b->body.valid() && b->plan.motion != Motion::fixed) { b->prev = physics_.pose(b->body); b->has_prev = true; }
     fixed_step(input, static_cast<f32>(h));
     accumulator_ -= h;
     ++steps;
   }
-  if (steps == 8) accumulator_ = 0;
+  if (accumulator_ >= h) accumulator_ = std::fmod(accumulator_, h);  // behind: drop whole steps, keep the phase
   if (level_.world.day_length > 0) {
     time_of_day_ += dt / level_.world.day_length;
     time_of_day_ -= std::floor(time_of_day_);
@@ -1467,10 +1487,13 @@ void GameWorld::fixed_step(const PlayInput& input, f32 h) {
     (void)m;
   }
   drive_traffic(h);
+  drive_walkers(h);
   drive_servos(h);
   grab_.update(h);
   physics_.step(h, clamp(level_.world.substeps, 1, 16));
-  sim_time_ += h;
+  // Simulation time counts fixed steps (no float sum that drifts with the run's length).
+  ++step_count_;
+  sim_time_ = static_cast<f32>(static_cast<f64>(step_count_) / static_cast<f64>(clamp(level_.world.step_hz, 15.0f, 480.0f)));
   if (hud_.status == GameStatus::playing) {
     hud_.elapsed += h;
     if (level_.world.time_limit > 0) hud_.remaining = max_of(0.0f, level_.world.time_limit - hud_.elapsed);

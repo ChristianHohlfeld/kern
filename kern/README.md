@@ -37,6 +37,7 @@ kern/
   web/studio/            Studio-Seite (index.html, studio.css, studio.mjs), Spiel-Host (game.mjs, play.html)
   docs/studio.md         Dokumentation von Studio, Komponenten, Format und Protokoll
   docs/physics.md        Box3D richtig benutzen: Regeln, No-Gos und Messungen (vor Physik-Änderungen lesen)
+  docs/walker.md         Micro Duck: Pollen Robotics' trainierte Laufpolicy auf Box3D (Modell, Servo, Takt, Messungen)
   examples/              Beispielspiele
   tests/                 C++-Unit-Tests (Host-Build mit ASan/UBSan), tests/e2e: Browser-Test von Studio
   build.sh               WebAssembly-Build (--app, --physics, --game, --studio)

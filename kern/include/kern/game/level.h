@@ -86,6 +86,12 @@ struct BodyComponent {
   Vec3 linear_velocity, angular_velocity;  // initial; angular in degrees per second
   std::string impact_sound = "builtin:impact";  // played on hard hits ("" = silent)
   f32 impact_threshold = 2.5f;  // m/s approach speed for an impact sound
+  // Explicit mass properties (imported robots, MJCF / URDF): the centre of mass (actor-local) and
+  // the inertia tensor about it in actor axes (kg*m^2: xx yy zz xy xz yz). Used together with
+  // `mass` when the diagonal is positive; otherwise the colliders' shapes and densities decide.
+  Vec3 center_of_mass;
+  f32 inertia[6] = {0, 0, 0, 0, 0, 0};
+  bool explicit_inertia() const { return inertia[0] > 0 && inertia[1] > 0 && inertia[2] > 0; }
 };
 
 enum class ColliderShape : u8 { automatic, box, sphere, capsule, hull };
@@ -114,6 +120,7 @@ struct JointComponent {
   bool collide_connected = false;
   bool enable_limit = false;
   f32 lower = -45, upper = 45;  // hinge, ball cone (upper): degrees; slider, wheel: metres; distance: min/max length
+  f32 reference = 0;            // hinge: the angle (degrees) the joint reads in the pose the level builds it in
   bool enable_motor = false;
   f32 motor_speed = 0;          // degrees per second (hinge, wheel) or m/s (slider, distance)
   f32 max_motor_force = 100;    // N or N*m
@@ -121,16 +128,21 @@ struct JointComponent {
   f32 spring_hertz = 4, spring_damping = 0.5f;
   f32 length = 0;               // distance joint rest length, 0 = the distance at start
   f32 break_force = 0, break_torque = 0;  // N / N*m, 0 = unbreakable
-  // Hinge servo (a position-controlled motor, like a Dynamixel): the motor drives toward
-  // `servo_target` (degrees) at `servo_gain` x the error per second, with max_motor_force N*m.
+  // Hinge servo (a position-controlled motor, like a Dynamixel): torque
+  //   servo_stiffness x (servo_target - angle) - servo_damping x speed, at most max_motor_force N*m,
+  // with servo_friction N*m of joint friction. Box3D's joint spring and motor (GameWorld::drive_servos).
   bool servo = false;
-  f32 servo_target = 0, servo_gain = 18;
+  f32 servo_target = 0;          // degrees
+  f32 servo_stiffness = 50;      // N*m/rad
+  f32 servo_damping = 2;         // N*m*s/rad
+  f32 servo_friction = 0.1f;     // N*m
   std::string break_sound = "builtin:break";  // played when the joint breaks ("" = silent)
 };
 
 /// soldier: a first-person shooter player (Box3D character mover, crouch, sprint,
 /// aim, a weapon from its WeaponComponent, health from its HealthComponent).
-/// walker: an articulated robot that walks on its own servos (a gait from the move input).
+/// walker: an articulated robot that walks on its own servos, driven by its control policy (the
+/// Micro Duck: Pollen Robotics' trained neural network, see docs/walker.md).
 enum class ControlMode : u8 { hovercar, rolling, character, flyer, vehicle, soldier, walker };
 const char* control_mode_name(ControlMode m);
 enum class CameraMode : u8 { chase, first_person, top_down };
@@ -157,7 +169,6 @@ struct ControllerComponent {
   f32 look_sensitivity = 1;     // mouse / touch / gamepad look scale
   bool head_bob = true;
   // walker
-  f32 balance = 1;              // 0..1: a gyro that helps the trunk stay upright (0 = servos only)
 };
 
 enum class WeaponKind : u8 { rifle, pistol, shotgun, sniper };

@@ -11,6 +11,7 @@
 #include "kern/core/json.h"
 #include "kern/game/demos.h"
 #include "kern/game/runtime.h"
+#include "kern/game/walker.h"
 #include "kern/studio/studio.h"
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
@@ -3683,6 +3684,119 @@ TEST(soldier_art_in_play) {
   CHECK(f.s->world().art_stats().decals == 0);  // a fresh range every run
 }
 
+// The duck's policy is Pollen Robotics' network bit for bit: two observations against a float64
+// reference (numpy, from the ONNX initialisers).
+TEST(micro_duck_policy_matches_the_onnx_reference) {
+  f32 stand[61] = {};
+  stand[5] = -1;  // upright, home pose, zero command
+  const f32 stand_ref[14] = {-0.019741f, -0.041493f, 0.020606f, -0.005998f, -0.053329f, -0.095318f, 0.038519f, -0.036158f, 0.011566f, 0.025406f, 0.045495f, -0.037238f, -0.030768f, 0.086753f};
+  const f32 mixed[61] = {0, 0.099166481f, -0.0255541102f, 0.05f, -0.03f, -0.998f, -0.0699874688f, -0.0618137112f, 0.0859161815f, 0.0396740573f, -0.0961397492f, -0.0148999026f, 0.09997929f, -0.0108636595f, -0.0971798446f, 0.0359058354f, 0.0879273062f, -0.058563734f, -0.0728360768f, 0.077332789f, 0.0529082686f, -0.0909666672f, -0.0294671602f, 0.0985600299f, 0.00406932573f, -0.0996086503f, 0.0215987266f, 0.0940428963f, -0.0458325454f, -0.082232354f, 0.0670229176f, 0.0649612862f, -0.0837627257f, -0.0433765541f, 0.0949403861f, 0.018911462f, -0.0998136616f, 0.00680941947f, 0.0980589492f, -0.0320781309f, -0.0897927681f, 0.0552167385f, 0.0755640226f, -0.074688755f, -0.0563175528f, 0.0892011683f, 0.033331394f, -0.0977903015f, 0.3f, 0.0998858052f, -0.5f, -0.0953485303f, 0.0421778283f, 0.0844797684f, -0.0639473344f, -0.0680012445f, 0.0814705063f, 0.0470071921f, -0.0935837421f, -0.0228916922f, 0.0994826791f};
+  const f32 mixed_ref[14] = {0.039644f, 0.294097f, 0.526716f, 0.098369f, 0.119909f, -0.737250f, 0.097852f, -0.128879f, 0.633488f, 0.042892f, -0.162036f, 0.317963f, 0.060720f, 0.175597f};
+  f32 a[14];
+  game::micro_duck_policy(stand, a);
+  for (int i = 0; i < 14; ++i) CHECK(std::fabs(a[i] - stand_ref[i]) < 2e-5f);
+  game::micro_duck_policy(mixed, a);
+  for (int i = 0; i < 14; ++i) CHECK(std::fabs(a[i] - mixed_ref[i]) < 2e-5f);
+}
+
+namespace {
+/// A level with a Micro Duck on the floor (the catalog's insertion: ids = index + 1 + offset).
+game::ActorId add_duck(game::Level& l, Vec3 at) {
+  std::vector<game::Actor> parts = game::micro_duck_actors();
+  const game::ActorId base = l.next_id;
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    game::Actor a = parts[i];
+    a.id = base + static_cast<game::ActorId>(i);
+    if (i == 0) a.transform.position = a.transform.position + at;
+    if (a.parent) a.parent = base + a.parent - 1;
+    for (game::JointComponent& j : a.joints) if (j.target) j.target = base + j.target - 1;
+    l.add(std::move(a));
+  }
+  l.world.player = base;
+  l.world.step_hz = game::kWalkerStepHz;
+  l.world.substeps = 16;
+  return base;
+}
+struct DuckRun {
+  Vec3 start, end;
+  f32 min_up = 1, heading0 = 0, heading1 = 0;
+  f32 end_up = 1;
+};
+DuckRun run_duck(f32 seconds, const game::PlayInput& in, bool print = false, Vec3 euler = {}) {
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, euler.y != 0 || euler.x != 0 ? .3f : 0.0f});
+  l.find(duck)->transform.rotation = euler;
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::play));
+  auto pose = [&](Vec3& p, f32& up, f32& heading) {
+    Mat4 m;
+    f.world->actor_matrix(duck, m);
+    p = m.translation();
+    up = m.m[10];
+    heading = std::atan2(m.m[1], m.m[0]);
+  };
+  DuckRun r;
+  f32 up;
+  pose(r.start, up, r.heading0);
+  for (f32 t = 0; t < seconds; t += 1.0f / 60) {
+    f.world->step(1.0f / 60, in);
+    Vec3 p;
+    f32 h;
+    pose(p, up, h);
+    r.min_up = min_of(r.min_up, up);
+    if (print && std::fmod(t, 0.5f) < 1.0f / 60) std::printf("t %.2f pos %.3f %.3f %.3f up %.3f heading %.2f\n", t, p.x, p.y, p.z, up, h);
+  }
+  pose(r.end, up, r.heading1);
+  r.end_up = up;
+  return r;
+}
+}  // namespace
+
+TEST(micro_duck_stands_walks_and_turns_on_its_policy) {
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  {
+    // Zero command: it stands (8 s).
+    const DuckRun r = run_duck(8, {}, print);
+    CHECK(r.min_up > .9f);
+    CHECK(std::hypot(r.end.x - r.start.x, r.end.y - r.start.y) < .25f);
+    CHECK(r.end.z > r.start.z - .08f);
+  }
+  {
+    game::PlayInput fwd;
+    fwd.move_y = 1;
+    const DuckRun r = run_duck(10, fwd, print);
+    CHECK(r.min_up > .8f);
+    const f32 along = (r.end.x - r.start.x) * std::cos(r.heading0) + (r.end.y - r.start.y) * std::sin(r.heading0);
+    if (print) std::printf("forward %.3f m in 10 s\n", along);
+    CHECK(along > .6f);  // trained: ~0.17 m/s real at full command = 0.34 m/s at 4x scale
+  }
+  {
+    game::PlayInput left;
+    left.move_x = -1;
+    const DuckRun r = run_duck(6, left, print);
+    CHECK(r.min_up > .8f);
+    f32 turned = r.heading1 - r.heading0;
+    if (print) std::printf("turned %.3f rad in 6 s\n", turned);
+    CHECK(turned > .8f);
+  }
+  {
+    // Deterministic (Fix Your Timestep): the same input gives the same walk, bit for bit.
+    game::PlayInput fwd;
+    fwd.move_y = 1;
+    fwd.move_x = .3f;
+    const DuckRun a = run_duck(3, fwd), b = run_duck(3, fwd);
+    CHECK(a.end.x == b.end.x && a.end.y == b.end.y && a.end.z == b.end.z);
+  }
+  for (const Vec3 fallen : {Vec3{0, 90, 0}, Vec3{0, -90, 0}}) {
+    // Lying on its front or its back: v8 of the policy gets up by itself.
+    const DuckRun r = run_duck(12, {}, false, fallen);
+    if (print) std::printf("fallen %.0f %.0f: up %.3f z %.3f\n", fallen.x, fallen.y, r.end_up, r.end.z);
+    CHECK(r.end_up > .9f);
+  }
+}
+
 TEST(micro_duck_builds_from_its_mjcf) {
   StudioFixture f;
   CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
@@ -3694,12 +3808,20 @@ TEST(micro_duck_builds_from_its_mjcf) {
   for (const game::Actor& x : f.s->level().actors) for (const game::JointComponent& j : x.joints) servos += j.servo ? 1 : 0;
   CHECK(servos == 14);
   CHECK(f.s->level().world.substeps >= 16);  // long servo chains get the sub-steps they need
-  // Standing still, every servo joint holds (Box3D: scale and sub-steps per docs/physics.md).
+  CHECK(f.s->level().world.step_hz == game::kWalkerStepHz);  // and the policy its fixed step
+  // The level round-trips the imported mass properties and joint references.
+  const std::string text = game::to_text(f.s->level());
+  game::Level back;
+  std::string error;
+  CHECK(game::from_text(text, back, &error));
+  const game::Actor* b = back.find(duck);
+  CHECK(b && b->body && b->body->explicit_inertia() && std::fabs(b->body->inertia[0] - a->body->inertia[0]) < 1e-6f * a->body->inertia[0] + 1e-9f);
+  // Play: it stands on its policy and every servo joint holds.
   CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
-  f.frames(30);
+  f.frames(120);
   Mat4 m;
   CHECK(f.s->world().actor_matrix(duck, m));
-  CHECK(m.translation().z > .2f);
+  CHECK(m.translation().z > .4f && m.m[10] > .9f);
   f.cmd(R"({"cmd":"stop"})");
 }
 

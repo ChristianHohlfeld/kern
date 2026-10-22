@@ -28,6 +28,7 @@ constexpr Item kItems[] = {
     {"hover_car", "Hover Car", "Players", "car", "Fast Box3D hover car with boost"},
     {"rolling_ball", "Rolling Ball", "Players", "ball", "Physics ball you roll and jump"},
     {"drone", "Drone", "Players", "drone", "Flyer: Space / E up, Q / Ctrl down"},
+    {"micro_duck", "Micro Duck", "Players", "duck", "Pollen Robotics' biped robot, walking on its own trained neural network: W/S walk, A/D turn, Space quacks"},
     // Gameplay building blocks (work without any logic graph).
     {"orb", "Orb", "Gameplay", "orb", "Glowing pickup worth 1 point"},
     {"star", "Star", "Gameplay", "star", "Spinning pickup worth 10 points"},
@@ -308,7 +309,7 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
     gun.mesh->size = {0.75f, 0.07f, 0.12f};
     gun.mesh->collision = false;
     add(gun, {0.35f, -0.22f, 0.35f}, root);
-  } else if (item == "micro_duck") {  // not in the catalog yet: walks once its trained policy runs (walker.cpp)
+  } else if (item == "micro_duck") {
     for (game::Actor& a : game::micro_duck_actors()) actors.push_back(std::move(a));
   } else if (item == "target_dummy") {
     game::Actor body = shape_actor("Target Dummy", game::Shape::capsule, {0.85f, 0.35f, 0.25f});
@@ -631,17 +632,18 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
     // A player dropped into the world becomes the one Play controls.
     if (actors[0].controller) l.world.player = root;
     // Servo-driven robots are long joint chains: Box3D needs more sub-steps to keep them from
-    // stretching (docs/physics.md section 3).
-    if (actors[0].controller && actors[0].controller->mode == game::ControlMode::walker && l.world.substeps < 16) {
-      l.world.substeps = 16;
-      raised_substeps = true;
+    // stretching (docs/physics.md section 3), and their controller its fixed step (docs/walker.md).
+    if (actors[0].controller && actors[0].controller->mode == game::ControlMode::walker) {
+      if (l.world.substeps < 16) { l.world.substeps = 16; raised_substeps = true; }
+      if (l.world.step_hz != game::kWalkerStepHz) { l.world.step_hz = game::kWalkerStepHz; raised_substeps = true; }
     }
     select({root});
     return true;
   });
   if (root && actors[0].controller)
     report(actors[0].name + " is the player now - press Play (Alt+P) to control it", "info");
-  if (raised_substeps) report("Physics sub-steps raised to 16 for the robot's joint chain (World Settings)", "info");
+  if (raised_substeps)
+    report("Physics set to " + std::to_string(static_cast<int>(game::kWalkerStepHz)) + " Hz with 16 sub-steps for the robot (World Settings)", "info");
   return root;
 }
 

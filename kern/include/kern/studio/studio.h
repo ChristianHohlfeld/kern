@@ -90,6 +90,7 @@ struct Viewport {
   u32 buttons = 0;              // bit 0 left, 1 right, 2 middle
   f32 x = 0, y = 0;             // pointer, css pixels
   f32 press_x = 0, press_y = 0;
+  game::ActorId press_actor = 0;  // the actor under a left press (a marquee from it includes it)
   bool moved = false;           // the pointer moved since the press (a click otherwise)
   Vec3 pivot;                   // orbit / dolly pivot
   f32 fov_boost = 0;            // Z / C zoom while flying

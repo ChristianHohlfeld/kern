@@ -324,6 +324,7 @@ class GameWorld {
   struct CityVisual;
   struct SimBody;
   struct SimJoint;
+  struct WalkerBrain;
   struct Traffic;
   class LogicHost;
 
@@ -339,6 +340,8 @@ class GameWorld {
   void fixed_step(const PlayInput& input, f32 dt);
   void drive_player(const PlayInput& input, f32 dt);
   void drive_walker(const PlayInput& input, f32 dt);
+  void create_walkers();
+  void drive_walkers(f32 h);
   void drive_servos(f32 dt);
   void drive_traffic(f32 dt);
   void handle_events();
@@ -404,12 +407,14 @@ class GameWorld {
   std::unordered_map<ActorId, SimBody*> body_of_actor_;   // owner -> body
   std::unordered_map<u64, ActorId> actor_of_body_;
   std::vector<std::unique_ptr<SimJoint>> joints_;
+  std::vector<std::unique_ptr<WalkerBrain>> walkers_;  // articulated robots and their policies
   std::vector<std::unique_ptr<Traffic>> traffic_;
   std::unordered_map<ActorId, bool> alive_;
   struct Respawn { ActorId id; f32 at; };
   std::vector<Respawn> respawns_;
   std::vector<ActorId> order_;   // actors parents-first
   f64 accumulator_ = 0;
+  u64 step_count_ = 0;             // fixed steps since start (sim_time_ = step_count_ / step_hz)
   f32 sim_time_ = 0;
   ActorId player_ = 0;
   void possess_character(bool on);
@@ -464,12 +469,6 @@ class GameWorld {
     f32 client_next_fire = 0;                    // replicas: predicted fire timing (camera kick)
     PlayInput prev_input;                        // input actions: edges for logic events
     f32 teleport_until = 0;                      // teleporters: no instant return trip
-    // walker gait
-    f32 walk_speed = 0, walk_turn = 0, gait_amp = 0, gait_phase = 0, quack = 0;
-    f32 leg_ik[4] = {0, 0, 0, 0};
-    i32 gait_half = 0, swing_side = 0;
-    Vec3 foot_plant[2], foot_lift[2], foot_land;
-    bool feet_valid = false;
   };
   struct HealthState {
     f32 hp = 100, armor = 0, last_damage = -1e9f;

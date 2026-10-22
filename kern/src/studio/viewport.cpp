@@ -318,7 +318,7 @@ void Studio::marquee_select(Viewport& v, u32 mods) {
     if (!world_->actor_matrix(a.id, m)) continue;
     f32 sx, sy;
     if (!to_screen(v, m.translation(), sx, sy)) continue;
-    if (sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1) ids.push_back(a.id);
+    if ((sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1) || a.id == v.press_actor) ids.push_back(a.id);
   }
   if (mods & ctrl) select(ids, false, true);
   else select(ids, (mods & shift) != 0);
@@ -400,6 +400,7 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
         else {
           // Left button (as in Unreal): a click selects, a drag draws a marquee. Actors move only
           // with the gizmo (W / E / R), never by dragging them directly.
+          v.press_actor = pick(index, x, y);
           begin_drag(v, Drag::marquee);
         }
       } else if (button == 2) {

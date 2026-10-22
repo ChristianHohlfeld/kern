@@ -73,7 +73,7 @@ void BitWriter::flush() {
 // BitReader
 
 BitReader::BitReader(const void* data, int bytes)
-    : data_(static_cast<const u8*>(data)), num_bytes_(bytes), num_bits_(bytes * 8), num_words_((bytes + 3) / 4) {}
+    : data_(static_cast<const u8*>(data)), num_bytes_(bytes), num_bits_(bytes * 8) {}
 
 u32 BitReader::read_word(int index) const {
   u32 w = 0;

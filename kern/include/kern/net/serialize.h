@@ -76,7 +76,7 @@ class BitReader {
  private:
   u32 read_word(int index) const;
   const u8* data_;
-  int num_bytes_, num_bits_, num_words_;
+  int num_bytes_, num_bits_;
   u64 scratch_ = 0;
   int scratch_bits_ = 0, word_index_ = 0, bits_read_ = 0;
 };

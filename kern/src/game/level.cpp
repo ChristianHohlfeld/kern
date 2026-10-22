@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <unordered_set>
 
 namespace kern::game {
@@ -45,6 +46,12 @@ json::Value vec(Vec3 v) {
 json::Value num(f32 v) {
   const f64 x = std::round(static_cast<f64>(v) * 1e6) / 1e6;
   return x == 0 ? 0.0 : x;
+}
+/// Seven significant digits (inertia tensors span many orders of magnitude).
+json::Value sig(f32 v) {
+  char b[32];
+  std::snprintf(b, sizeof b, "%.7g", static_cast<f64>(v));
+  return std::strtod(b, nullptr);
 }
 
 // ---- reading ----
@@ -95,6 +102,17 @@ struct Reader {
     for (int i = 0; i < 3; ++i) {
       const json::Value& c = (*x)[static_cast<std::size_t>(i)];
       if (!c.is_number() || !std::isfinite(c.as_number()) || std::fabs(c.as_number()) > 1e7) { fail(std::string(key) + " has an invalid component"); return; }
+      out[i] = static_cast<f32>(c.as_number());
+    }
+  }
+  template <std::size_t N>
+  void numbers(const char* key, f32 (&out)[N], f64 lo, f64 hi) {
+    const json::Value* x = v.find(key);
+    if (!x) return;
+    if (!x->is_array() || x->size() != N) { fail(std::string(key) + " must be an array of " + std::to_string(N) + " numbers"); return; }
+    for (std::size_t i = 0; i < N; ++i) {
+      const json::Value& c = (*x)[i];
+      if (!c.is_number() || !std::isfinite(c.as_number()) || c.as_number() < lo || c.as_number() > hi) { fail(std::string(key) + " has an invalid component"); return; }
       out[i] = static_cast<f32>(c.as_number());
     }
   }
@@ -405,6 +423,12 @@ json::Value actor_to_json(const Actor& a) {
     x.set("angularVelocity", vec(b.angular_velocity));
     x.set("impactSound", b.impact_sound);
     x.set("impactThreshold", num(b.impact_threshold));
+    if (b.explicit_inertia()) {
+      x.set("centerOfMass", vec(b.center_of_mass));
+      json::Value in = json::Value::array();
+      for (f32 v : b.inertia) in.push(sig(v));
+      x.set("inertia", std::move(in));
+    }
     c.set("body", std::move(x));
   }
   if (!a.colliders.empty()) {
@@ -441,6 +465,7 @@ json::Value actor_to_json(const Actor& a) {
       x.set("enableLimit", j.enable_limit);
       x.set("lower", num(j.lower));
       x.set("upper", num(j.upper));
+      if (j.reference != 0) x.set("reference", num(j.reference));
       x.set("enableMotor", j.enable_motor);
       x.set("motorSpeed", num(j.motor_speed));
       x.set("maxMotorForce", num(j.max_motor_force));
@@ -454,7 +479,9 @@ json::Value actor_to_json(const Actor& a) {
       if (j.servo) {
         x.set("servo", true);
         x.set("servoTarget", num(j.servo_target));
-        x.set("servoGain", num(j.servo_gain));
+        x.set("servoStiffness", num(j.servo_stiffness));
+        x.set("servoDamping", num(j.servo_damping));
+        x.set("servoFriction", num(j.servo_friction));
       }
       list.push(std::move(x));
     }
@@ -464,7 +491,6 @@ json::Value actor_to_json(const Actor& a) {
     const ControllerComponent& k = *a.controller;
     json::Value x = json::Value::object();
     x.set("mode", control_mode_name(k.mode));
-    if (k.mode == ControlMode::walker) x.set("balance", num(k.balance));
     x.set("maxSpeed", num(k.max_speed));
     x.set("acceleration", num(k.acceleration));
     x.set("turnRate", num(k.turn_rate));
@@ -652,6 +678,8 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       br.vector("angularVelocity", b.angular_velocity);
       br.string("impactSound", b.impact_sound);
       br.number("impactThreshold", b.impact_threshold, 0, 1e4);
+      br.vector("centerOfMass", b.center_of_mass);
+      br.numbers("inertia", b.inertia, -1e9, 1e9);
       if (!br.ok) return false;
       a.body = b;
     }
@@ -700,7 +728,10 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
         jr.string("breakSound", j.break_sound);
         jr.boolean("servo", j.servo);
         jr.number("servoTarget", j.servo_target, -3600, 3600);
-        jr.number("servoGain", j.servo_gain, 0, 1000);
+        jr.number("servoStiffness", j.servo_stiffness, 0, 1e9);
+        jr.number("servoDamping", j.servo_damping, 0, 1e9);
+        jr.number("servoFriction", j.servo_friction, 0, 1e9);
+        jr.number("reference", j.reference, -360, 360);
         if (!jr.ok) return false;
         a.joints.push_back(j);
       }
@@ -708,7 +739,6 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       ControllerComponent k;
       Reader kr{*x, error};
       kr.enumeration("mode", kControlNames, k.mode);
-      kr.number("balance", k.balance, 0, 1);
       kr.number("maxSpeed", k.max_speed, 0, 1000);
       kr.number("acceleration", k.acceleration, 0, 1000);
       kr.number("turnRate", k.turn_rate, 0, 3600);

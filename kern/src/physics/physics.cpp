@@ -540,6 +540,68 @@ void World::set_mass(Body body, f32 mass) {
   b3Body_SetMassData(body_id(body), d);
 }
 
+void World::set_mass_data(Body body, f32 mass, Vec3 center, const f32 inertia[6]) {
+  if (!body_valid(body) || !(mass > 0) || !std::isfinite(mass)) return;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(inertia[i])) return;
+  if (!(inertia[0] > 0 && inertia[1] > 0 && inertia[2] > 0)) return;
+  b3MassData d{};
+  d.mass = mass;
+  d.center = bv(center);
+  d.inertia.cx = {inertia[0], inertia[3], inertia[4]};
+  d.inertia.cy = {inertia[3], inertia[1], inertia[5]};
+  d.inertia.cz = {inertia[4], inertia[5], inertia[2]};
+  b3Body_SetMassData(body_id(body), d);
+}
+
+namespace {
+
+/// World-space inverse inertia of a body (zero for static and kinematic bodies).
+b3Matrix3 world_inverse_inertia(b3BodyId id) {
+  if (b3Body_GetType(id) != b3_dynamicBody) return b3Mat3_zero;
+  const b3MassData d = b3Body_GetMassData(id);
+  if (b3Det(d.inertia) <= 0) return b3Mat3_zero;
+  const b3Matrix3 r = b3MakeMatrixFromQuat(b3Body_GetRotation(id));
+  return b3MulMM(r, b3MulMM(b3InvertMatrix(d.inertia), b3Transpose(r)));
+}
+
+/// The hinge axis of a revolute joint in world space: frame A's z axis.
+b3Vec3 hinge_axis(b3JointId id) {
+  return b3RotateVector(b3MulQuat(b3Body_GetRotation(b3Joint_GetBodyA(id)), b3Joint_GetLocalFrameA(id).q), b3Vec3_axisZ);
+}
+
+}  // namespace
+
+f32 World::joint_speed(Joint joint) const {
+  if (!joint_valid(joint)) return 0;
+  const b3JointId id = joint_id(joint);
+  if (b3Joint_GetType(id) != b3_revoluteJoint) return 0;
+  const b3Vec3 w = b3Sub(b3Body_GetAngularVelocity(b3Joint_GetBodyB(id)), b3Body_GetAngularVelocity(b3Joint_GetBodyA(id)));
+  return b3Dot(w, hinge_axis(id));
+}
+
+void World::set_joint_spring(Joint joint, f32 target, f32 stiffness, f32 damping) {
+  if (!joint_valid(joint)) return;
+  const b3JointId id = joint_id(joint);
+  if (b3Joint_GetType(id) != b3_revoluteJoint) return;
+  if (!(stiffness > 0) || !std::isfinite(stiffness) || !std::isfinite(target)) {
+    b3RevoluteJoint_EnableSpring(id, false);
+    return;
+  }
+  // Box3D's soft spring: k = m * w^2, c = 2 * m * zeta * w with m the axial effective mass
+  // 1 / (a . (invI_A + invI_B) a), the same mass revolute_joint.c computes in its prepare step.
+  const b3Vec3 a = hinge_axis(id);
+  const b3Matrix3 inv = b3AddMM(world_inverse_inertia(b3Joint_GetBodyA(id)), world_inverse_inertia(b3Joint_GetBodyB(id)));
+  const f32 k = b3Dot(a, b3MulMV(inv, a));
+  if (!(k > 0)) { b3RevoluteJoint_EnableSpring(id, false); return; }
+  const f32 m = 1 / k;
+  const f32 omega = std::sqrt(stiffness / m);
+  b3RevoluteJoint_SetSpringHertz(id, omega / (2 * 3.14159265358979f));
+  b3RevoluteJoint_SetSpringDampingRatio(id, max_of(0.0f, damping) / (2 * m * omega));
+  b3RevoluteJoint_SetTargetAngle(id, clamp(target, -3.14159265f, 3.14159265f));  // Box3D asserts |target| <= pi
+  b3RevoluteJoint_EnableSpring(id, true);
+}
+
 void World::set_joint_thresholds(Joint joint, f32 force, f32 torque) {
   if (!joint_valid(joint)) return;
   // Box3D reports a joint when it exceeds the threshold; FLT_MAX disables it.

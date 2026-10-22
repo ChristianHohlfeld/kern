@@ -212,6 +212,9 @@ class World {
   void set_motion_locks(Body body, const MotionLocks& locks);
   /// Overrides the mass, scaling the inertia of the shapes' mass data to match.
   void set_mass(Body body, f32 mass);
+  /// Overrides all mass properties: mass (kg), centre of mass (body-local) and the inertia tensor
+  /// about it in body axes (kg*m^2: xx yy zz xy xz yz), e.g. from a robot description (MJCF, URDF).
+  void set_mass_data(Body body, f32 mass, Vec3 center, const f32 inertia[6]);
   /// Joints whose constraint force (N) or torque (N*m) exceeds these values
   /// are reported in joint_events() after a step (0 = never).
   void set_joint_thresholds(Joint joint, f32 force, f32 torque);
@@ -220,6 +223,13 @@ class World {
   void set_joint_motor(Joint joint, bool enable, f32 speed, f32 max_force);
   /// Revolute joints: angle of B relative to A (radians, from the reference angle); 0 for others.
   f32 joint_angle(Joint joint) const;
+  /// Revolute joints: angular speed of B relative to A about the hinge axis (rad/s); 0 for others.
+  f32 joint_speed(Joint joint) const;
+  /// Revolute joints: a spring-damper toward `target` (radians) in physical units, stiffness N*m/rad
+  /// and damping N*m*s/rad. Box3D's spring is set in Hertz and a damping ratio relative to the
+  /// joint's axial effective mass; this converts with the current mass, so call it every step.
+  /// The spring is solved implicitly (soft step): stable for any stiffness. stiffness <= 0 disables it.
+  void set_joint_spring(Joint joint, f32 target, f32 stiffness, f32 damping);
   Vec3 joint_torque(Joint joint) const;
   /// Touching contact points of a body (for debug views).
   void contact_points(Body body, std::vector<ContactPoint>& out) const;

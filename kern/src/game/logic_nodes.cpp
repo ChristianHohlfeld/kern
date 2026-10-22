@@ -20,7 +20,6 @@ using logic::Value;
 using logic::kStop;
 
 constexpr u32 kEventColor = 0xb4232f;
-constexpr u32 kActionColor = 0x1d4ed8;
 
 GameWorld* world(Context& c) { return static_cast<GameWorld*>(c.host().game()); }
 

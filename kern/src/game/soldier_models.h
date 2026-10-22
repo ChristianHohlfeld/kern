@@ -128,7 +128,7 @@ class CharacterAnimator {
  private:
   void set(u32 j, Vec3 r, f32 k);
   std::array<Vec3, kJointCount> rot_{};
-  f32 pelvis_z_ = 0.96f, run_w_ = 0, phase_ = 0, spine_yaw_ = 0, pelvis_yaw_ = 0, fall_ = 0;
+  f32 pelvis_z_ = 0.96f, run_w_ = 0, phase_ = 0, fall_ = 0;
 };
 
 // ---------------------------------------------------------------------------
