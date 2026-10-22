@@ -91,6 +91,9 @@ struct Stats {
   f32 limiter_reduction_db = 0;
   Meter master;
   Meter buses[static_cast<u32>(Bus::count)];
+  /// Master peak with hold: falls back at 20 dB per second (a meter's needle, so a short sound
+  /// stays visible between two reads of the stats).
+  f32 peak_hold[kOutputChannels] = {};
 };
 
 struct Listener {

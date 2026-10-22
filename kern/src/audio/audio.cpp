@@ -612,6 +612,8 @@ void Mixer::render(f32* out, u32 frames) {
   for (u32 b = 0; b < kBusCount; ++b)
     for (u32 c = 0; c < 2; ++c) stats_.buses[b].rms[c] = std::sqrt(sum_sq[b][c] * inv);
   for (u32 c = 0; c < 2; ++c) stats_.master.rms[c] = std::sqrt(sum_sq[kBusCount][c] * inv);
+  const f32 fall = std::pow(10.0f, -20.0f / 20.0f * static_cast<f32>(frames) / static_cast<f32>(rate_));  // -20 dB/s
+  for (u32 c = 0; c < 2; ++c) stats_.peak_hold[c] = std::max(stats_.peak_hold[c] * fall, stats_.master.peak[c]);
   stats_.buses[0] = stats_.master;
   stats_.frames_rendered += frames;
   stats_.clips = clip_count();

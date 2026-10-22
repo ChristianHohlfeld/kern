@@ -210,7 +210,7 @@ const vpCenter = async (page, i = 0) => {
     check(await until(async () => (await page.locator("#soundPane .snd").count()) >= 25), "the Sounds tab lists the built-in library");
     await page.locator('#soundPane .snd[data-sound="builtin:quack"]').click();
     check(await until(async () => (await status(page)).audio?.voices > 0, 5000), "clicking a sound previews it");
-    check(await until(async () => (await status(page)).audio?.peak?.[0] > 0.01, 5000), "the preview is audible on the meter");
+    check(await until(async () => (await status(page)).audio?.peakHold?.[0] > 0.01, 5000), "the preview is audible on the meter");
     // Import a generated WAV file.
     const sid = await page.evaluate(async () => {
       const rate = 22050, n = Math.round(rate * 2), bytes = new DataView(new ArrayBuffer(44 + n * 2));

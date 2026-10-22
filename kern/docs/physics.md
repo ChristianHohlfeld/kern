@@ -139,7 +139,8 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
 
 - Dauerlasten als **Kräfte, jeden Schritt** anwenden; Kräfte werden nach jedem Schritt zurückgesetzt
   (`box3d:docs/simulation.md:1966`).
-- Geschwindigkeiten direkt zu setzen übergeht den Solver.
+- Geschwindigkeiten direkt zu setzen übergeht den Solver. Ein Sprung ist deshalb ein Impuls
+  (`apply_linear_impulse_to_center`, m · Δv), keine gesetzte Geschwindigkeit.
   - Für Charaktere (alle Drehachsen gesperrt) und kinematische Bodies ist das in Ordnung.
   - An Bodies mit Gelenken oder Kontakten kämpft es gegen die Constraints und pumpt Energie hinein.
   - *[gemessen]* Ein „Gyro" auf Geschwindigkeitsebene ließ den Rumpf der Ente springen.

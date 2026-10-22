@@ -527,11 +527,11 @@ class StudioPage {
     const fps = this.fpsTimes.length;
     if (fps !== this.fpsShown) { this.fpsShown = fps; $("#fps").textContent = `${fps} fps`; }
     // Simulation stats.
-    // Output meter (peak per channel since the last frame, dB scale).
+    // Output meter (master peak with a falling hold per channel, dB scale).
     if (st.audio) {
       const bars = $("#meter").children;
       for (let c = 0; c < 2; c++) {
-        const db = 20 * Math.log10(Math.max(1e-5, st.audio.peak[c]));
+        const db = 20 * Math.log10(Math.max(1e-5, (st.audio.peakHold ?? st.audio.peak)[c]));
         bars[c].style.width = `${Math.max(0, Math.min(100, (db + 60) / 60 * 100)).toFixed(0)}%`;
         bars[c].className = db > -1 ? "hot" : "";
       }

@@ -1073,6 +1073,10 @@ json::Value Studio::status() {
     peak.push(internal::round_num(st.master.peak[0], 1000));
     peak.push(internal::round_num(st.master.peak[1], 1000));
     au.set("peak", std::move(peak));
+    json::Value hold = json::Value::array();
+    hold.push(internal::round_num(st.peak_hold[0], 1000));
+    hold.push(internal::round_num(st.peak_hold[1], 1000));
+    au.set("peakHold", std::move(hold));
     au.set("voices", st.voices);
     au.set("audible", st.audible);
     au.set("muted", muted());

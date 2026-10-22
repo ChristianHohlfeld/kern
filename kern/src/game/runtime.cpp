@@ -1695,7 +1695,7 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
     case ControlMode::rolling: {
       physics_.apply_force_to_center(body, move * (c.acceleration * m));
       if (jump_pressed && c.jump_speed > 0 && grounded(body, reach + 0.15f)) {
-        physics_.set_linear_velocity(body, {v.x, v.y, c.jump_speed});
+        physics_.apply_linear_impulse_to_center(body, Vec3{0, 0, (c.jump_speed - v.z) * m});  // a jump is an impulse
         cue(c.jump_sound, pose.position, 0.8f, 1, true, audio::Bus::sfx, pw_->actor);
       }
       const f32 hs = std::sqrt(v.x * v.x + v.y * v.y);
@@ -1747,7 +1747,7 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
       const Vec3 dv{target.x - v.x, target.y - v.y, 0};
       physics_.apply_force_to_center(body, dv * (m * min_of(1.0f, control * dt) / dt));
       if (jump_pressed && c.jump_speed > 0 && on_ground) {
-        physics_.set_linear_velocity(body, {v.x, v.y, c.jump_speed});
+        physics_.apply_linear_impulse_to_center(body, Vec3{0, 0, (c.jump_speed - v.z) * m});  // a jump is an impulse
         cue(c.jump_sound, pose.position, 0.8f, 1, true, audio::Bus::sfx, pw_->actor);
       }
       // Footsteps every stride while walking on the ground.
