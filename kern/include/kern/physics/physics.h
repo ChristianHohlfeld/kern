@@ -16,7 +16,7 @@
 namespace kern::physics {
 
 enum class BodyType : u8 { fixed = 0, kinematic = 1, dynamic = 2 };
-enum class ShapeKind : u8 { box, sphere, capsule, hull };
+enum class ShapeKind : u8 { box, sphere, capsule, hull, mesh };
 /// Box3D's native joints. (The editor's "rope" and "friction" are a limited
 /// distance joint and a motor joint without springs.)
 enum class JointType : u8 { revolute, distance, prismatic, wheel, weld, motor, spherical, parallel, filter };
@@ -38,6 +38,9 @@ struct WorldSettings {
   i32 restitution_iterations = 2; // 0..63
   bool restitution_propagation = false;
   f32 hit_event_threshold = 1;    // m/s
+  // Contact softness (Box3D "World Definition"): stiffness, bounciness and the cap on overlap push-out.
+  f32 contact_hertz = 30, contact_damping_ratio = 10, contact_speed = 3;  // Hz, -, m/s
+  f32 maximum_linear_speed = 400;  // m/s
 };
 
 struct BodySettings {
@@ -69,7 +72,8 @@ struct ShapeSettings {
   Vec3 size{1, 1, 1};        // box: full extents
   f32 radius = 0.5f;         // sphere, capsule
   f32 length = 1;            // capsule: distance between the hemisphere centres, along the shape's Z
-  Span<const Vec3> points;   // hull: points in shape space (4..128 after hull reduction)
+  Span<const Vec3> points;   // hull: points in shape space (4..128 after hull reduction); mesh: vertices
+  Span<const u32> indices;   // mesh: 3 per triangle, counter-clockwise (static bodies only)
   ShapeMaterial material;
 };
 
@@ -99,6 +103,8 @@ struct JointSettings {
   f32 max_velocity_force = 0, max_velocity_torque = 0, max_spring_force = 0, max_spring_torque = 0;
   // parallel joint
   f32 max_torque = 0;
+  // Joint softness of the solver (0 = Box3D defaults); keep below half the step rate.
+  f32 constraint_hertz = 0, constraint_damping_ratio = 0;
   u64 user = 0;
 };
 
@@ -129,6 +135,21 @@ struct ContactPoint {
   Vec3 point, normal;     // world space; normal points from shape A to shape B
   f32 separation = 0;     // negative when penetrating
   f32 impulse = 0;        // normal impulse of the last sub-step
+};
+
+/// A contact plane of a character mover (relative to the mover's origin).
+struct MoverPlane {
+  Vec3 normal;            // outward, away from the shape
+  f32 offset = 0;         // separation of a point p = dot(normal, p) - offset
+  Vec3 point;             // closest point on the shape (world space)
+  Shape shape;
+  Body body;
+};
+
+/// Capsule along Z between two sphere centres (relative to an origin).
+struct Capsule {
+  Vec3 center1, center2;
+  f32 radius = 0.3f;
 };
 
 struct MotionLocks {
@@ -180,6 +201,7 @@ class World {
   bool awake(Body body) const;
   f32 mass(Body body) const;
   BodyType body_type(Body body) const;
+  void set_body_type(Body body, BodyType type);
   Vec3 local_point(Body body, Vec3 world_point) const;
   Vec3 world_point(Body body, Vec3 local_point) const;
   Vec3 world_vector(Body body, Vec3 local_vector) const;
@@ -201,6 +223,16 @@ class World {
   /// Closest hit along origin + translation (non-sensor shapes whose category matches
   /// mask_bits; shapes of `ignore` are skipped, e.g. the body the ray starts in).
   RayHit cast_ray(Vec3 origin, Vec3 translation, u64 mask_bits = ~0ull, Body ignore = {}) const;
+  /// Closest hit of a sphere swept along translation (a fat ray: ground probes that do not miss ledges).
+  RayHit cast_sphere(Vec3 origin, f32 radius, Vec3 translation, u64 mask_bits = ~0ull, Body ignore = {}) const;
+  /// Character mover queries (Box3D "Character Mover"): how far the capsule can travel (0..1) and
+  /// the planes it touches. Sensors and the shapes of `ignore` are skipped.
+  f32 cast_mover(Vec3 origin, const Capsule& capsule, Vec3 translation, u64 mask_bits = ~0ull, Body ignore = {}) const;
+  void collide_mover(Vec3 origin, const Capsule& capsule, u64 mask_bits, Body ignore, std::vector<MoverPlane>& out) const;
+  /// Radial impulse on spheres, capsules and hulls (b3World_Explode); negative impulse implodes.
+  void explode(Vec3 center, f32 radius, f32 falloff, f32 impulse_per_area, u64 mask_bits = ~0ull);
+  /// Impulse a mover moving with `velocity` applies to a dynamic body at `point` along `normal` (into the body).
+  void push_body(Body body, Vec3 point, Vec3 normal, Vec3 velocity);
 
   // Events of the last step (shapes may have been destroyed since; check the bodies).
   const std::vector<TouchEvent>& contact_begin() const { return contact_begin_; }
@@ -220,6 +252,7 @@ class World {
   u32 world_ = 0;  // packed b3WorldId, 0 = none
   WorldSettings settings_;
   std::unordered_map<u64, u64> body_users_, shape_users_;
+  std::vector<void*> meshes_;  // b3MeshData of mesh shapes (freed after the world)
   std::vector<TouchEvent> contact_begin_, contact_end_, sensor_begin_, sensor_end_;
   std::vector<HitEvent> hits_;
   std::vector<Joint> joint_events_;
@@ -243,6 +276,50 @@ class MouseGrab {
   Body mouse_, body_;
   Joint joint_;
   Vec3 target_;
+};
+
+/// A kinematic character controller on Box3D's mover API (the Box3D "Mover"
+/// sample, Z up): a capsule outside the solver that accelerates with friction,
+/// rides a damped "pogo" spring over steps and slopes, slides along the
+/// collision planes (b3SolvePlanes), clips its velocity (b3ClipVector) and
+/// pushes dynamic bodies it walks into.
+class CharacterMover {
+ public:
+  struct Settings {
+    f32 radius = 0.4f;
+    f32 height = 1.8f;           // feet to head
+    f32 step_height = 0.45f;     // the pogo spring carries the capsule this high over the ground
+    f32 max_speed = 6;           // m/s
+    f32 accelerate = 10;         // 1/s
+    f32 friction = 8;            // 1/s on the ground
+    f32 air_control = 0.25f;
+    f32 stop_speed = 3;          // m/s
+    f32 jump_speed = 6;          // m/s
+    f32 sprint = 1.6f;           // speed factor while sprinting (boost)
+    f32 gravity = 20;            // m/s^2 (snappier than the world's)
+    f32 max_slope_deg = 50;
+    f32 push_strength = 1;       // 0 = dynamic bodies are not pushed
+    u64 mask_bits = ~0ull;
+  };
+  Settings settings;
+  /// `position` is the feet.
+  void reset(Vec3 position) { position_ = position; velocity_ = {}; pogo_ = 0; on_ground_ = false; }
+  /// One fixed step: `wish` is the desired horizontal direction * speed fraction (|wish| <= 1).
+  /// Returns true when a jump started.
+  bool step(World& world, f32 dt, Vec3 wish, bool jump, bool sprint, Body self);
+  Vec3 position() const { return position_; }
+  Vec3 velocity() const { return velocity_; }
+  void set_velocity(Vec3 v) { velocity_ = v; }
+  bool on_ground() const { return on_ground_; }
+  /// Planes touched in the last step (triggers and pickups the mover walked into).
+  const std::vector<MoverPlane>& planes() const { return planes_; }
+  Capsule capsule() const;   // relative to position()
+
+ private:
+  Vec3 position_, velocity_;
+  f32 pogo_ = 0;
+  bool on_ground_ = false;
+  std::vector<MoverPlane> planes_;
 };
 
 /// Flat-shaded triangles of the convex hull of `points` (Box3D's hull builder).

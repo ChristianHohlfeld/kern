@@ -216,7 +216,42 @@ void Studio::sync_icons() {
       line(p, c, tip, tip - f * 0.7f + side, col);
       line(p, c, tip, tip - f * 0.7f - side, col);
     }
-    if (!a.mesh && !a.light && !a.controller) {
+    if (a.audio) {
+      // Speaker glyph facing the actor's forward; attenuation spheres when selected.
+      const Vec3 col = sel ? kSelected : Vec3{0.45f, 0.95f, 0.75f};
+      const Vec3 f = normalize(m.transform_vector({1, 0, 0}), {1, 0, 0});
+      Vec3 u = normalize(m.transform_vector({0, 0, 1}), {0, 0, 1});
+      const Vec3 r = normalize(cross(f, u), {0, 1, 0});
+      u = cross(r, f);
+      const Vec3 b = o - f * 0.18f;
+      const Vec3 box[4] = {b + u * 0.12f + r * 0.12f, b + u * 0.12f - r * 0.12f, b - u * 0.12f - r * 0.12f, b - u * 0.12f + r * 0.12f};
+      const Vec3 cone[4] = {o + f * 0.12f + u * 0.3f + r * 0.3f, o + f * 0.12f + u * 0.3f - r * 0.3f, o + f * 0.12f - u * 0.3f - r * 0.3f, o + f * 0.12f - u * 0.3f + r * 0.3f};
+      for (int k = 0; k < 4; ++k) {
+        line(p, c, box[k], box[(k + 1) % 4], col);
+        line(p, c, cone[k], cone[(k + 1) % 4], col);
+        line(p, c, box[k], cone[k], col);
+      }
+      for (int k = 1; k <= 2; ++k) {
+        // Sound waves.
+        const f32 rad = 0.25f + 0.18f * k;
+        Vec3 prev = o + f * (0.12f + rad * std::cos(-0.7f)) + u * (rad * std::sin(-0.7f));
+        for (int i = 1; i <= 8; ++i) {
+          const f32 t = -0.7f + 1.4f * i / 8.0f;
+          const Vec3 q = o + f * (0.12f + rad * std::cos(t)) + u * (rad * std::sin(t));
+          line(p, c, prev, q, col);
+          prev = q;
+        }
+      }
+      if (sel && a.audio->spatial) {
+        const Vec3 inner{0.3f, 0.75f, 0.95f}, outer{0.25f, 0.45f, 0.75f};
+        for (const auto& [rad, colr] : {std::pair<f32, Vec3>{a.audio->min_distance, inner}, std::pair<f32, Vec3>{a.audio->max_distance, outer}}) {
+          circle(p, c, o, {1, 0, 0}, {0, 1, 0}, rad, colr, 64);
+          circle(p, c, o, {1, 0, 0}, {0, 0, 1}, rad, colr, 64);
+          circle(p, c, o, {0, 1, 0}, {0, 0, 1}, rad, colr, 64);
+        }
+      }
+    }
+    if (!a.mesh && !a.light && !a.controller && !a.audio) {
       // Empty actor: axis tripod.
       const f32 s = 0.6f;
       line(p, c, o, o + normalize(m.transform_vector({1, 0, 0})) * s, sel ? kSelected : Vec3{0.9f, 0.3f, 0.3f});

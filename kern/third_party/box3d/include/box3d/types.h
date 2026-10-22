@@ -173,6 +173,10 @@ typedef struct b3WorldDef
 	/// Maximum linear speed. Usually meters per second.
 	float maximumLinearSpeed;
 
+	/// Use this to disable gyroscopic torque on sphere-like objects automatically.
+	/// Range is [0, 1]. A sphere is 0 and a 1x1x2 box is 0.5.
+	float isotropicInertiaTolerance;
+
 	/// Optional mixing callback for friction. The default uses sqrt(frictionA * frictionB).
 	b3FrictionCallback* frictionCallback;
 
@@ -2019,7 +2023,7 @@ typedef struct b3HullFace
 } b3HullFace;
 
 /// 64-bit hull version. Useful for validating serialized data.
-#define B3_HULL_VERSION 0x9D3E61B7C2A4F085ull
+#define B3_HULL_VERSION 0x6B1E39D4A87C25F3ull
 
 /// A convex hull.
 /// @note This data structure has data hanging off the end and cannot be directly copied.
@@ -2105,9 +2109,9 @@ typedef struct b3BoxHull
 	float vx[8];				 ///< vertex x
 	float vy[8];				 ///< vertex y
 	float vz[8];				 ///< vertex z
-	float nx[8];				 ///< normal x, padded to multiple of 4
-	float ny[8];				 ///< normal y, padded to multiple of 4
-	float nz[8];				 ///< normal z, padded to multiple of 4
+	float nx[8];				 ///< normal x, padded to multiple of 8
+	float ny[8];				 ///< normal y, padded to multiple of 8
+	float nz[8];				 ///< normal z, padded to multiple of 8
 	float edgeCosines[12];		 ///< dot(n1, n2) for each full edge.
 } b3BoxHull;
 
@@ -2487,8 +2491,8 @@ typedef struct b3CompoundDef
 	int sphereCount;
 } b3CompoundDef;
 
-/// The baked compound version depends on the tree, mesh, and hull versions.
-#define B3_COMPOUND_VERSION ( 0x7A2F41C9E6D0B358ull ^ B3_DYNAMIC_TREE_VERSION ^ B3_MESH_VERSION ^ B3_HULL_VERSION )
+/// The baked compound version depends on the mesh and hull versions.
+#define B3_COMPOUND_VERSION ( 0x9E4B17D3A25C68F1ull ^ B3_MESH_VERSION ^ B3_HULL_VERSION )
 
 /// The data for a baked compound shape. This is a potentially large yet highly optimized
 /// data structure. It can contain thousands of child shapes, yet at runtime it populates
@@ -2505,15 +2509,17 @@ typedef struct b3CompoundData
 	/// The total number of bytes for this compound.
 	int byteCount;
 
+	// Bounds of the tree.
+	b3AABB bounds;
+
+	// Tree height for diagnostics.
+	int treeHeight;
+
 	/// Offset of the tree node array in bytes from the struct address.
 	int nodeOffset;
 
-	/// Offset of the tree proxy array in bytes from the struct address.
-	int proxyOffset;
-
-	/// Immutable dynamic tree. The node and proxy pointers must be fixed up using the offsets
-	/// above. A baked tree is never inserted into, so the parent array stays null.
-	b3DynamicTree tree;
+	// The number of tree nodes.
+	int nodeCount;
 
 	/// Offset of the material array in bytes from the struct address.
 	int materialOffset;

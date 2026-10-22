@@ -237,6 +237,22 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .tex div span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tex-add { display: grid; place-items: center; min-height: 140px; border: 1px dashed #3a3a40; border-radius: 6px; color: var(--dim); background: none; }
 .tex-add:hover { color: var(--text-hi); border-color: var(--accent-line); }
+.snd-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px; }
+.snd { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px 0 2px; border: 1px solid var(--line2); border-radius: 5px; background: var(--bg1); cursor: grab; user-select: none; min-width: 0; }
+.snd:hover { border-color: var(--accent-line); color: var(--text-hi); }
+.snd .ti { display: grid; place-items: center; color: #8fd8bd; }
+.snd .ti svg { width: 15px; height: 15px; }
+.snd .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.snd .dim { font-size: 10.5px; }
+.snd-add { display: flex; align-items: center; justify-content: center; gap: 6px; height: 30px; border: 1px dashed #3a3a40; border-radius: 5px; color: var(--dim); background: none; font-size: 11px; }
+.snd-add:hover { color: var(--text-hi); border-color: var(--accent-line); }
+.snd-add svg { width: 14px; height: 14px; }
+#soundPane .note { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 11px; }
+#muteBtn { padding: 0 6px; }
+#muteBtn.off { color: var(--warn); }
+#meter { display: flex; flex-direction: column; justify-content: center; gap: 2px; width: 54px; height: 20px; flex: none; margin-right: 6px; }
+#meter i { display: block; height: 3px; width: 0; border-radius: 2px; background: linear-gradient(90deg, #3fb37f, #3fb37f 70%, #e2b33b 88%, #e05252); background-size: 54px 3px; transition: width 60ms linear; }
+#meter i.hot { box-shadow: 0 0 4px #e05252; }
 #log { white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
 #log .warn { color: var(--warn); }
 #log .error { color: var(--err); }

@@ -14,7 +14,7 @@ namespace kern::studio {
 
 namespace {
 
-enum class F : u8 { number, integer, vec3, boolean, choice, color, text, actor, texture, flags3, uinteger };
+enum class F : u8 { number, integer, vec3, boolean, choice, color, text, actor, texture, flags3, uinteger, sound, sound_auto };
 
 struct FieldDef {
   const char* key;     // JSON key below the section's root
@@ -75,6 +75,8 @@ constexpr FieldDef kBody[] = {
     {"lockAngular", "Lock rotation", F::flags3},
     {"linearVelocity", "Initial velocity", F::vec3, -1e5, 1e5, 0.1, "m/s", nullptr, "Initial state"},
     {"angularVelocity", "Initial spin", F::vec3, -1e5, 1e5, 1, "°/s"},
+    {"impactSound", "Impact sound", F::sound, 0, 0, 0, "", nullptr, "Sound"},
+    {"impactThreshold", "Impact threshold", F::number, 0, 1e4, 0.1, "m/s"},
 };
 constexpr FieldDef kCollider[] = {
     {"shape", "Shape", F::choice, 0, 0, 0, "", kColliders},
@@ -110,6 +112,7 @@ constexpr FieldDef kJoint[] = {
     {"length", "Rest length (0 = at start)", F::number, 0, 1e5, 0.05, "m"},
     {"breakForce", "Break force (0 = never)", F::number, 0, 1e12, 100, "N", nullptr, "Breaking"},
     {"breakTorque", "Break torque (0 = never)", F::number, 0, 1e12, 100, "N·m"},
+    {"breakSound", "Break sound", F::sound},
 };
 constexpr FieldDef kController[] = {
     {"mode", "Movement", F::choice, 0, 0, 0, "", kModes},
@@ -124,16 +127,38 @@ constexpr FieldDef kController[] = {
     {"cameraDistance", "Distance", F::number, 0, 500, 0.5, "m"},
     {"cameraHeight", "Height", F::number, -100, 500, 0.25, "m"},
     {"cameraFov", "Field of view", F::number, 20, 120, 1, "°"},
+    {"engineSound", "Engine loop", F::sound_auto, 0, 0, 0, "", nullptr, "Sound"},
+    {"jumpSound", "Jump", F::sound},
+    {"boostSound", "Boost", F::sound},
 };
 constexpr FieldDef kPickup[] = {
     {"points", "Points", F::number, -1e6, 1e6, 1},
     {"burstColor", "Burst color", F::color},
     {"respawn", "Respawn after (0 = never)", F::number, 0, 1e5, 0.5, "s"},
+    {"sound", "Sound", F::sound},
 };
 constexpr FieldDef kTrigger[] = {
     {"action", "Action", F::choice, 0, 0, 0, "", kTriggers},
     {"message", "Message", F::text},
     {"once", "Only once", F::boolean},
+    {"sound", "Sound", F::sound_auto},
+};
+constexpr const char* kBuses[] = {"sfx", "Effects", "ambience", "Ambience", "music", "Music", "ui", "Interface", "voice", "Voice", nullptr};
+constexpr const char* kRolloffs[] = {"inverse", "Inverse (natural)", "linear", "Linear", "exponential", "Exponential", nullptr};
+constexpr FieldDef kAudio[] = {
+    {"sound", "Sound", F::sound},
+    {"volume", "Volume", F::number, 0, 4, 0.05},
+    {"pitch", "Pitch", F::number, 0.05, 8, 0.05},
+    {"loop", "Loop", F::boolean},
+    {"autoplay", "Play on start", F::boolean},
+    {"delay", "Start delay", F::number, 0, 1e5, 0.1, "s"},
+    {"bus", "Bus", F::choice, 0, 0, 0, "", kBuses},
+    {"spatial", "Spatial (3D)", F::boolean, 0, 0, 0, "", nullptr, "Attenuation"},
+    {"minDistance", "Inner radius", F::number, 0.01, 1e5, 0.25, "m"},
+    {"maxDistance", "Falloff distance", F::number, 0.02, 1e5, 1, "m"},
+    {"rolloff", "Roll-off", F::choice, 0, 0, 0, "", kRolloffs},
+    {"doppler", "Doppler", F::number, 0, 4, 0.05},
+    {"pitchBySpeed", "Pitch by speed", F::number, -10, 10, 0.05},
 };
 constexpr FieldDef kRotator[] = {
     {"rate", "Rotation rate", F::vec3, -1e5, 1e5, 1, "°/s"},
@@ -171,6 +196,13 @@ constexpr FieldDef kWorld[] = {
     {"gravity", "Gravity", F::vec3, -1e3, 1e3, 0.1, "m/s²", nullptr, "Physics (Box3D)"},
     {"substeps", "Sub-steps", F::integer, 1, 16, 1},
     {"stepHz", "Step rate", F::number, 15, 480, 1, "Hz"},
+    {"masterVolume", "Master volume", F::number, 0, 4, 0.05, "", nullptr, "Audio"},
+    {"music", "Music", F::sound},
+    {"musicVolume", "Music volume", F::number, 0, 4, 0.05},
+    {"ambience", "Ambience", F::sound},
+    {"ambienceVolume", "Ambience volume", F::number, 0, 4, 0.05},
+    {"reverb", "Reverb", F::number, 0, 1, 0.01},
+    {"doppler", "Doppler", F::number, 0, 4, 0.05},
 };
 
 struct SectionDef {
@@ -193,6 +225,7 @@ constexpr SectionDef kSections[] = {
     {"rotator", "Rotator", kRotator, std::size(kRotator), false},
     {"mover", "Mover", kMover, std::size(kMover), false},
     {"city", "Procedural City", kCity, std::size(kCity), false},
+    {"audio", "Audio Source", kAudio, std::size(kAudio), false},
 };
 
 /// Value at a dotted path ("material.color", "0.radius").
@@ -241,6 +274,8 @@ const char* type_name(F t) {
     case F::actor: return "actor";
     case F::texture: return "texture";
     case F::flags3: return "flags3";
+    case F::sound: return "sound";
+    case F::sound_auto: return "sound";
   }
   return "text";
 }
@@ -267,6 +302,7 @@ json::Value field_json(const FieldDef& f, const std::string& path, const std::ve
     o.set("choices", std::move(c));
   }
   if (f.group) o.set("group", f.group);
+  if (f.type == F::sound_auto) o.set("auto", true);
   // Value of the first actor; per vector component "mixed" when they differ.
   const json::Value* first = values.empty() ? nullptr : values[0];
   o.set("value", first ? *first : json::Value());
@@ -450,7 +486,7 @@ json::Value Studio::details_json() const {
     add.push(std::move(e));
   };
   bool any_mesh = false, any_light = false, any_body = false, any_ctl = false, any_pickup = false, any_trigger = false, any_rot = false, any_mover = false,
-       any_city = false, any_parent = false;
+       any_city = false, any_parent = false, any_audio = false;
   for (const game::Actor* a : actors) {
     any_mesh |= a->mesh.has_value();
     any_light |= a->light.has_value();
@@ -461,6 +497,7 @@ json::Value Studio::details_json() const {
     any_rot |= a->rotator.has_value();
     any_mover |= a->mover.has_value();
     any_city |= a->city.has_value();
+    any_audio |= a->audio.has_value();
     any_parent |= a->parent != 0;
   }
   offer("mesh", "Static Mesh", !any_mesh);
@@ -473,6 +510,7 @@ json::Value Studio::details_json() const {
   offer("trigger", "Trigger", !any_trigger);
   offer("rotator", "Rotator", !any_rot);
   offer("mover", "Mover", !any_mover);
+  offer("audio", "Audio Source", !any_audio);
   offer("city", "Procedural City", !any_city && !any_parent && actors.size() == 1);
   d.set("add", std::move(add));
   return d;
@@ -620,6 +658,7 @@ bool Studio::add_component(const std::string& type) {
       else if (type == "trigger" && !a->trigger) a->trigger = game::TriggerComponent{};
       else if (type == "rotator" && !a->rotator) a->rotator = game::RotatorComponent{};
       else if (type == "mover" && !a->mover) a->mover = game::MoverComponent{};
+      else if (type == "audio" && !a->audio) a->audio = game::AudioComponent{};
       else if (type == "city" && !a->city) {
         if (a->parent) { error = "a city must be a top-level actor"; return false; }
         a->city = game::CityComponent{};
@@ -648,6 +687,7 @@ bool Studio::remove_component(const std::string& type, i32 index) {
       else if (type == "rotator") a->rotator.reset();
       else if (type == "mover") a->mover.reset();
       else if (type == "city") a->city.reset();
+      else if (type == "audio") a->audio.reset();
     }
     return true;
   });

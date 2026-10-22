@@ -104,6 +104,14 @@ void shape_lines(const ShapePlan& s, std::vector<Vec3>& out) {
       }
       break;
     }
+    case physics::ShapeKind::mesh:
+      // Triangle edges (every edge once).
+      for (std::size_t t = 0; t + 2 < s.indices.size(); t += 3)
+        for (int k = 0; k < 3; ++k) {
+          const u32 a = s.indices[t + k], b = s.indices[t + (k + 1) % 3];
+          if (a < b && a < s.points.size() && b < s.points.size()) { out.push_back(s.points[a]); out.push_back(s.points[b]); }
+        }
+      break;
     case physics::ShapeKind::hull: {
       MeshData m;
       if (!physics::hull_mesh(Span<const Vec3>(s.points.data(), s.points.size()), m)) break;
@@ -206,22 +214,40 @@ void add_shape(BodyPlan& body, ActorId actor, const ColliderComponent& c, const 
   const Placement lp = placement_of(local);
   s.center = lp.position;
   s.rotation = lp.rotation;
+  // Moving shapes stay above 1 cm (Box3D "Units"); static ones may be thinner.
+  const f32 smallest = body.motion == Motion::fixed ? 0.002f : 0.01f;
   switch (c.shape) {
     case ColliderShape::box:
       s.kind = physics::ShapeKind::box;
-      s.size = {max_of(0.002f, c.size.x * std::fabs(p.scale.x)), max_of(0.002f, c.size.y * std::fabs(p.scale.y)), max_of(0.002f, c.size.z * std::fabs(p.scale.z))};
+      s.size = {max_of(smallest, c.size.x * std::fabs(p.scale.x)), max_of(smallest, c.size.y * std::fabs(p.scale.y)), max_of(smallest, c.size.z * std::fabs(p.scale.z))};
       break;
     case ColliderShape::sphere:
       s.kind = physics::ShapeKind::sphere;
-      s.radius = max_of(0.002f, c.radius * max3(p.scale));
+      s.radius = max_of(smallest * 0.5f, c.radius * max3(p.scale));
       break;
     case ColliderShape::capsule:
       s.kind = physics::ShapeKind::capsule;
-      s.radius = max_of(0.002f, c.radius * max_of(std::fabs(p.scale.x), std::fabs(p.scale.y)));
+      s.radius = max_of(smallest * 0.5f, c.radius * max_of(std::fabs(p.scale.x), std::fabs(p.scale.y)));
       s.length = max_of(0.0f, c.length * std::fabs(p.scale.z));
       break;
-    case ColliderShape::hull:
-    case ColliderShape::automatic: {
+    case ColliderShape::automatic:
+      if (mesh && body.motion == Motion::fixed && mesh->shape == Shape::torus) {
+        // Concave and static: the exact triangles (a hull would fill the hole).
+        const MeshData md = shape_mesh(*mesh);
+        s.kind = physics::ShapeKind::mesh;
+        for (u32 i = 0; i < md.vertex_count(); ++i)
+          s.points.push_back(local.transform_point({md.positions[i * 3], md.positions[i * 3 + 1], md.positions[i * 3 + 2]}));
+        if (md.indices.empty()) for (u32 i = 0; i < md.vertex_count(); ++i) s.indices.push_back(i);
+        else s.indices = md.indices;
+        // Mirrored scale flips the winding.
+        if (p.scale.x * p.scale.y * p.scale.z < 0)
+          for (std::size_t i = 0; i + 2 < s.indices.size(); i += 3) std::swap(s.indices[i + 1], s.indices[i + 2]);
+        s.center = {};
+        s.rotation = {};
+        break;
+      }
+      [[fallthrough]];
+    case ColliderShape::hull: {
       s.kind = physics::ShapeKind::hull;
       std::vector<Vec3> pts;
       if (mesh) pts = shape_hull_points(*mesh);
@@ -377,6 +403,8 @@ struct GameWorld::SimBody {
   physics::Body body;
   Vec3 scale{1, 1, 1};    // owner's world scale (render)
   bool animated = false;  // kinematic driven by rotator/mover
+  physics::Pose prev;     // pose before the last fixed step (render interpolation)
+  bool has_prev = false;
 };
 
 struct GameWorld::SimJoint {
@@ -385,6 +413,7 @@ struct GameWorld::SimJoint {
   physics::Body a, b;
   physics::Pose frame_a, frame_b;
   JointKind kind = JointKind::hinge;
+  std::size_t index = 0;          // into the actor's joints
   bool broken = false;
 };
 
@@ -834,19 +863,36 @@ Mat4 GameWorld::animated_local(const Actor& a, f32 time) const {
   return Mat4::trs(p, quat_normalize(q), t.scale);
 }
 
-void GameWorld::compute_world_matrices(f32 time) {
+void GameWorld::compute_world_matrices(f32 time, f32 alpha) {
   for (ActorId id : order_) {
     const Actor* a = level_.find(id);
     if (!a) continue;
     const auto parent = world_.find(a->parent);
     const Mat4 parent_m = a->parent && parent != world_.end() ? parent->second : Mat4{};
+    if (mode_ == SimMode::replica) {
+      if (auto r = replica_poses_.find(id); r != replica_poses_.end()) {
+        const auto b = body_of_actor_.find(id);
+        world_[id] = Mat4::trs(r->second.first, r->second.second, b != body_of_actor_.end() ? b->second->scale : placement_of(level_.world_matrix(id)).scale);
+        continue;
+      }
+    }
     if (auto b = body_of_actor_.find(id); b != body_of_actor_.end() && b->second->body.valid()) {
-      const physics::Pose p = physics_.pose(b->second->body);
+      physics::Pose p = physics_.pose(b->second->body);
+      if (alpha < 1 && b->second->has_prev) {
+        // Fix Your Timestep: draw between the last two physics states, so motion is smooth at any frame rate.
+        const physics::Pose& q = b->second->prev;
+        p.position = q.position + (p.position - q.position) * alpha;
+        Quat r = p.rotation;
+        if (q.rotation.x * r.x + q.rotation.y * r.y + q.rotation.z * r.z + q.rotation.w * r.w < 0) r = Quat{-r.x, -r.y, -r.z, -r.w};
+        p.rotation = quat_normalize(Quat{q.rotation.x + (r.x - q.rotation.x) * alpha, q.rotation.y + (r.y - q.rotation.y) * alpha,
+                                         q.rotation.z + (r.z - q.rotation.z) * alpha, q.rotation.w + (r.w - q.rotation.w) * alpha});
+      }
       Mat4 m = Mat4::trs(p.position, p.rotation, b->second->scale);
-      if (id == player_ && a->controller && (a->controller->mode == ControlMode::hovercar)) {
+      const Pawn* pawn = a->controller && a->controller->mode == ControlMode::hovercar ? pawn_of(id) : nullptr;
+      if (pawn && mode_ != SimMode::replica) {
         // Hover bob and lean (visual only).
         const f32 bob = 0.07f * std::sin(sim_time_ * 3.1f);
-        const Quat lean = Quat::axis_angle({1, 0, 0}, -steer_vis_ * 0.18f) * Quat::axis_angle({0, 1, 0}, -pitch_vis_);
+        const Quat lean = Quat::axis_angle({1, 0, 0}, -pawn->steer_vis * 0.18f) * Quat::axis_angle({0, 1, 0}, -pawn->pitch_vis);
         m = Mat4::trs(p.position + Vec3{0, 0, bob}, quat_normalize(p.rotation * lean), b->second->scale);
       }
       world_[id] = m;
@@ -900,7 +946,222 @@ void GameWorld::present(f64 now_ms, Vec3 eye) {
 // ---------------------------------------------------------------------------
 // simulation
 
+void GameWorld::create_joints(const Actor& a) {
+  for (const JointComponent& j : a.joints) {
+    auto ab = body_of_actor_.find(a.id);
+    if (ab == body_of_actor_.end()) { events_.push_back("Joint on \"" + a.name + "\" ignored: the actor has no body"); continue; }
+    physics::Body bb;
+    const Mat4 aw = level_.world_matrix(a.id);
+    const Vec3 anchor = aw.transform_point(j.anchor);
+    const Vec3 axis = normalize(matrix_rotation(aw).rotate(j.axis));
+    if (j.target) {
+      // The target's body: its own, an ancestor's, or its implicit static body.
+      ActorId owner = level_.body_owner(j.target);
+      if (!owner || !body_of_actor_.count(owner)) owner = j.target;
+      auto tb = body_of_actor_.find(owner);
+      if (tb == body_of_actor_.end()) { events_.push_back("Joint on \"" + a.name + "\" ignored: the target has no body"); continue; }
+      bb = tb->second->body;
+    } else {
+      // Anchor to the world: a static body at the anchor.
+      auto sb = std::make_unique<SimBody>();
+      physics::BodySettings bs;
+      bs.type = physics::BodyType::fixed;
+      bs.position = anchor;
+      sb->body = physics_.create_body(bs);
+      sb->plan.owner = 0;
+      bb = sb->body;
+      bodies_.push_back(std::move(sb));
+    }
+    // Box3D measures B relative to A. The actor moves relative to its target, so
+    // the target is body A (positive slider travel / hinge angle / motor speed move
+    // the actor); wheel joints keep Box3D's order (A = chassis = the actor, B = wheel).
+    physics::Body ba = ab->second->body;
+    if (j.kind != JointKind::wheel) std::swap(ba, bb);
+    physics::JointSettings js;
+    js.body_a = ba;
+    js.body_b = bb;
+    js.collide_connected = j.collide_connected;
+    const bool x_axis = j.kind == JointKind::slider;
+    physics::Pose world_frame = physics::frame_from_axis(anchor, axis, x_axis);
+    if (j.kind == JointKind::wheel) {
+      // Box3D wheel: spins about frame Z (the joint axis), suspension along frame X
+      // (the chassis' up direction, made orthogonal to the spin axis).
+      Vec3 up = matrix_rotation(aw).rotate({0, 0, 1});
+      up = normalize(up - axis * dot(up, axis), {0, 0, 1});
+      const Vec3 y = cross(axis, up);
+      const Mat4 basis = [&] {
+        Mat4 m;
+        m.m[0] = up.x; m.m[1] = up.y; m.m[2] = up.z;
+        m.m[4] = y.x; m.m[5] = y.y; m.m[6] = y.z;
+        m.m[8] = axis.x; m.m[9] = axis.y; m.m[10] = axis.z;
+        return m;
+      }();
+      world_frame.rotation = matrix_rotation(basis);
+    }
+    auto local_frame = [&](physics::Body b) {
+      const physics::Pose p = physics_.pose(b);
+      const Quat inv{-p.rotation.x, -p.rotation.y, -p.rotation.z, p.rotation.w};
+      return physics::Pose{inv.rotate(world_frame.position - p.position), quat_normalize(inv * world_frame.rotation)};
+    };
+    js.frame_a = local_frame(ba);
+    js.frame_b = local_frame(bb);
+    js.enable_spring = j.enable_spring;
+    // Spring stiffness stays below half the step rate (Box3D "Distance Joint": stiffer springs go unstable).
+    const f32 max_hertz = 0.5f * clamp(level_.world.step_hz, 15.0f, 480.0f) * static_cast<f32>(clamp(level_.world.substeps, 1, 16));
+    js.hertz = min_of(j.spring_hertz, max_hertz);
+    js.damping_ratio = j.spring_damping;
+    js.enable_limit = j.enable_limit;
+    js.enable_motor = j.enable_motor;
+    switch (j.kind) {
+      case JointKind::hinge:
+        js.type = physics::JointType::revolute;
+        js.lower = j.lower * kDeg;
+        js.upper = j.upper * kDeg;
+        js.motor_speed = j.motor_speed * kDeg;
+        js.max_motor_torque = j.max_motor_force;
+        break;
+      case JointKind::slider:
+        js.type = physics::JointType::prismatic;
+        js.lower = j.lower;
+        js.upper = j.upper;
+        js.motor_speed = j.motor_speed;
+        js.max_motor_force = j.max_motor_force;
+        break;
+      case JointKind::ball:
+        js.type = physics::JointType::spherical;
+        js.upper = j.upper * kDeg;
+        js.max_motor_torque = j.enable_motor ? j.max_motor_force : 0;
+        js.motor_velocity = axis * (j.motor_speed * kDeg);
+        break;
+      case JointKind::fixed:
+        js.type = physics::JointType::weld;
+        if (j.enable_spring) { js.linear_hertz = js.angular_hertz = min_of(j.spring_hertz, max_hertz); js.linear_damping_ratio = js.angular_damping_ratio = j.spring_damping; }
+        break;
+      case JointKind::distance: {
+        js.type = physics::JointType::distance;
+        // Body A (the target) holds the rope at its origin (or at the world anchor),
+        // body B (the actor) at the actor's anchor.
+        const physics::Pose pa = physics_.pose(ba);
+        const Vec3 target_anchor = j.target ? level_.world_matrix(j.target).translation() : anchor;
+        const Quat inva{-pa.rotation.x, -pa.rotation.y, -pa.rotation.z, pa.rotation.w};
+        js.frame_a = {inva.rotate(target_anchor - pa.position), {}};
+        js.frame_b = {js.frame_b.position, {}};
+        js.length = j.length > 0 ? j.length : max_of(0.01f, distance(anchor, target_anchor));
+        js.lower = j.lower;
+        js.upper = j.upper;
+        js.motor_speed = j.motor_speed;
+        js.max_motor_force = j.max_motor_force;
+        break;
+      }
+      case JointKind::wheel:
+        js.type = physics::JointType::wheel;
+        js.lower = j.lower;
+        js.upper = j.upper;
+        js.motor_speed = j.motor_speed * kDeg;
+        js.max_motor_torque = j.max_motor_force;
+        break;
+      case JointKind::motor:
+        js.type = physics::JointType::motor;
+        js.linear_hertz = j.enable_spring ? min_of(j.spring_hertz, max_hertz) : 4;
+        js.angular_hertz = js.linear_hertz;
+        js.linear_damping_ratio = js.angular_damping_ratio = j.enable_spring ? j.spring_damping : 1;
+        js.max_spring_force = j.max_motor_force;
+        js.max_spring_torque = j.max_motor_force;
+        js.angular_velocity = axis * (j.enable_motor ? j.motor_speed * kDeg : 0.0f);
+        js.max_velocity_torque = j.enable_motor ? j.max_motor_force : 0;
+        break;
+      case JointKind::parallel:
+        js.type = physics::JointType::parallel;
+        js.hertz = j.enable_spring ? min_of(j.spring_hertz, max_hertz) : 8;
+        js.damping_ratio = j.enable_spring ? j.spring_damping : 1;
+        js.max_torque = j.max_motor_force;
+        break;
+      case JointKind::no_collision:
+        js.type = physics::JointType::filter;
+        break;
+    }
+    auto sj = std::make_unique<SimJoint>();
+    sj->actor = a.id;
+    sj->target = j.target;
+    sj->kind = j.kind;
+    sj->index = static_cast<std::size_t>(&j - a.joints.data());
+    sj->a = ba;
+    sj->b = bb;
+    sj->frame_a = js.frame_a;
+    sj->frame_b = js.frame_b;
+    sj->joint = physics_.create_joint(js);
+    if (!sj->joint.valid()) { events_.push_back("Joint on \"" + a.name + "\" rejected: " + last_error()); continue; }
+    physics_.set_joint_thresholds(sj->joint, j.break_force, j.break_torque);
+    joints_.push_back(std::move(sj));
+  }
+}
+
+physics::Body GameWorld::create_body(const BodyPlan& plan) {
+  physics::BodySettings bs;
+  bs.type = plan.motion == Motion::dynamic ? physics::BodyType::dynamic : plan.motion == Motion::kinematic ? physics::BodyType::kinematic : physics::BodyType::fixed;
+  bs.position = plan.position;
+  bs.rotation = plan.rotation;
+  const Actor* owner = level_.find(plan.owner);
+  const bool player = owner && owner->controller;
+  if (owner && owner->body && !plan.implicit) {
+    const BodyComponent& b = *owner->body;
+    bs.linear_damping = b.linear_damping;
+    bs.angular_damping = b.angular_damping;
+    bs.gravity_scale = b.gravity_scale;
+    bs.bullet = b.bullet;
+    bs.awake = b.start_awake;
+    bs.enable_sleep = b.allow_sleep;
+    bs.linear_velocity = b.linear_velocity;
+    bs.angular_velocity = b.angular_velocity * kDeg;
+  }
+  // Fast player vehicles are bullets: continuous collision against other dynamic bodies too (Box3D "Bullets").
+  if (player && (owner->controller->mode == ControlMode::hovercar || owner->controller->mode == ControlMode::vehicle)) bs.bullet = true;
+  if (player) bs.enable_sleep = false;
+  bs.user = plan.owner;
+  const physics::Body body = physics_.create_body(bs);
+  if (!body.valid()) return body;
+  // Events cost: Box3D reports contact / sensor / hit events when a shape asks for them,
+  // so only the shapes whose events the game reads enable them ("Sensor Events", "Hit Events").
+  const bool impact_sound = owner && owner->body && !owner->body->impact_sound.empty() && owner->body->impact_sound != "none";
+  for (const ShapePlan& sp : plan.shapes) {
+    physics::ShapeSettings ss;
+    ss.kind = sp.kind;
+    ss.center = sp.center;
+    ss.rotation = sp.rotation;
+    ss.size = sp.size;
+    ss.radius = sp.radius;
+    ss.length = sp.length;
+    ss.points = Span<const Vec3>(sp.points.data(), sp.points.size());
+    ss.indices = Span<const u32>(sp.indices.data(), sp.indices.size());
+    ss.material.density = max_of(0.001f, sp.source.density);
+    ss.material.friction = sp.source.friction;
+    ss.material.restitution = sp.source.restitution;
+    ss.material.rolling_resistance = sp.source.rolling_resistance;
+    ss.material.sensor = sp.source.sensor;
+    ss.material.category_bits = sp.source.category;
+    ss.material.mask_bits = sp.source.mask;
+    ss.material.group_index = sp.source.group;
+    ss.material.sensor_events = sp.source.sensor || player;
+    ss.material.contact_events = player;
+    ss.material.hit_events = plan.motion == Motion::dynamic && (player || impact_sound);
+    ss.material.user = sp.actor;
+    if (!physics_.create_shape(body, ss).valid()) {
+      const std::string why = last_error();
+      events_.push_back("Collider of \"" + (level_.find(sp.actor) ? level_.find(sp.actor)->name : std::string("?")) + "\" skipped: " + why);
+    }
+  }
+  if (owner) {
+    if (owner->body && owner->body->mass > 0 && plan.motion == Motion::dynamic) physics_.set_mass(body, owner->body->mass);
+    physics::MotionLocks locks;
+    if (owner->body) for (int i = 0; i < 3; ++i) { locks.linear[i] = owner->body->lock_linear[i]; locks.angular[i] = owner->body->lock_angular[i]; }
+    if (owner->controller && owner->controller->mode != ControlMode::rolling) locks.angular[0] = locks.angular[1] = true;  // vehicles, characters and flyers stay upright
+    physics_.set_motion_locks(body, locks);
+  }
+  return body;
+}
+
 bool GameWorld::start(const Level& level, SimMode mode) {
+  ++session_;
   if (mode == SimMode::none) return fail("choose Simulate or Play");
   if (running()) stop();
   for (const Issue& i : validate(level))
@@ -944,58 +1205,9 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   // Bodies.
   for (BodyPlan& plan : plan_bodies(level_)) {
     auto sb = std::make_unique<SimBody>();
-    physics::BodySettings bs;
-    bs.type = plan.motion == Motion::dynamic ? physics::BodyType::dynamic : plan.motion == Motion::kinematic ? physics::BodyType::kinematic : physics::BodyType::fixed;
-    bs.position = plan.position;
-    bs.rotation = plan.rotation;
-    const Actor* owner = level_.find(plan.owner);
-    if (owner && owner->body && !plan.implicit) {
-      const BodyComponent& b = *owner->body;
-      bs.linear_damping = b.linear_damping;
-      bs.angular_damping = b.angular_damping;
-      bs.gravity_scale = b.gravity_scale;
-      bs.bullet = b.bullet;
-      bs.awake = b.start_awake;
-      bs.enable_sleep = b.allow_sleep;
-      bs.linear_velocity = b.linear_velocity;
-      bs.angular_velocity = b.angular_velocity * kDeg;
-    }
-    bs.user = plan.owner;
-    sb->body = physics_.create_body(bs);
+    sb->body = create_body(plan);
     if (!sb->body.valid()) { stop(); return false; }
-    for (const ShapePlan& s : plan.shapes) {
-      physics::ShapeSettings ss;
-      ss.kind = s.kind;
-      ss.center = s.center;
-      ss.rotation = s.rotation;
-      ss.size = s.size;
-      ss.radius = s.radius;
-      ss.length = s.length;
-      ss.points = Span<const Vec3>(s.points.data(), s.points.size());
-      ss.material.density = max_of(0.001f, s.source.density);
-      ss.material.friction = s.source.friction;
-      ss.material.restitution = s.source.restitution;
-      ss.material.rolling_resistance = s.source.rolling_resistance;
-      ss.material.sensor = s.source.sensor;
-      ss.material.category_bits = s.source.category;
-      ss.material.mask_bits = s.source.mask;
-      ss.material.group_index = s.source.group;
-      ss.material.hit_events = plan.motion == Motion::dynamic;
-      ss.material.user = s.actor;
-      if (!physics_.create_shape(sb->body, ss).valid()) {
-        const std::string why = last_error();
-        events_.push_back("Collider of \"" + (level_.find(s.actor) ? level_.find(s.actor)->name : std::string("?")) + "\" skipped: " + why);
-      }
-    }
-    if (owner) {
-      if (owner->body && owner->body->mass > 0 && plan.motion == Motion::dynamic) physics_.set_mass(sb->body, owner->body->mass);
-      physics::MotionLocks locks;
-      if (owner->body) for (int i = 0; i < 3; ++i) { locks.linear[i] = owner->body->lock_linear[i]; locks.angular[i] = owner->body->lock_angular[i]; }
-      if (owner->controller && owner->controller->mode != ControlMode::rolling && owner->controller->mode != ControlMode::flyer) {
-        locks.angular[0] = locks.angular[1] = true;  // vehicles and characters stay upright
-      }
-      if (owner->controller && owner->controller->mode == ControlMode::flyer) locks.angular[0] = locks.angular[1] = true;
-      physics_.set_motion_locks(sb->body, locks);
+    if (const Actor* owner = level_.find(plan.owner)) {
       sb->scale = placement_of(level_.world_matrix(owner->id)).scale;
       sb->animated = plan.motion == Motion::kinematic && (owner->rotator || owner->mover);
       if (!sb->animated && plan.motion == Motion::kinematic) {
@@ -1009,152 +1221,7 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   }
 
   // Joints.
-  for (const Actor& a : level_.actors) {
-    for (const JointComponent& j : a.joints) {
-      auto ab = body_of_actor_.find(a.id);
-      if (ab == body_of_actor_.end()) { events_.push_back("Joint on \"" + a.name + "\" ignored: the actor has no body"); continue; }
-      physics::Body bb;
-      const Mat4 aw = level_.world_matrix(a.id);
-      const Vec3 anchor = aw.transform_point(j.anchor);
-      const Vec3 axis = normalize(matrix_rotation(aw).rotate(j.axis));
-      if (j.target) {
-        // The target's body: its own, an ancestor's, or its implicit static body.
-        ActorId owner = level_.body_owner(j.target);
-        if (!owner || !body_of_actor_.count(owner)) owner = j.target;
-        auto tb = body_of_actor_.find(owner);
-        if (tb == body_of_actor_.end()) { events_.push_back("Joint on \"" + a.name + "\" ignored: the target has no body"); continue; }
-        bb = tb->second->body;
-      } else {
-        // Anchor to the world: a static body at the anchor.
-        auto sb = std::make_unique<SimBody>();
-        physics::BodySettings bs;
-        bs.type = physics::BodyType::fixed;
-        bs.position = anchor;
-        sb->body = physics_.create_body(bs);
-        sb->plan.owner = 0;
-        bb = sb->body;
-        bodies_.push_back(std::move(sb));
-      }
-      // Box3D measures B relative to A. The actor moves relative to its target, so
-      // the target is body A (positive slider travel / hinge angle / motor speed move
-      // the actor); wheel joints keep Box3D's order (A = chassis = the actor, B = wheel).
-      physics::Body ba = ab->second->body;
-      if (j.kind != JointKind::wheel) std::swap(ba, bb);
-      physics::JointSettings js;
-      js.body_a = ba;
-      js.body_b = bb;
-      js.collide_connected = j.collide_connected;
-      const bool x_axis = j.kind == JointKind::slider;
-      physics::Pose world_frame = physics::frame_from_axis(anchor, axis, x_axis);
-      if (j.kind == JointKind::wheel) {
-        // Box3D wheel: spins about frame Z (the joint axis), suspension along frame X
-        // (the chassis' up direction, made orthogonal to the spin axis).
-        Vec3 up = matrix_rotation(aw).rotate({0, 0, 1});
-        up = normalize(up - axis * dot(up, axis), {0, 0, 1});
-        const Vec3 y = cross(axis, up);
-        const Mat4 basis = [&] {
-          Mat4 m;
-          m.m[0] = up.x; m.m[1] = up.y; m.m[2] = up.z;
-          m.m[4] = y.x; m.m[5] = y.y; m.m[6] = y.z;
-          m.m[8] = axis.x; m.m[9] = axis.y; m.m[10] = axis.z;
-          return m;
-        }();
-        world_frame.rotation = matrix_rotation(basis);
-      }
-      auto local_frame = [&](physics::Body b) {
-        const physics::Pose p = physics_.pose(b);
-        const Quat inv{-p.rotation.x, -p.rotation.y, -p.rotation.z, p.rotation.w};
-        return physics::Pose{inv.rotate(world_frame.position - p.position), quat_normalize(inv * world_frame.rotation)};
-      };
-      js.frame_a = local_frame(ba);
-      js.frame_b = local_frame(bb);
-      js.enable_spring = j.enable_spring;
-      js.hertz = j.spring_hertz;
-      js.damping_ratio = j.spring_damping;
-      js.enable_limit = j.enable_limit;
-      js.enable_motor = j.enable_motor;
-      switch (j.kind) {
-        case JointKind::hinge:
-          js.type = physics::JointType::revolute;
-          js.lower = j.lower * kDeg;
-          js.upper = j.upper * kDeg;
-          js.motor_speed = j.motor_speed * kDeg;
-          js.max_motor_torque = j.max_motor_force;
-          break;
-        case JointKind::slider:
-          js.type = physics::JointType::prismatic;
-          js.lower = j.lower;
-          js.upper = j.upper;
-          js.motor_speed = j.motor_speed;
-          js.max_motor_force = j.max_motor_force;
-          break;
-        case JointKind::ball:
-          js.type = physics::JointType::spherical;
-          js.upper = j.upper * kDeg;
-          js.max_motor_torque = j.enable_motor ? j.max_motor_force : 0;
-          js.motor_velocity = axis * (j.motor_speed * kDeg);
-          break;
-        case JointKind::fixed:
-          js.type = physics::JointType::weld;
-          if (j.enable_spring) { js.linear_hertz = js.angular_hertz = j.spring_hertz; js.linear_damping_ratio = js.angular_damping_ratio = j.spring_damping; }
-          break;
-        case JointKind::distance: {
-          js.type = physics::JointType::distance;
-          // Body A (the target) holds the rope at its origin (or at the world anchor),
-          // body B (the actor) at the actor's anchor.
-          const physics::Pose pa = physics_.pose(ba);
-          const Vec3 target_anchor = j.target ? level_.world_matrix(j.target).translation() : anchor;
-          const Quat inva{-pa.rotation.x, -pa.rotation.y, -pa.rotation.z, pa.rotation.w};
-          js.frame_a = {inva.rotate(target_anchor - pa.position), {}};
-          js.frame_b = {js.frame_b.position, {}};
-          js.length = j.length > 0 ? j.length : max_of(0.01f, distance(anchor, target_anchor));
-          js.lower = j.lower;
-          js.upper = j.upper;
-          js.motor_speed = j.motor_speed;
-          js.max_motor_force = j.max_motor_force;
-          break;
-        }
-        case JointKind::wheel:
-          js.type = physics::JointType::wheel;
-          js.lower = j.lower;
-          js.upper = j.upper;
-          js.motor_speed = j.motor_speed * kDeg;
-          js.max_motor_torque = j.max_motor_force;
-          break;
-        case JointKind::motor:
-          js.type = physics::JointType::motor;
-          js.linear_hertz = j.enable_spring ? j.spring_hertz : 4;
-          js.angular_hertz = js.linear_hertz;
-          js.linear_damping_ratio = js.angular_damping_ratio = j.enable_spring ? j.spring_damping : 1;
-          js.max_spring_force = j.max_motor_force;
-          js.max_spring_torque = j.max_motor_force;
-          js.angular_velocity = axis * (j.enable_motor ? j.motor_speed * kDeg : 0.0f);
-          js.max_velocity_torque = j.enable_motor ? j.max_motor_force : 0;
-          break;
-        case JointKind::parallel:
-          js.type = physics::JointType::parallel;
-          js.hertz = j.enable_spring ? j.spring_hertz : 8;
-          js.damping_ratio = j.enable_spring ? j.spring_damping : 1;
-          js.max_torque = j.max_motor_force;
-          break;
-        case JointKind::no_collision:
-          js.type = physics::JointType::filter;
-          break;
-      }
-      auto sj = std::make_unique<SimJoint>();
-      sj->actor = a.id;
-      sj->target = j.target;
-      sj->kind = j.kind;
-      sj->a = ba;
-      sj->b = bb;
-      sj->frame_a = js.frame_a;
-      sj->frame_b = js.frame_b;
-      sj->joint = physics_.create_joint(js);
-      if (!sj->joint.valid()) { events_.push_back("Joint on \"" + a.name + "\" rejected: " + last_error()); continue; }
-      physics_.set_joint_thresholds(sj->joint, j.break_force, j.break_torque);
-      joints_.push_back(std::move(sj));
-    }
-  }
+  for (const Actor& a : level_.actors) create_joints(a);
 
   // City traffic: kinematic cars on the lanes.
   for (const Actor& a : level_.actors) {
@@ -1187,20 +1254,32 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   player_ = 0;
   if (mode == SimMode::play)
     for (const Actor& a : level_.actors)
-      if (a.controller && a.body && a.body->motion == Motion::dynamic && body_of_actor_.count(a.id)) { player_ = a.id; break; }
+      if (a.controller && a.body && a.body->motion == Motion::dynamic && body_of_actor_.count(a.id) && body_of_actor_[a.id]->body.valid()) { player_ = a.id; break; }
+  pawns_.clear();
+  idle_pawn_ = Pawn{};
+  pw_ = &idle_pawn_;
+  local_ = nullptr;
+  alive_changes_.clear();
+  replica_poses_.clear();
   if (player_) {
+    auto pawn = std::make_unique<Pawn>();
+    pawn->actor = pawn->source = player_;
+    pawn->actors.push_back(player_);
     const physics::Pose p = physics_.pose(body_of_actor_[player_]->body);
-    spawn_position_ = p.position;
-    spawn_rotation_ = p.rotation;
-    camera_yaw_ = yaw_of(p.rotation) / kDeg;
+    pawn->spawn_position = p.position;
+    pawn->spawn_rotation = p.rotation;
+    pawn->yaw = yaw_of(p.rotation) / kDeg;
+    camera_yaw_ = pawn->yaw;
+    local_ = pw_ = pawn.get();
+    pawns_.push_back(std::move(pawn));
+    possess_character(true);
   }
   camera_reset_ = true;
   camera_pitch_ = 18;
   camera_zoom_ = 1;
-  boost_ = 1;
   shake_ = 0;
-  steer_vis_ = pitch_vis_ = 0;
-  jump_latch_ = false;
+  last_impact_.clear();
+  cues_.clear();
 
   // Rules.
   const f32 best = hud_.best;
@@ -1230,9 +1309,16 @@ void GameWorld::stop() {
   physics_.destroy();
   mode_ = SimMode::none;
   player_ = 0;
+  pawns_.clear();
+  idle_pawn_ = Pawn{};
+  pw_ = &idle_pawn_;
+  local_ = nullptr;
+  replica_poses_.clear();
+  alive_changes_.clear();
   paused_ = false;
   if (particles_ready_) particles_.clear();
   hud_.status = GameStatus::inactive;
+  cues_.clear();
   sync(edit_level_);
 }
 
@@ -1241,11 +1327,32 @@ bool GameWorld::set_mode(SimMode mode) {
   if (mode == mode_) return true;
   if (mode == SimMode::play) {
     for (const Actor& a : level_.actors)
-      if (a.controller && body_of_actor_.count(a.id) && physics_.body_type(body_of_actor_[a.id]->body) == physics::BodyType::dynamic) { player_ = a.id; break; }
+      if (a.controller && body_of_actor_.count(a.id) && body_of_actor_[a.id]->body.valid() && physics_.body_type(body_of_actor_[a.id]->body) != physics::BodyType::fixed) { player_ = a.id; break; }
     if (!player_) return fail("no actor with a player controller to possess");
     hud_.status = GameStatus::playing;
     camera_reset_ = true;
+    mode_ = mode;
+    if (!local_ || local_->actor != player_) {
+      // Possess a pawn for the player (the same state survives eject / possess).
+      Pawn* existing = pawn_of(player_);
+      if (!existing) {
+        auto pawn = std::make_unique<Pawn>();
+        pawn->actor = pawn->source = player_;
+        pawn->actors.push_back(player_);
+        const physics::Pose p = physics_.pose(body_of_actor_[player_]->body);
+        pawn->spawn_position = p.position;
+        pawn->spawn_rotation = p.rotation;
+        existing = pawn.get();
+        pawns_.push_back(std::move(pawn));
+      }
+      local_ = existing;
+    }
+    pw_ = local_;
+    pw_->yaw = camera_yaw_;
+    possess_character(true);
   } else {
+    if (local_) { pw_ = local_; possess_character(false); }
+    pw_ = &idle_pawn_;
     player_ = 0;
   }
   mode_ = mode;
@@ -1267,6 +1374,8 @@ void GameWorld::step(f32 dt, const PlayInput& input) {
   accumulator_ += clamp(dt, 0.0f, 0.1f);
   u32 steps = 0;
   while (accumulator_ >= h && steps < 8) {
+    for (auto& b : bodies_)
+      if (b->body.valid() && b->plan.motion != Motion::fixed) { b->prev = physics_.pose(b->body); b->has_prev = true; }
     fixed_step(input, static_cast<f32>(h));
     accumulator_ -= h;
     ++steps;
@@ -1276,7 +1385,8 @@ void GameWorld::step(f32 dt, const PlayInput& input) {
     time_of_day_ += dt / level_.world.day_length;
     time_of_day_ -= std::floor(time_of_day_);
   }
-  compute_world_matrices(sim_time_);
+  const f32 alpha = static_cast<f32>(clamp(accumulator_ / h, 0.0, 1.0));
+  compute_world_matrices(sim_time_ - (1 - alpha) * static_cast<f32>(h), alpha);
 }
 
 void GameWorld::step_once(const PlayInput& input) {
@@ -1286,7 +1396,16 @@ void GameWorld::step_once(const PlayInput& input) {
 }
 
 void GameWorld::fixed_step(const PlayInput& input, f32 h) {
-  if (player_ && hud_.status == GameStatus::playing) drive_player(input, h);
+  if (hud_.status == GameStatus::playing)
+    for (auto& pawn : pawns_) {
+      if (mode_ == SimMode::simulate && pawn.get() == local_) continue;  // ejected: the local pawn rests
+      pw_ = pawn.get();
+      PlayInput in = pawn.get() == local_ ? input : pawn->input;
+      if (pawn.get() == local_) pawn->yaw = camera_yaw_;
+      else if (in.has_view_yaw) pawn->yaw = in.view_yaw;
+      drive_player(in, h);
+    }
+  pw_ = local_ ? local_ : &idle_pawn_;
   // Kinematic animation targets.
   compute_world_matrices(sim_time_ + h);
   for (const auto& b : bodies_) {
@@ -1326,11 +1445,15 @@ void GameWorld::fixed_step(const PlayInput& input, f32 h) {
         else finish(GameStatus::lost, "Time is up");
       }
     }
-    if (player_) {
-      const physics::Body pb = body_of_actor_[player_]->body;
+    for (auto& pawn : pawns_) {
+      auto b = body_of_actor_.find(pawn->actor);
+      if (b == body_of_actor_.end() || !b->second->body.valid()) continue;
+      const physics::Body pb = b->second->body;
+      pw_ = pawn.get();
       if (physics_.pose(pb).position.z < w.kill_z) respawn_player();
-      hud_.speed = length(physics_.linear_velocity(pb));
+      if (pawn.get() == local_ && player_) hud_.speed = length(physics_.linear_velocity(pb));
     }
+    pw_ = local_ ? local_ : &idle_pawn_;
     if (w.goal == GameGoal::score && w.score_target > 0 && hud_.score >= w.score_target) finish(GameStatus::won, "Target score reached!");
   } else {
     hud_.message_age += h;
@@ -1338,13 +1461,79 @@ void GameWorld::fixed_step(const PlayInput& input, f32 h) {
 }
 
 bool GameWorld::grounded(physics::Body body, f32 reach) const {
+  // A sphere sweep (not a single ray) so ledges and gaps under the centre still count.
   const physics::Pose p = physics_.pose(body);
-  return physics_.cast_ray(p.position, Vec3{0, 0, -reach}, ~0ull, body).hit;
+  const f32 r = clamp(reach * 0.4f, 0.05f, 0.5f);
+  const physics::RayHit hit = physics_.cast_sphere(p.position, r, Vec3{0, 0, -(reach - r)}, ~0ull, body);
+  return hit.hit && hit.normal.z > 0.5f;
+}
+
+void GameWorld::possess_character(bool on) {
+  auto it = body_of_actor_.find(pw_->actor);
+  const Actor* a = pw_->actor ? level_.find(pw_->actor) : nullptr;
+  if (!a || !a->controller || it == body_of_actor_.end() || !it->second->body.valid()) { pw_->use_mover = false; return; }
+  const physics::Body body = it->second->body;
+  if (a->controller->mode != ControlMode::character) { pw_->use_mover = false; return; }
+  if (!on) {
+    if (pw_->use_mover) {
+      physics_.set_body_type(body, physics::BodyType::dynamic);
+      physics_.set_linear_velocity(body, pw_->mover.velocity());
+      physics_.set_awake(body, true);
+    }
+    pw_->use_mover = false;
+    return;
+  }
+  // Size of the capsule from the body's shapes: feet at the lowest point, head at the highest.
+  f32 bottom = 0, top = 0, radius = 0.4f;
+  bool any = false;
+  for (const ShapePlan& sp : it->second->plan.shapes) {
+    if (sp.source.sensor) continue;
+    f32 lo = sp.center.z, hi = sp.center.z, r = 0.4f;
+    switch (sp.kind) {
+      case physics::ShapeKind::box: lo -= sp.size.z * 0.5f; hi += sp.size.z * 0.5f; r = min_of(sp.size.x, sp.size.y) * 0.5f; break;
+      case physics::ShapeKind::sphere: lo -= sp.radius; hi += sp.radius; r = sp.radius; break;
+      case physics::ShapeKind::capsule: lo -= sp.radius + sp.length * 0.5f; hi += sp.radius + sp.length * 0.5f; r = sp.radius; break;
+      case physics::ShapeKind::mesh:
+      case physics::ShapeKind::hull: {
+        f32 mx = 0;
+        for (const Vec3& p : sp.points) { lo = min_of(lo, p.z); hi = max_of(hi, p.z); mx = max_of(mx, std::sqrt(p.x * p.x + p.y * p.y)); }
+        r = mx;
+        break;
+      }
+    }
+    bottom = any ? min_of(bottom, lo) : lo;
+    top = any ? max_of(top, hi) : hi;
+    radius = any ? max_of(radius, r) : r;
+    any = true;
+  }
+  if (!any) { pw_->use_mover = false; return; }
+  const ControllerComponent& c = *a->controller;
+  physics::CharacterMover::Settings ms;
+  ms.height = max_of(0.4f, top - bottom);
+  ms.radius = clamp(radius, 0.1f, ms.height * 0.45f);
+  ms.step_height = clamp(ms.height * 0.22f, 0.05f, max_of(0.05f, ms.height - 2 * ms.radius - 0.02f));
+  ms.max_speed = max_of(0.1f, c.max_speed);
+  ms.sprint = c.boost ? max_of(1.0f, c.boost_speed / ms.max_speed) : 1.0f;
+  ms.jump_speed = c.jump_speed;
+  // Quake-style ground movement: terminal speed = accelerate * max_speed / friction, above max_speed.
+  ms.friction = 6;
+  ms.stop_speed = 1.5f;
+  ms.accelerate = clamp(c.acceleration / ms.max_speed * 2.0f, 8.0f, 30.0f);
+  const f32 g = length(physics_.gravity()) * (a->body ? a->body->gravity_scale : 1.0f);
+  ms.gravity = max_of(0.0f, g * 1.5f);
+  pw_->mover.settings = ms;
+  pw_->mover_lift = -bottom;
+  const physics::Pose pose = physics_.pose(body);
+  physics_.set_body_type(body, physics::BodyType::kinematic);
+  physics_.set_linear_velocity(body, {});
+  physics_.set_angular_velocity(body, {});
+  pw_->mover.reset(pose.position - Vec3{0, 0, pw_->mover_lift});
+  pw_->use_mover = true;
 }
 
 void GameWorld::drive_player(const PlayInput& in, f32 dt) {
-  const Actor* a = level_.find(player_);
-  auto it = body_of_actor_.find(player_);
+  const Actor* a = level_.find(pw_->actor);
+  auto it = body_of_actor_.find(pw_->actor);
   if (!a || !a->controller || it == body_of_actor_.end()) return;
   const ControllerComponent& c = *a->controller;
   const physics::Body body = it->second->body;
@@ -1352,8 +1541,8 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
   const f32 m = max_of(0.001f, physics_.mass(body));
   const Vec3 v = physics_.linear_velocity(body);
   const Vec3 g = physics_.gravity() * (a->body ? a->body->gravity_scale : 1.0f);
-  const bool jump_pressed = in.jump && !jump_latch_;
-  jump_latch_ = in.jump;
+  const bool jump_pressed = in.jump && !pw_->jump_latch;
+  pw_->jump_latch = in.jump;
   // Reach of the body below its origin (for ground probes).
   f32 reach = 0.5f;
   for (const ShapePlan& s : it->second->plan.shapes) {
@@ -1362,18 +1551,29 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
       case physics::ShapeKind::box: reach = max_of(reach, -s.center.z + s.size.z * 0.5f); break;
       case physics::ShapeKind::sphere: reach = max_of(reach, -s.center.z + s.radius); break;
       case physics::ShapeKind::capsule: reach = max_of(reach, -s.center.z + s.radius + s.length * 0.5f); break;
+      case physics::ShapeKind::mesh:
       case physics::ShapeKind::hull: for (const Vec3& p : s.points) reach = max_of(reach, -p.z); break;
     }
   }
   const f32 turn = c.turn_rate * kDeg;
   // Camera-relative directions (rolling, character, flyer).
-  const Vec3 cam_fwd{std::cos(camera_yaw_ * kDeg), std::sin(camera_yaw_ * kDeg), 0};
+  const Vec3 cam_fwd{std::cos(pw_->yaw * kDeg), std::sin(pw_->yaw * kDeg), 0};
   const Vec3 cam_right{cam_fwd.y, -cam_fwd.x, 0};
   Vec3 move = cam_right * clamp(in.move_x, -1.0f, 1.0f) + cam_fwd * clamp(in.move_y, -1.0f, 1.0f);
   if (length(move) > 1) move = normalize(move);
-  bool boosting = c.boost && in.boost && boost_ > 0.02f;
-  boost_ = c.boost ? clamp(boost_ + (boosting ? -0.45f : 0.12f) * dt, 0.0f, 1.0f) : 0.0f;
-  if (c.boost) hud_.boost = boost_;
+  bool boosting = c.boost && in.boost && pw_->boost > 0.02f;
+  pw_->boost = c.boost ? clamp(pw_->boost + (boosting ? -0.45f : 0.12f) * dt, 0.0f, 1.0f) : 0.0f;
+  if (c.boost && pw_ == local_) hud_.boost = pw_->boost;
+  if (boosting && !pw_->was_boosting) cue(c.boost_sound, pose.position, 0.7f, 1, true, audio::Bus::sfx, pw_->actor);
+  pw_->was_boosting = boosting;
+  // Landing: the first ground contact after falling.
+  if (c.mode != ControlMode::hovercar && c.mode != ControlMode::flyer && !pw_->use_mover) {
+    const bool down = grounded(body, reach + 0.12f);
+    if (!down) pw_->fall_speed = max_of(pw_->fall_speed, -v.z);
+    if (down && pw_->airborne && pw_->fall_speed > 3.5f) cue("builtin:land", pose.position - Vec3{0, 0, reach}, clamp(pw_->fall_speed / 14.0f, 0.25f, 1.0f), 1, true, audio::Bus::sfx, pw_->actor);
+    if (down) pw_->fall_speed = 0;
+    pw_->airborne = !down;
+  }
 
   switch (c.mode) {
     case ControlMode::hovercar:
@@ -1395,15 +1595,16 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
         if (throttle == 0 && !boosting) accel -= fwd * 0.6f;  // rolling drag
         physics_.apply_force_to_center(body, forward * (accel * m));
         // Lateral grip.
-        physics_.apply_linear_impulse_to_center(body, side * (-lat * (1 - std::exp(-7.5f * dt)) * m));
+        // Lateral grip as a force (steady impulses fight the solver; Box3D "Forces and Impulses").
+        physics_.apply_force_to_center(body, side * (-lat * (1 - std::exp(-7.5f * dt)) / dt * m));
         const f32 grip = clamp(std::fabs(fwd) / 9.0f, 0.0f, 1.0f) * (fwd >= 0 ? 1.0f : -1.0f);
         const Vec3 w = physics_.angular_velocity(body);
         physics_.set_angular_velocity(body, {w.x, w.y, steer * turn * grip});
-        steer_vis_ = damp(steer_vis_, steer * grip, 6, dt);
+        pw_->steer_vis = damp(pw_->steer_vis, steer * grip, 6, dt);
         // Nose dips when braking, lifts when accelerating (per 60 Hz step like Orb Run).
-        const f32 accel_pitch = clamp((fwd - last_forward_) * 0.02f * (1.0f / (60.0f * dt)), -0.12f, 0.12f);
-        pitch_vis_ = damp(pitch_vis_, accel_pitch, 5, dt);
-        last_forward_ = fwd;
+        const f32 accel_pitch = clamp((fwd - pw_->last_forward) * 0.02f * (1.0f / (60.0f * dt)), -0.12f, 0.12f);
+        pw_->pitch_vis = damp(pw_->pitch_vis, accel_pitch, 5, dt);
+        pw_->last_forward = fwd;
       }
       if (hover) {
         // Hover spring over whatever is below (Box3D ray cast).
@@ -1419,19 +1620,74 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
     }
     case ControlMode::rolling: {
       physics_.apply_force_to_center(body, move * (c.acceleration * m));
-      if (jump_pressed && c.jump_speed > 0 && grounded(body, reach + 0.15f)) physics_.set_linear_velocity(body, {v.x, v.y, c.jump_speed});
+      if (jump_pressed && c.jump_speed > 0 && grounded(body, reach + 0.15f)) {
+        physics_.set_linear_velocity(body, {v.x, v.y, c.jump_speed});
+        cue(c.jump_sound, pose.position, 0.8f, 1, true, audio::Bus::sfx, pw_->actor);
+      }
       const f32 hs = std::sqrt(v.x * v.x + v.y * v.y);
       if (hs > c.max_speed) physics_.apply_force_to_center(body, Vec3{v.x, v.y, 0} * (-(hs - c.max_speed) / hs * 4 * m));
       break;
     }
     case ControlMode::character: {
+      if (pw_->use_mover) {
+        const bool was_ground = pw_->mover.on_ground();
+        const f32 fall = -pw_->mover.velocity().z;
+        const bool jumped = pw_->mover.step(physics_, dt, move, jump_pressed && c.jump_speed > 0, boosting, body);
+        if (jumped) cue(c.jump_sound, pose.position, 0.8f, 1, true, audio::Bus::sfx, pw_->actor);
+        if (pw_->mover.on_ground() && !was_ground && fall > 3.5f) cue("builtin:land", pw_->mover.position(), clamp(fall / 14.0f, 0.25f, 1.0f), 1, true, audio::Bus::sfx, pw_->actor);
+        // Face the walking direction (smoothly), the body follows the mover kinematically.
+        f32 yaw = yaw_of(pose.rotation);
+        const Vec3 hv{pw_->mover.velocity().x, pw_->mover.velocity().y, 0};
+        if (length(move) > 0.1f && length(hv) > 0.3f) {
+          const f32 want = std::atan2(move.y, move.x);
+          f32 d = want - yaw;
+          while (d > kPi) d -= 2 * kPi;
+          while (d < -kPi) d += 2 * kPi;
+          yaw += clamp(d, -turn * dt, turn * dt);
+        }
+        physics_.set_target_pose(body, physics::Pose{pw_->mover.position() + Vec3{0, 0, pw_->mover_lift}, Quat::axis_angle({0, 0, 1}, yaw)}, dt);
+        // Footsteps.
+        const f32 hs = length(hv);
+        if (pw_->mover.on_ground() && hs > 0.6f) {
+          pw_->stride += hs * dt;
+          const f32 stride_length = clamp(0.55f + hs * 0.09f, 0.6f, 1.6f);
+          if (pw_->stride >= stride_length) {
+            pw_->stride -= stride_length;
+            ++pw_->steps;
+            const f32 vary = 0.9f + 0.2f * static_cast<f32>((pw_->steps * 2654435761u >> 16) % 1000) / 1000.0f;
+            cue("builtin:step", pw_->mover.position(), clamp(0.25f + hs * 0.05f, 0.25f, 0.7f), vary, true, audio::Bus::sfx, pw_->actor);
+          }
+        } else if (!pw_->mover.on_ground()) {
+          pw_->stride = 0.5f;
+        }
+        // Triggers and pickups the mover walked into (kinematic bodies get no contacts with static shapes).
+        for (const physics::MoverPlane& mp : pw_->mover.planes()) touched(mp.shape, mp.body);
+        break;
+      }
       const f32 speed = boosting ? c.boost_speed : c.max_speed;
       const Vec3 target = move * speed;
       const bool on_ground = grounded(body, reach + 0.12f);
       const f32 control = on_ground ? 10.0f : 2.0f;
       const Vec3 dv{target.x - v.x, target.y - v.y, 0};
-      physics_.apply_linear_impulse_to_center(body, dv * (m * min_of(1.0f, control * dt)));
-      if (jump_pressed && c.jump_speed > 0 && on_ground) physics_.set_linear_velocity(body, {v.x, v.y, c.jump_speed});
+      physics_.apply_force_to_center(body, dv * (m * min_of(1.0f, control * dt) / dt));
+      if (jump_pressed && c.jump_speed > 0 && on_ground) {
+        physics_.set_linear_velocity(body, {v.x, v.y, c.jump_speed});
+        cue(c.jump_sound, pose.position, 0.8f, 1, true, audio::Bus::sfx, pw_->actor);
+      }
+      // Footsteps every stride while walking on the ground.
+      const f32 hs = std::sqrt(v.x * v.x + v.y * v.y);
+      if (on_ground && hs > 0.6f) {
+        pw_->stride += hs * dt;
+        const f32 stride_length = clamp(0.55f + hs * 0.09f, 0.6f, 1.6f);
+        if (pw_->stride >= stride_length) {
+          pw_->stride -= stride_length;
+          ++pw_->steps;
+          const f32 vary = 0.9f + 0.2f * static_cast<f32>((pw_->steps * 2654435761u >> 16) % 1000) / 1000.0f;
+          cue("builtin:step", pose.position - Vec3{0, 0, reach}, clamp(0.25f + hs * 0.05f, 0.25f, 0.7f), vary, true, audio::Bus::sfx, pw_->actor);
+        }
+      } else if (!on_ground) {
+        pw_->stride = 0.5f;
+      }
       // Face the walking direction.
       if (length(move) > 0.1f) {
         const f32 yaw = yaw_of(pose.rotation), want = std::atan2(move.y, move.x);
@@ -1450,7 +1706,7 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
       const Vec3 accel = (target - v) * clamp(c.acceleration / max_of(1.0f, speed), 0.5f, 20.0f) - g;
       physics_.apply_force_to_center(body, accel * m);
       const f32 yaw = yaw_of(pose.rotation);
-      f32 d = camera_yaw_ * kDeg - yaw;
+      f32 d = pw_->yaw * kDeg - yaw;
       while (d > kPi) d -= 2 * kPi;
       while (d < -kPi) d += 2 * kPi;
       physics_.set_angular_velocity(body, {0, 0, clamp(d * 6, -turn, turn)});
@@ -1487,31 +1743,58 @@ ActorId GameWorld::actor_for_body(physics::Body body) const {
   return it == actor_of_body_.end() ? 0 : it->second;
 }
 
-void GameWorld::handle_events() {
+void GameWorld::touched(physics::Shape shape, physics::Body body) {
   // The player touched `shape` of `body`: the actor is the shape's contributor
   // (a welded child) or the body's owner.
-  auto touched = [&](physics::Shape shape, physics::Body body) {
-    ActorId target = static_cast<ActorId>(physics_.shape_user(shape));
-    if (!target) target = actor_for_body(body);
-    const Actor* a = level_.find(target);
-    if (!a || !alive_[target]) return;
-    if (a->pickup) collect(target);
-    else if (a->trigger) trigger(target);
-  };
-  if (player_) {
-    const physics::Body pb = body_of_actor_[player_]->body;
-    for (const physics::TouchEvent& e : physics_.sensor_begin())
-      if (e.body_b == pb) touched(e.shape_a, e.body_a);  // a = sensor, b = visitor
-    for (const physics::TouchEvent& e : physics_.contact_begin()) {
-      if (e.body_a == pb) touched(e.shape_b, e.body_b);
-      else if (e.body_b == pb) touched(e.shape_a, e.body_a);
+  ActorId target = static_cast<ActorId>(physics_.shape_user(shape));
+  if (!target) target = actor_for_body(body);
+  const Actor* a = level_.find(target);
+  if (!a || !alive_[target]) return;
+  if (a->pickup) collect(target);
+  else if (a->trigger) trigger(target);
+}
+
+void GameWorld::handle_events() {
+  if (mode_ == SimMode::play)
+    for (auto& pawn : pawns_) {
+      auto b = body_of_actor_.find(pawn->actor);
+      if (b == body_of_actor_.end() || !b->second->body.valid()) continue;
+      const physics::Body pb = b->second->body;
+      pw_ = pawn.get();  // checkpoints move this pawn's spawn
+      for (const physics::TouchEvent& e : physics_.sensor_begin())
+        if (e.body_b == pb) touched(e.shape_a, e.body_a);  // a = sensor, b = visitor
+      for (const physics::TouchEvent& e : physics_.contact_begin()) {
+        if (e.body_a == pb) touched(e.shape_b, e.body_b);
+        else if (e.body_b == pb) touched(e.shape_a, e.body_a);
+      }
     }
-  }
-  // Camera shake from hard player hits.
+  pw_ = local_ ? local_ : &idle_pawn_;
+  // Camera shake from hard player hits, impact sounds for bodies that have one.
+  u32 impacts = 0;
   for (const physics::HitEvent& h : physics_.hits()) {
-    if (!player_) break;
-    const physics::Body pb = body_of_actor_[player_]->body;
-    if (h.body_a == pb || h.body_b == pb) shake_ = max_of(shake_, clamp(h.approach_speed / 30.0f, 0.15f, 0.8f));
+    if (player_ && body_of_actor_.count(player_)) {
+      const physics::Body pb = body_of_actor_[player_]->body;
+      if (h.body_a == pb || h.body_b == pb) shake_ = max_of(shake_, clamp(h.approach_speed / 30.0f, 0.15f, 0.8f));
+    }
+    if (impacts >= 6) continue;  // at most a handful per step; the mixer would steal them anyway
+    for (const physics::Body hb : {h.body_a, h.body_b}) {
+      const ActorId id = actor_for_body(hb);
+      const Actor* a = id ? level_.find(id) : nullptr;
+      if (!a || !a->body || a->body->impact_sound.empty() || a->body->impact_sound == "none") continue;
+      const f32 threshold = max_of(0.05f, a->body->impact_threshold);
+      if (h.approach_speed < threshold) continue;
+      f32& last = last_impact_[id];
+      if (last > 0 && sim_time_ - last < 0.09f) continue;
+      last = sim_time_ + 1e-6f;
+      const f32 strength = clamp((h.approach_speed - threshold) / (threshold * 5) + 0.2f, 0.2f, 1.0f);
+      std::string sound = a->body->impact_sound;
+      if (sound == "builtin:impact" && h.approach_speed < threshold * 2.2f) sound = "builtin:impact_light";
+      const f32 mass = physics_.mass(hb);
+      const f32 pitch = clamp(1.25f - std::log10(max_of(0.1f, mass)) * 0.18f, 0.6f, 1.6f);
+      cue(sound, h.point, strength, pitch, true, audio::Bus::sfx, id);
+      ++impacts;
+      break;
+    }
   }
   // Breaking joints.
   for (const physics::Joint& j : physics_.joint_events()) {
@@ -1522,11 +1805,16 @@ void GameWorld::handle_events() {
       ++broken_joints_;
       const Actor* a = level_.find(sj->actor);
       events_.push_back(std::string("Joint on \"") + (a ? a->name : std::string("?")) + "\" broke");
+      if (a && sj->index < a->joints.size()) {
+        const auto w = world_.find(sj->actor);
+        cue(a->joints[sj->index].break_sound, w != world_.end() ? w->second.translation() : Vec3{}, 1, 1, true, audio::Bus::sfx, sj->actor);
+      }
     }
   }
 }
 
 void GameWorld::set_actor_alive(ActorId id, bool alive) {
+  if (alive_.count(id) && alive_[id] != alive) alive_changes_.push_back({id, alive});
   // The actor and its subtree.
   std::vector<ActorId> stack{id};
   while (!stack.empty()) {
@@ -1543,27 +1831,9 @@ void GameWorld::set_actor_alive(ActorId id, bool alive) {
       physics_.destroy_body(b.body);
       b.body = {};
     } else if (alive && !b.body.valid()) {
-      physics::BodySettings bs;
-      bs.type = b.plan.motion == Motion::dynamic ? physics::BodyType::dynamic : b.plan.motion == Motion::kinematic ? physics::BodyType::kinematic : physics::BodyType::fixed;
-      bs.position = b.plan.position;
-      bs.rotation = b.plan.rotation;
-      bs.user = b.plan.owner;
-      b.body = physics_.create_body(bs);
-      for (const ShapePlan& s : b.plan.shapes) {
-        physics::ShapeSettings ss;
-        ss.kind = s.kind;
-        ss.center = s.center;
-        ss.rotation = s.rotation;
-        ss.size = s.size;
-        ss.radius = s.radius;
-        ss.length = s.length;
-        ss.points = Span<const Vec3>(s.points.data(), s.points.size());
-        ss.material.sensor = s.source.sensor;
-        ss.material.density = max_of(0.001f, s.source.density);
-        ss.material.friction = s.source.friction;
-        ss.material.user = s.actor;
-        physics_.create_shape(b.body, ss);
-      }
+      // Same body as at the start (damping, locks, mass, filters, events).
+      b.body = create_body(b.plan);
+      if (!b.body.valid()) return;
       actor_of_body_[b.body.id] = b.plan.owner;
     }
   }
@@ -1594,6 +1864,7 @@ void GameWorld::collect(ActorId id) {
   set_actor_alive(id, false);
   hud_.score += a->pickup->points;
   ++hud_.pickups;
+  cue(a->pickup->sound, at, 0.9f, 1 + 0.04f * static_cast<f32>(hud_.pickups % 5), true, audio::Bus::sfx, id);
   burst(at, srgb_to_linear(a->pickup->burst_color) * 1.6f);
   if (a->pickup->respawn > 0) respawns_.push_back({id, sim_time_ + a->pickup->respawn});
   else if (level_.world.goal == GameGoal::collect_all && hud_.pickups >= hud_.pickups_total) {
@@ -1608,28 +1879,60 @@ void GameWorld::trigger(ActorId id) {
   const Actor* a = level_.find(id);
   if (!a || !a->trigger || hud_.status != GameStatus::playing) return;
   const TriggerComponent& t = *a->trigger;
+  const Vec3 at = world_[id].translation();
+  auto sound = [&](const char* fallback) {
+    cue(t.sound == "auto" ? std::string(fallback) : t.sound, at, 1, 1, true, audio::Bus::sfx, id);
+  };
   switch (t.action) {
     case TriggerAction::goal:
-      if (level_.world.goal == GameGoal::collect_all && hud_.pickups < hud_.pickups_total) { say("Collect everything first"); return; }
-      finish(GameStatus::won, t.message.empty() ? "Goal reached!" : t.message);
+      if (level_.world.goal == GameGoal::collect_all && hud_.pickups < hud_.pickups_total) {
+        if (hud_.message != "Collect everything first" || hud_.message_age > 1.5f) cue("builtin:error", at, 0.6f, 1, false, audio::Bus::ui);
+        say("Collect everything first");
+        return;
+      }
+      sound("builtin:goal");
+      finish(GameStatus::won, t.message.empty() ? "Goal reached!" : t.message, false);
       break;
     case TriggerAction::hazard:
+      sound("builtin:hazard");
       finish(GameStatus::lost, t.message.empty() ? "Hit a hazard" : t.message);
       break;
     case TriggerAction::checkpoint:
-      spawn_position_ = world_[id].translation() + Vec3{0, 0, 1};
+      sound("builtin:checkpoint");
+      pw_->spawn_position = world_[id].translation() + Vec3{0, 0, 1};
       say(t.message.empty() ? "Checkpoint" : t.message);
       break;
     case TriggerAction::message:
+      sound("builtin:confirm");
       say(t.message);
       break;
   }
   if (t.once && t.action != TriggerAction::goal && t.action != TriggerAction::hazard) set_actor_alive(id, false);
 }
 
-void GameWorld::finish(GameStatus status, std::string message) {
+void GameWorld::cue(const std::string& sound, Vec3 at, f32 volume, f32 pitch, bool spatial, audio::Bus bus, ActorId actor) {
+  if (sound.empty() || sound == "none" || sound == "auto") return;
+  if (cues_.size() >= 64) cues_.erase(cues_.begin());  // nobody drains them (headless): keep the newest
+  SoundCue c;
+  c.sound = sound;
+  c.position = at;
+  c.volume = volume;
+  c.pitch = pitch;
+  c.spatial = spatial;
+  c.bus = bus;
+  c.actor = actor;
+  cues_.push_back(std::move(c));
+}
+
+bool GameWorld::actor_alive(ActorId id) const {
+  const auto it = alive_.find(id);
+  return it == alive_.end() || it->second;
+}
+
+void GameWorld::finish(GameStatus status, std::string message, bool jingle) {
   if (hud_.status != GameStatus::playing) return;
   hud_.status = status;
+  if (jingle) cue(status == GameStatus::won ? "builtin:goal" : "builtin:lose", {}, 0.9f, 1, false, audio::Bus::ui);
   say(std::move(message));
   if (status == GameStatus::won && (level_.world.goal == GameGoal::collect_all || level_.world.goal == GameGoal::reach_goal))
     if (hud_.best <= 0 || hud_.elapsed < hud_.best) hud_.best = hud_.elapsed;
@@ -1642,13 +1945,242 @@ void GameWorld::say(std::string message) {
 }
 
 void GameWorld::respawn_player() {
-  auto it = body_of_actor_.find(player_);
+  auto it = body_of_actor_.find(pw_->actor);
   if (it == body_of_actor_.end()) return;
-  physics_.set_pose(it->second->body, {spawn_position_, spawn_rotation_});
+  physics_.set_pose(it->second->body, {pw_->spawn_position, pw_->spawn_rotation});
   physics_.set_linear_velocity(it->second->body, {});
   physics_.set_angular_velocity(it->second->body, {});
-  camera_reset_ = true;
+  if (pw_->use_mover) pw_->mover.reset(pw_->spawn_position - Vec3{0, 0, pw_->mover_lift});
+  if (pw_ == local_) camera_reset_ = true;
+  cue("builtin:powerup", pw_->spawn_position, 0.6f, 0.8f, false, audio::Bus::ui);
   say("Respawned");
+}
+
+
+// ---------------------------------------------------------------------------
+// players (multiplayer)
+
+GameWorld::Pawn* GameWorld::pawn_of(ActorId actor) {
+  for (auto& p : pawns_)
+    if (p->actor == actor) return p.get();
+  return nullptr;
+}
+
+std::vector<ActorId> GameWorld::pawns() const {
+  std::vector<ActorId> out;
+  for (const auto& p : pawns_) out.push_back(p->actor);
+  return out;
+}
+
+ActorId GameWorld::pawn_source(ActorId pawn) const {
+  for (const auto& p : pawns_)
+    if (p->actor == pawn) return p->source;
+  return 0;
+}
+
+void GameWorld::set_pawn_input(ActorId pawn, const PlayInput& input) {
+  if (Pawn* p = pawn_of(pawn)) p->input = input;
+}
+
+void GameWorld::set_local_pawn(ActorId pawn) {
+  Pawn* p = pawn_of(pawn);
+  if (!p) return;
+  local_ = p;
+  pw_ = p;
+  player_ = pawn;
+  camera_reset_ = true;
+}
+
+ActorId GameWorld::add_pawn(ActorId source, ActorId id) {
+  if (!running()) return 0;
+  if (id && pawn_of(id)) return id;  // known already (a network client hears about pawns more than once)
+  if (!source)
+    for (const Actor& a : edit_level_.actors)
+      if (a.controller) { source = a.id; break; }
+  const Actor* src = edit_level_.find(source);
+  if (!src || !src->controller) { fail("no player actor to copy"); return 0; }
+  // The source's subtree in document order (root first), from the unmodified level.
+  std::vector<const Actor*> subtree{src};
+  for (std::size_t i = 0; i < subtree.size(); ++i)
+    for (ActorId k : edit_level_.children(subtree[i]->id))
+      if (const Actor* c = edit_level_.find(k)) subtree.push_back(c);
+  ActorId root = id ? id : level_.next_id;
+  for (const Actor& a : level_.actors) root = id ? root : max_of(root, a.id + 1);
+  for (std::size_t i = 0; i < subtree.size(); ++i)
+    if (level_.find(root + static_cast<ActorId>(i))) { fail("pawn ids are taken"); return 0; }
+  std::unordered_map<ActorId, ActorId> remap;
+  for (std::size_t i = 0; i < subtree.size(); ++i) remap[subtree[i]->id] = root + static_cast<ActorId>(i);
+  // Next to the spawn: a ring around the original player start, one place per pawn.
+  const u32 n = static_cast<u32>(pawns_.size());
+  const f32 angle = static_cast<f32>(n) * 2.39996323f;
+  const f32 radius = 3.5f + 1.2f * std::sqrt(static_cast<f32>(n));
+  const Mat4 src_world = edit_level_.world_matrix(source);
+  auto pawn = std::make_unique<Pawn>();
+  pawn->source = source;
+  pawn->actor = root;
+  std::vector<ActorId> created;
+  for (const Actor* a : subtree) {
+    Actor copy = *a;
+    copy.id = remap[a->id];
+    if (a == src) {
+      copy.parent = 0;
+      const Transform t = matrix_transform(src_world);
+      copy.transform = t;
+      copy.transform.position += Vec3{std::cos(angle) * radius, std::sin(angle) * radius, 0.3f};
+      copy.name = a->name + " " + std::to_string(n + 1);
+    } else {
+      copy.parent = remap.count(a->parent) ? remap[a->parent] : 0;
+    }
+    for (JointComponent& j : copy.joints)
+      if (remap.count(j.target)) j.target = remap[j.target];
+    level_.add(copy);
+    created.push_back(copy.id);
+    alive_[copy.id] = true;
+    order_.push_back(copy.id);
+  }
+  level_.next_id = max_of(level_.next_id, root + static_cast<ActorId>(subtree.size()));
+  pawn->actors = created;
+  for (ActorId aid : created) {
+    world_[aid] = level_.world_matrix(aid);
+    if (const Actor* a = level_.find(aid); a && a->mesh) sync_actor_mesh(*a, world_[aid]);
+  }
+  // Bodies and joints of the copy (planned on the copy alone).
+  Level part;
+  part.world = level_.world;
+  for (ActorId aid : created) part.actors.push_back(*level_.find(aid));
+  for (BodyPlan& plan : plan_bodies(part)) {
+    if (!plan.owner) continue;
+    auto sb = std::make_unique<SimBody>();
+    sb->body = create_body(plan);
+    if (!sb->body.valid()) continue;
+    if (const Actor* owner = level_.find(plan.owner)) sb->scale = placement_of(level_.world_matrix(owner->id)).scale;
+    if (mode_ == SimMode::replica) physics_.set_body_type(sb->body, physics::BodyType::kinematic);
+    actor_of_body_[sb->body.id] = plan.owner;
+    sb->plan = std::move(plan);
+    body_of_actor_[sb->plan.owner] = sb.get();
+    bodies_.push_back(std::move(sb));
+  }
+  if (mode_ != SimMode::replica)
+    for (ActorId aid : created)
+      if (const Actor* a = level_.find(aid)) create_joints(*a);
+  if (auto b = body_of_actor_.find(root); b != body_of_actor_.end()) {
+    const physics::Pose p = physics_.pose(b->second->body);
+    pawn->spawn_position = p.position;
+    pawn->spawn_rotation = p.rotation;
+    pawn->yaw = yaw_of(p.rotation) / kDeg;
+  }
+  Pawn* raw = pawn.get();
+  pawns_.push_back(std::move(pawn));
+  if (mode_ == SimMode::play) {
+    Pawn* keep = pw_;
+    pw_ = raw;
+    possess_character(true);
+    pw_ = keep;
+  }
+  return root;
+}
+
+bool GameWorld::remove_pawn(ActorId pawn) {
+  for (std::size_t i = 0; i < pawns_.size(); ++i) {
+    Pawn& p = *pawns_[i];
+    if (p.actor != pawn || p.actor == p.source) continue;  // the level's own player stays
+    for (ActorId aid : p.actors) {
+      // Joints touching the pawn, its bodies, its visuals and its actors.
+      for (auto& j : joints_)
+        if (!j->broken && (j->actor == aid || j->target == aid)) { physics_.destroy_joint(j->joint, true); j->broken = true; }
+      if (auto b = body_of_actor_.find(aid); b != body_of_actor_.end()) {
+        actor_of_body_.erase(b->second->body.id);
+        if (b->second->body.valid()) physics_.destroy_body(b->second->body);
+        b->second->body = {};
+        body_of_actor_.erase(b);
+      }
+      remove_visual(aid);
+      world_.erase(aid);
+      alive_.erase(aid);
+      replica_poses_.erase(aid);
+      order_.erase(std::remove(order_.begin(), order_.end(), aid), order_.end());
+    }
+    for (ActorId aid : p.actors)
+      for (std::size_t k = 0; k < level_.actors.size(); ++k)
+        if (level_.actors[k].id == aid) { level_.actors.erase(level_.actors.begin() + static_cast<std::ptrdiff_t>(k)); break; }
+    const std::vector<ActorId> gone = p.actors;
+    bodies_.erase(std::remove_if(bodies_.begin(), bodies_.end(), [&](const std::unique_ptr<SimBody>& b) {
+      return std::find(gone.begin(), gone.end(), b->plan.owner) != gone.end();
+    }), bodies_.end());
+    if (local_ == &p) { local_ = nullptr; player_ = 0; }
+    if (pw_ == &p) pw_ = local_ ? local_ : &idle_pawn_;
+    pawns_.erase(pawns_.begin() + static_cast<std::ptrdiff_t>(i));
+    return true;
+  }
+  return false;
+}
+
+void GameWorld::take_alive_changes(std::vector<std::pair<ActorId, bool>>& out) {
+  out.insert(out.end(), alive_changes_.begin(), alive_changes_.end());
+  alive_changes_.clear();
+}
+
+std::vector<ActorId> GameWorld::dead_actors() const {
+  std::vector<ActorId> out;
+  for (const Actor& a : level_.actors) {
+    if (!(a.pickup || a.trigger)) continue;
+    const auto it = alive_.find(a.id);
+    if (it != alive_.end() && !it->second) out.push_back(a.id);
+  }
+  return out;
+}
+
+void GameWorld::set_alive(ActorId id, bool alive) {
+  if (!level_.find(id)) return;
+  const bool was = actor_alive(id);
+  set_actor_alive(id, alive);
+  alive_changes_.clear();  // set from outside (a network replica): not a change of ours to report
+  if (was && !alive)
+    if (const Actor* a = level_.find(id); a && a->pickup) burst(world_[id].translation(), srgb_to_linear(a->pickup->burst_color) * 1.6f);
+}
+
+void GameWorld::networked_actors(std::vector<ActorId>& out) const {
+  out.clear();
+  for (const auto& b : bodies_) {
+    if (!b->body.valid() || !b->plan.owner || b->plan.motion == Motion::fixed) continue;
+    const auto it = alive_.find(b->plan.owner);
+    if (it != alive_.end() && !it->second) continue;
+    out.push_back(b->plan.owner);
+  }
+}
+
+bool GameWorld::start_replica(const Level& level) {
+  if (!start(level, SimMode::play)) return false;
+  // Rules run on the server: every body only follows the poses it sends.
+  for (auto& b : bodies_) {
+    if (!b->body.valid() || b->plan.motion == Motion::fixed) continue;
+    physics_.set_body_type(b->body, physics::BodyType::kinematic);
+    physics_.set_linear_velocity(b->body, {});
+    physics_.set_angular_velocity(b->body, {});
+  }
+  for (auto& p : pawns_) p->use_mover = false;
+  mode_ = SimMode::replica;
+  return true;
+}
+
+void GameWorld::set_replica_pose(ActorId id, Vec3 position, Quat rotation) {
+  if (mode_ != SimMode::replica || !level_.find(id)) return;
+  replica_poses_[id] = {position, rotation};
+  if (auto b = body_of_actor_.find(id); b != body_of_actor_.end() && b->second->body.valid()) physics_.set_pose(b->second->body, {position, rotation});
+}
+
+void GameWorld::step_replica(f32 dt, f32 time, const PlayInput& input) {
+  last_input_ = input;
+  if (mode_ != SimMode::replica) return;
+  // Traffic is decoration: it drives locally.
+  drive_traffic(clamp(dt, 0.0f, 0.1f));
+  if (!traffic_.empty()) physics_.step(clamp(dt, 0.001f, 0.1f), 1);
+  sim_time_ = max_of(0.0f, time);
+  if (level_.world.day_length > 0) {
+    time_of_day_ += dt / level_.world.day_length;
+    time_of_day_ -= std::floor(time_of_day_);
+  }
+  compute_world_matrices(sim_time_);
 }
 
 bool GameWorld::update_camera(Camera& cam, f32 dt, const PlayInput& in) {

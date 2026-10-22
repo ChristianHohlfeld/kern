@@ -52,6 +52,10 @@ constexpr Item kItems[] = {
     {"moving_platform", "Moving Platform", "Gameplay", "platform", "Kinematic platform on a mover"},
     {"spinner", "Spinner", "Gameplay", "spinner", "Rotating kinematic bar"},
     {"city", "Procedural City", "Procedural", "city", "Blocks, streets, trees and traffic"},
+    {"audio_source", "Audio Source", "Audio", "speaker", "3D sound emitter (machine hum)"},
+    {"ambient_wind", "Ambient Wind", "Audio", "speaker", "Looping wind, heard everywhere"},
+    {"city_ambience", "City Ambience", "Audio", "speaker", "Looping city murmur with falloff"},
+    {"radio", "Radio", "Audio", "speaker", "Music box: plays the calm loop in 3D"},
 };
 
 game::Actor shape_actor(const char* name, game::Shape shape, Vec3 color) {
@@ -73,7 +77,7 @@ game::Actor dynamic(game::Actor a, f32 mass = 0) {
 
 json::Value Studio::catalog_json() const {
   json::Value groups = json::Value::array();
-  const char* order[] = {"Basic", "Lights", "Physics", "Gameplay", "Procedural"};
+  const char* order[] = {"Basic", "Lights", "Physics", "Gameplay", "Audio", "Procedural"};
   for (const char* g : order) {
     json::Value group = json::Value::object();
     group.set("label", g);
@@ -93,7 +97,7 @@ json::Value Studio::catalog_json() const {
   return groups;
 }
 
-ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at) {
+ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std::string& sound) {
   if (play_ != PlayState::editing) { report("Stop playing to add actors", "warn"); return 0; }
   // Where: the drop point, else what the active camera looks at, else 10 m ahead.
   Vec3 pos;
@@ -385,6 +389,46 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at) {
     s.body->motion = game::Motion::kinematic;
     s.rotator = game::RotatorComponent{{0, 0, 90}};
     add(s, {0, 0, 0.6f});
+  } else if (item == "audio_source" || item == "ambient_wind" || item == "city_ambience" || item == "radio") {
+    game::Actor a;
+    a.audio = game::AudioComponent{};
+    if (item == "audio_source") {
+      a.name = "Audio Source";
+      if (!sound.empty()) {
+        // Dropped from the Sounds tab: named after the sound.
+        a.audio->sound = sound;
+        if (const audio::BuiltinSound* b = sound.rfind("builtin:", 0) == 0 ? audio::find_builtin(std::string_view(sound).substr(8)) : nullptr) {
+          a.name = b->label;
+          a.audio->loop = b->loop;
+          if (std::strcmp(b->category, "Music") == 0) a.audio->bus = audio::Bus::music;
+          else if (std::strcmp(b->category, "Ambience") == 0) a.audio->bus = audio::Bus::ambience;
+        } else if (const game::SoundAsset* s = level_.sound(sound)) {
+          a.name = s->name;
+        }
+      }
+    } else if (item == "ambient_wind") {
+      a.name = "Ambient Wind";
+      a.audio->sound = "builtin:wind";
+      a.audio->spatial = false;
+      a.audio->bus = audio::Bus::ambience;
+      a.audio->volume = 0.6f;
+    } else if (item == "city_ambience") {
+      a.name = "City Ambience";
+      a.audio->sound = "builtin:city";
+      a.audio->bus = audio::Bus::ambience;
+      a.audio->min_distance = 20;
+      a.audio->max_distance = 260;
+      a.audio->rolloff = audio::Rolloff::linear;
+    } else {
+      a = shape_actor("Radio", game::Shape::box, {0.55f, 0.32f, 0.2f});
+      a.mesh->size = {0.6f, 0.25f, 0.4f};
+      a.audio = game::AudioComponent{};
+      a.audio->sound = "builtin:music_calm";
+      a.audio->bus = audio::Bus::music;
+      a.audio->min_distance = 3;
+      a.audio->max_distance = 35;
+    }
+    add(a, {0, 0, item == "radio" ? 0.2f : 1.5f});
   } else if (item == "city") {
     game::Actor c;
     c.name = "City";

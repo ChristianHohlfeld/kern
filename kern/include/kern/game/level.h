@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "kern/audio/audio.h"
 #include "kern/core/json.h"
 #include "kern/math/math.h"
 
@@ -82,6 +83,8 @@ struct BodyComponent {
   bool lock_linear[3] = {false, false, false};
   bool lock_angular[3] = {false, false, false};
   Vec3 linear_velocity, angular_velocity;  // initial; angular in degrees per second
+  std::string impact_sound = "builtin:impact";  // played on hard hits ("" = silent)
+  f32 impact_threshold = 2.5f;  // m/s approach speed for an impact sound
 };
 
 enum class ColliderShape : u8 { automatic, box, sphere, capsule, hull };
@@ -117,6 +120,7 @@ struct JointComponent {
   f32 spring_hertz = 4, spring_damping = 0.5f;
   f32 length = 0;               // distance joint rest length, 0 = the distance at start
   f32 break_force = 0, break_torque = 0;  // N / N*m, 0 = unbreakable
+  std::string break_sound = "builtin:break";  // played when the joint breaks ("" = silent)
 };
 
 enum class ControlMode : u8 { hovercar, rolling, character, flyer, vehicle };
@@ -135,12 +139,17 @@ struct ControllerComponent {
   f32 hover_height = 0.6f;      // hovercar
   CameraMode camera = CameraMode::chase;
   f32 camera_distance = 12, camera_height = 4, camera_fov = 62;
+  // sounds ("auto" = the movement mode's default, "" = silent)
+  std::string engine_sound = "auto";  // loop, pitch and volume follow speed and throttle
+  std::string jump_sound = "builtin:jump";
+  std::string boost_sound = "builtin:boost";
 };
 
 struct PickupComponent {
   f32 points = 1;
   Vec3 burst_color{0.55f, 1.0f, 0.92f};
   f32 respawn = 0;              // seconds, 0 = gone for this run
+  std::string sound = "builtin:pickup";
 };
 
 enum class TriggerAction : u8 { goal, hazard, checkpoint, message };
@@ -150,6 +159,24 @@ struct TriggerComponent {
   TriggerAction action = TriggerAction::goal;
   std::string message;
   bool once = true;
+  std::string sound = "auto";   // "auto" = the action's default sound, "" = silent
+};
+
+/// A sound emitter: a looping ambience, a machine hum, a radio, a one-shot.
+struct AudioComponent {
+  std::string sound = "builtin:hum";  // "builtin:<name>" or an imported sound asset id
+  f32 volume = 1;               // linear gain (0..4)
+  f32 pitch = 1;                // playback rate
+  bool loop = true;
+  bool autoplay = true;         // starts with Play / Simulate
+  bool spatial = true;          // 3D at the actor (false: plays 2D on its bus)
+  f32 min_distance = 2;         // full volume inside (m)
+  f32 max_distance = 40;        // silent beyond (m)
+  audio::Rolloff rolloff = audio::Rolloff::inverse;
+  audio::Bus bus = audio::Bus::sfx;
+  f32 doppler = 1;              // 0 = no Doppler shift
+  f32 pitch_by_speed = 0;       // extra pitch per m/s of the actor's body
+  f32 delay = 0;                // seconds after the start
 };
 
 struct RotatorComponent {
@@ -197,6 +224,7 @@ struct Actor {
   std::optional<RotatorComponent> rotator;
   std::optional<MoverComponent> mover;
   std::optional<CityComponent> city;
+  std::optional<AudioComponent> audio;
 };
 
 enum class GameGoal : u8 { none, collect_all, reach_goal, survive, score };
@@ -219,12 +247,27 @@ struct WorldSettings {
   GameGoal goal = GameGoal::none;
   f32 time_limit = 0;           // seconds, 0 = none
   f32 score_target = 0;         // GameGoal::score
+  // audio
+  f32 master_volume = 1;
+  std::string music;            // looping 2D track on the music bus ("" = none)
+  f32 music_volume = 0.6f;
+  std::string ambience;         // looping 2D bed on the ambience bus
+  f32 ambience_volume = 0.6f;
+  f32 reverb = 0.25f;           // master reverb amount 0..1
+  f32 doppler = 1;              // Doppler scale for every 3D sound
 };
 
 struct TextureAsset {
   std::string id, name;
   std::shared_ptr<const std::string> src;  // data URL (png/jpeg/webp), shared by undo snapshots
   i32 width = 0, height = 0;
+};
+
+/// An imported audio file (wav, mp3, ogg, m4a/aac, flac - whatever the browser decodes).
+struct SoundAsset {
+  std::string id, name;
+  std::shared_ptr<const std::string> src;  // data URL, shared by undo snapshots
+  f32 duration = 0;             // seconds (informational)
 };
 
 struct EditorCamera {
@@ -237,6 +280,7 @@ struct Level {
   WorldSettings world;
   std::vector<Actor> actors;
   std::vector<TextureAsset> textures;
+  std::vector<SoundAsset> sounds;
   EditorCamera camera;
   ActorId next_id = 1;
 
@@ -251,6 +295,7 @@ struct Level {
   ActorId body_owner(ActorId id) const;
   bool is_ancestor(ActorId ancestor, ActorId id) const;
   const TextureAsset* texture(std::string_view id) const;
+  const SoundAsset* sound(std::string_view id) const;
 };
 
 // ---- serialization ----
@@ -272,6 +317,8 @@ struct Issue {
 };
 /// Problems of a level: errors keep it from playing (dangling references, bad
 /// values), warnings point at likely mistakes.
+/// True for "", "none", "auto", a known "builtin:<name>" or an imported sound id.
+bool sound_reference_ok(const Level& level, std::string_view ref);
 std::vector<Issue> validate(const Level& level);
 
 /// "#rrggbb" <-> sRGB 0..1.

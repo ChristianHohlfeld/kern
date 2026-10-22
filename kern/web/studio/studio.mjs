@@ -7,12 +7,13 @@
 // downloads, the clipboard, pointer lock, decoding images, local storage and
 // packaging standalone games.
 import {loadKern} from "../kern.mjs";
-import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE, buildGameHtml} from "./game.mjs";
+import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE, buildGameHtml, startAudio, KernNet, openNetwork} from "./game.mjs";
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = escHtml;
 const AUTOSAVE_KEY = "kern-studio.autosave.v1", LAYOUT_KEY = "kern-studio.layout.v1";
 const MAX_TEXTURE_SIDE = 2048;
+const MAX_SOUND_BYTES = 24 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Icons (24 x 24 strokes)
@@ -95,6 +96,10 @@ const ICONS = {
   door: '<path d="M5 3h3v18H5z"/><path d="M8 4l10 2v13l-10 2"/><circle cx="15" cy="12.5" r=".7"/>',
   chain: '<rect x="4" y="9" width="8" height="6" rx="3"/><rect x="12" y="9" width="8" height="6" rx="3"/>',
   seesaw: '<path d="M3 9l18 4M12 11l-3 8h6z"/>',
+  speaker: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/>',
+  speakerOff: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/>',
+  note: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  wave: '<path d="M3 12h2l2-6 3 12 3-9 2 6 2-3h4"/>',
 };
 const icon = name => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ICONS.box}</svg>`;
 const fillIcons = (root = document) => {
@@ -160,6 +165,9 @@ class StudioPage {
     this.restoreLayout();
     this.resizeCanvas();
     if (!this.engine.init(this.canvas.width, this.canvas.height, false)) throw Error(this.kern.lastError());
+    this.audio = startAudio(this.engine);
+    this.net = new KernNet(this.engine);
+    this.net.onstatus = text => this.toast(text);
     this.canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); this.engine.contextLost(); this.kern.resetTables(); });
     this.canvas.addEventListener("webglcontextrestored", () => {
       this.kern.attachContext(this.canvas, gl);
@@ -191,6 +199,8 @@ class StudioPage {
       key: (code, opts = {}) => self.engine.key(opts.key ?? code, code, opts.down !== false, (opts.shift ? 1 : 0) | (opts.ctrl ? 2 : 0) | (opts.alt ? 4 : 0), false),
       pointer: (viewport, type, x, y, opts = {}) => self.engine.pointer(viewport, POINTER[type], x, y, opts),
       viewportRect: i => self.views[i].el.getBoundingClientRect().toJSON(),
+      get audio() { return self.audio ? {mode: self.audio.mode, rate: self.audio.rate, state: self.audio.context?.state, written: self.audio.written, consumed: self.audio.consumed, underruns: self.audio.underruns} : null; },
+      importSoundFile: file => self.importSound(file),
       packageHtml: async title => self.gameHtml(self.engine.command({cmd: "packageText"}).text, title),
       frames: () => self.frameCount,
     };
@@ -213,6 +223,11 @@ class StudioPage {
       this.resizeCanvas();
       this.placeViewports();
       this.engine.frame(time);
+      this.audio?.pump();
+      if (this.net.active) {
+        this.net.flush();
+        if (this.status && !this.status.net && this.state?.play?.state === "editing") this.net.close();  // left the game
+      }
       this.flushUi();
       const rev = this.engine.revision();
       if (rev !== this.revision) {
@@ -222,7 +237,7 @@ class StudioPage {
       }
       this.status = this.engine.status();
       this.renderStatus(this.status);
-      if (time - this.lastTexturePoll > 200) { this.lastTexturePoll = time; this.engine.pollTextures(MAX_TEXTURE_SIDE); }
+      if (time - this.lastTexturePoll > 200) { this.lastTexturePoll = time; this.engine.pollTextures(MAX_TEXTURE_SIDE); this.engine.pollSounds(this.audio); }
       if (time - this.lastSavePoll > 500) { this.lastSavePoll = time; this.autosave(time); }
     } catch (error) {
       console.error(error);
@@ -309,6 +324,12 @@ class StudioPage {
         else document.documentElement.requestFullscreen?.().catch(() => {});
         break;
       case "rename": this.startRename(a.id || this.state?.selection?.at(-1)); break;
+      case "netOpen":
+        openNetwork(this.engine, this.net, a).then(r => {
+          if (r?.ok) this.toast(a.host ? `Hosting room "${a.room}" - players join with Play > Join Online Game` : `Joined room "${a.room}"`);
+          this.flushUi();
+        }, error => { this.net.close(); this.toast("Online play: " + error.message); });
+        break;
       default: break;
     }
   }
@@ -415,7 +436,7 @@ class StudioPage {
     });
     // Drag and drop from the content drawer.
     el.addEventListener("dragover", e => {
-      if (!e.dataTransfer.types.includes("text/x-kern-actor")) return;
+      if (!e.dataTransfer.types.includes("text/x-kern-actor") && !e.dataTransfer.types.includes("text/x-kern-sound")) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
       el.classList.add("drop");
@@ -423,12 +444,13 @@ class StudioPage {
     el.addEventListener("dragleave", () => el.classList.remove("drop"));
     el.addEventListener("drop", e => {
       el.classList.remove("drop");
-      const item = e.dataTransfer.getData("text/x-kern-actor");
-      if (!item) return;
+      const item = e.dataTransfer.getData("text/x-kern-actor"), sound = e.dataTransfer.getData("text/x-kern-sound");
+      if (!item && !sound) return;
       e.preventDefault();
       const [x, y] = pos(e);
       this.engine.command({cmd: "activeViewport", viewport: i});
-      this.engine.command({cmd: "spawn", item, viewport: i, x, y});
+      // A sound dropped into the world becomes an Audio Source playing it (one undo step).
+      this.engine.command({cmd: "spawn", item: item || "audio_source", sound: sound || undefined, viewport: i, x, y});
     });
   }
 
@@ -462,13 +484,24 @@ class StudioPage {
     const fps = this.fpsTimes.length;
     if (fps !== this.fpsShown) { this.fpsShown = fps; $("#fps").textContent = `${fps} fps`; }
     // Simulation stats.
-    $("#simStats").textContent = st.sim ? `${st.sim.bodies} bodies · ${st.sim.awake} awake · ${st.sim.joints} joints${st.sim.broken ? ` (${st.sim.broken} broken)` : ""} · ${st.sim.contacts} contacts` : "";
+    // Output meter (peak per channel since the last frame, dB scale).
+    if (st.audio) {
+      const bars = $("#meter").children;
+      for (let c = 0; c < 2; c++) {
+        const db = 20 * Math.log10(Math.max(1e-5, st.audio.peak[c]));
+        bars[c].style.width = `${Math.max(0, Math.min(100, (db + 60) / 60 * 100)).toFixed(0)}%`;
+        bars[c].className = db > -1 ? "hot" : "";
+      }
+    }
+    const netText = st.net ? `${st.net.role === "server" ? "Server" : "Client"} · ${st.net.players} player${st.net.players === 1 ? "" : "s"} · ${st.net.rtt.toFixed(0)} ms · ${st.net.loss.toFixed(1)}% loss · ↑${st.net.up.toFixed(0)} ↓${st.net.down.toFixed(0)} kbit/s   ` : "";
+    $("#simStats").textContent = netText + (st.sim ? `${st.sim.bodies} bodies · ${st.sim.awake} awake · ${st.sim.joints} joints${st.sim.broken ? ` (${st.sim.broken} broken)` : ""} · ${st.sim.contacts} contacts` : "");
     for (const v of this.views) {
       const vs = s.viewports[v.index], vst = st.viewports?.[v.index];
       const active = vs.active;
       // HUD while playing.
-      const showHud = active && st.hud && (st.play === "playing" || st.hud.status === "won" || st.hud.status === "lost");
-      const html = showHud ? hudHtml(st.hud) : "";
+      const clientHud = v.index >= 1 ? st.net?.clients?.[v.index - 1]?.hud : null;
+      const showHud = clientHud ? true : (active || (st.net?.local && v.index === 0)) && st.hud && (st.play === "playing" || st.hud.status === "won" || st.hud.status === "lost");
+      const html = clientHud ? hudHtml(clientHud) : showHud ? hudHtml(st.hud) : "";
       if (html !== v.hudKey) { v.hudKey = html; v.hud.innerHTML = html; v.hud.hidden = !html; }
       // Info line.
       let info = "";
@@ -625,7 +658,7 @@ class StudioPage {
     $("#drawerClose").onclick = () => this.toggleDrawer(false);
     $("#drawerBtn").onclick = () => this.toggleDrawer();
     $("#logBtn").onclick = () => this.toggleDrawer("log");
-    $("#drawerFilter").oninput = () => this.renderCatalog();
+    $("#drawerFilter").oninput = () => { this.renderCatalog(); this.panelKeys.sounds = ""; if (this.state) this.renderSounds(this.state.sounds); };
     // Outliner.
     const filter = $("#outlinerFilter");
     filter.oninput = () => this.engine.command({cmd: "filter", text: filter.value});
@@ -672,6 +705,12 @@ class StudioPage {
       e.target.value = "";
       if (f) this.importTexture(f);
     };
+    $("#fileSound").onchange = async e => {
+      const files = [...e.target.files];
+      e.target.value = "";
+      for (const f of files) await this.importSound(f);
+    };
+    $("#muteBtn").onclick = () => this.engine.command({cmd: "mute"});
     // Dropping files anywhere: levels open, images become textures.
     addEventListener("dragover", e => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); });
     addEventListener("drop", async e => {
@@ -680,6 +719,7 @@ class StudioPage {
       e.preventDefault();
       if (/\.(klevel|json)$/i.test(f.name)) this.engine.command({cmd: "open", text: await f.text(), name: f.name});
       else if (f.type.startsWith("image/")) this.importTexture(f);
+      else if (f.type.startsWith("audio/") || /\.(wav|mp3|ogg|oga|m4a|aac|flac|opus|webm)$/i.test(f.name)) for (const file of e.dataTransfer.files) await this.importSound(file);
     });
     addEventListener("beforeunload", e => { if (this.engine.dirty()) { this.autosave(Infinity); e.preventDefault(); e.returnValue = ""; } });
   }
@@ -691,7 +731,16 @@ class StudioPage {
     this.renderDetails(s);
     this.renderWorld(s.world);
     this.renderTextures(s.textures);
+    this.renderSounds(s.sounds);
     this.renderLog(s.log);
+    const muted = !!s.sounds?.muted;
+    const mb = $("#muteBtn");
+    if (mb.dataset.muted !== String(muted)) {
+      mb.dataset.muted = String(muted);
+      mb.innerHTML = icon(muted ? "speakerOff" : "speaker");
+      mb.classList.toggle("off", muted);
+      mb.title = muted ? "Sound is off - click to turn it on" : "Sound on / off";
+    }
   }
 
   // ---- outliner ----------------------------------------------------------------------------
@@ -847,7 +896,7 @@ class StudioPage {
   // ---- details and world settings ----------------------------------------------------------------
   renderDetails(s) {
     const d = s.details;
-    const key = JSON.stringify([d, s.actors.length, s.textures, this.detailsFilter]);
+    const key = JSON.stringify([d, s.actors.length, s.textures, s.sounds?.imported, this.detailsFilter]);
     if (key === this.panelKeys.details) return;
     const host = $("#details");
     if (host.contains(document.activeElement) && document.activeElement.matches("input:not([type=checkbox]):not([type=color]), textarea")) {
@@ -858,7 +907,7 @@ class StudioPage {
     this.panelKeys.details = key;
     this.pendingDetails = false;
     if (d.empty) { host.innerHTML = `<div class="empty">${esc(d.empty)}</div>`; return; }
-    const ctx = {actors: s.actors, textures: s.textures};
+    const ctx = {actors: s.actors, textures: s.textures, sounds: s.sounds};
     const primary = s.outliner.rows.find(r => r.primary);
     let html = `<div class="d-head"><span class="ico">${icon(primary?.icon || "box")}</span>` +
       (d.count === 1 ? `<input class="txt" data-path="name" data-type="text" value="${esc(d.title)}" spellcheck="false" aria-label="Actor name">` : `<span class="count">${esc(d.title)}</span><span class="spacer"></span>`) +
@@ -880,13 +929,13 @@ class StudioPage {
   }
 
   renderWorld(w) {
-    const key = JSON.stringify([w, this.state.textures]);
+    const key = JSON.stringify([w, this.state.textures, this.state.sounds?.imported]);
     if (key === this.panelKeys.world) return;
     const host = $("#worldSettings");
     if (host.contains(document.activeElement) && document.activeElement.matches("input:not([type=checkbox]):not([type=color])")) { this.pendingWorld = true; return; }
     this.panelKeys.world = key;
     this.pendingWorld = false;
-    host.innerHTML = w.sections.map(sec => this.sectionHtml(sec, sec.fields, {actors: [], textures: []}, false)).join("");
+    host.innerHTML = w.sections.map(sec => this.sectionHtml(sec, sec.fields, {actors: [], textures: [], sounds: this.state.sounds}, false)).join("");
   }
 
   sectionHtml(sec, fields, ctx, forceOpen) {
@@ -951,6 +1000,20 @@ class StudioPage {
         editor = `<select class="sel" ${attrs}>${opts.join("")}</select><button class="ph" data-import-texture title="Import an image">${icon("plus")}</button>`;
         break;
       }
+      case "sound": {
+        const snd = ctx.sounds || {builtin: [], imported: []};
+        const opt = (id, label) => `<option value="${esc(id)}" ${id === f.value ? "selected" : ""}>${esc(label)}</option>`;
+        let opts = (f.auto ? opt("auto", "Automatic") : "") + opt("", "None");
+        if (snd.imported?.length) opts += `<optgroup label="Imported">${snd.imported.map(x => opt(x.id, x.name)).join("")}</optgroup>`;
+        const groups = new Map();
+        for (const b of snd.builtin || []) { if (!groups.has(b.category)) groups.set(b.category, []); groups.get(b.category).push(b); }
+        for (const [cat, list] of groups) opts += `<optgroup label="${esc(cat)}">${list.map(b => opt(b.id, b.name + (b.loop ? " (loop)" : ""))).join("")}</optgroup>`;
+        const known = f.value === "" || f.value === "auto" || (snd.builtin || []).some(b => b.id === f.value) || (snd.imported || []).some(x => x.id === f.value);
+        if (!known && !mixed) opts += opt(f.value, `Missing: ${f.value}`);
+        if (mixed) opts = `<option value="__mixed" selected>Multiple values</option>` + opts;
+        editor = `<select class="sel" ${attrs}>${opts}</select><button class="ph" data-preview-sound="${p}" title="Preview">${icon("play")}</button>`;
+        break;
+      }
       case "info":
         editor = `<span class="info">${esc(f.value)}</span>`;
         break;
@@ -1004,6 +1067,7 @@ class StudioPage {
       else if (type === "enum") { if (el.value !== "") set(path, el.value); }
       else if (type === "actor") set(path, +el.value);
       else if (type === "texture") set(path, el.value);
+      else if (type === "sound") { if (el.value !== "__mixed") set(path, el.value); }
       else if (type === "color") {
         let v = el.value.trim();
         if (/^[0-9a-f]{6}$/i.test(v)) v = "#" + v;
@@ -1056,6 +1120,13 @@ class StudioPage {
       const lock = e.target.closest("[data-lock]");
       if (lock) { this.uniformScale = !this.uniformScale; lock.classList.toggle("on", this.uniformScale); lock.innerHTML = icon(this.uniformScale ? "lock" : "unlock"); return; }
       if (e.target.closest("[data-import-texture]")) $("#fileTexture").click();
+      const pv = e.target.closest("[data-preview-sound]");
+      if (pv) {
+        const sel = pv.parentElement.querySelector("select");
+        let value = sel?.value;
+        if (value === "auto") value = this.autoSound(pv.dataset.previewSound);
+        if (value && value !== "__mixed") this.engine.command({cmd: "previewSound", sound: value});
+      }
     });
     // Scrubbing: drag a numeric label (or an unfocused number box) sideways.
     host.addEventListener("pointerdown", e => {
@@ -1124,6 +1195,7 @@ class StudioPage {
     for (const t of $$("#drawer .tab")) t.classList.toggle("active", t.dataset.dtab === tab);
     $("#placePane").hidden = tab !== "place";
     $("#texturePane").hidden = tab !== "textures";
+    $("#soundPane").hidden = tab !== "sounds";
     $("#logPane").hidden = tab !== "log";
     $("#drawerBtn").classList.toggle("on", tab !== "log");
     $("#logBtn").classList.toggle("on", tab === "log");
@@ -1174,6 +1246,84 @@ class StudioPage {
       const t = e.target.closest("[data-tex]");
       if (t && this.state.selection.length) this.setProp("components.mesh.material.texture", t.dataset.tex);
     };
+  }
+
+  /** What "Automatic" means for a sound field (for the preview button). */
+  autoSound(path) {
+    const field = this.fieldByPath(path);
+    if (path.endsWith("engineSound")) {
+      const mode = this.fieldByPath("components.controller.mode")?.value;
+      return mode === "vehicle" ? "builtin:engine" : mode === "hovercar" || mode === "flyer" ? "builtin:hover" : "";
+    }
+    if (path.endsWith("trigger.sound")) {
+      const action = this.fieldByPath("components.trigger.action")?.value;
+      return {goal: "builtin:goal", hazard: "builtin:hazard", checkpoint: "builtin:checkpoint", message: "builtin:confirm"}[action] || "";
+    }
+    return field?.value || "";
+  }
+
+  renderSounds(s) {
+    if (!s) return;
+    const q = ($("#drawerFilter").value || "").toLowerCase();
+    const key = JSON.stringify([s.imported, s.previewing, q, s.ready]);
+    if (key === this.panelKeys.sounds) return;
+    this.panelKeys.sounds = key;
+    const match = x => !q || x.name.toLowerCase().includes(q) || (x.category || "").toLowerCase().includes(q) || x.id.toLowerCase().includes(q);
+    const tile = (x, imported) => `<div class="snd" draggable="true" data-sound="${esc(x.id)}" title="${esc(x.id)} - click to listen, double-click to use on the selection">` +
+      `<button class="ph" data-play="${esc(x.id)}" title="Preview">${icon("play")}</button>` +
+      `<span class="ti">${icon(x.loop ? "wave" : imported ? "note" : "speaker")}</span><span class="nm">${esc(x.name)}</span>` +
+      `<span class="dim">${imported ? (x.duration ? x.duration.toFixed(1) + " s" : "") : x.loop ? "loop" : ""}</span>` +
+      (imported ? `<button class="ph" data-remove-sound="${esc(x.id)}" title="Remove">${icon("trash")}</button>` : "") + `</div>`;
+    let html = "";
+    if (!s.ready) html += `<div class="note dim">Sound starts after the first click or key press (browser rule). ${this.audio ? "" : "This browser has no Web Audio: the editor works silently."}</div>`;
+    const imported = (s.imported || []).filter(match);
+    html += `<div class="cat-group"><h4>Imported</h4><div class="snd-list">${imported.map(x => tile(x, true)).join("")}` +
+      `<button class="snd-add" data-add-sound>${icon("plus")}<span>Import audio (WAV, MP3, OGG, M4A, FLAC)</span></button></div></div>`;
+    const groups = new Map();
+    for (const b of s.builtin || []) if (match(b)) { if (!groups.has(b.category)) groups.set(b.category, []); groups.get(b.category).push(b); }
+    for (const [cat, list] of groups) html += `<div class="cat-group"><h4>${esc(cat)} <span class="dim">built-in</span></h4><div class="snd-list">${list.map(x => tile(x, false)).join("")}</div></div>`;
+    if (s.previewing) html = `<div class="note"><button class="ph" data-stop-sound>${icon("stop")}</button> Playing preview</div>` + html;
+    const pane = $("#soundPane");
+    pane.innerHTML = html;
+    if (pane.dataset.wired) return;
+    pane.dataset.wired = "1";
+    pane.addEventListener("click", e => {
+      if (e.target.closest("[data-add-sound]")) { $("#fileSound").click(); return; }
+      if (e.target.closest("[data-stop-sound]")) { this.engine.command({cmd: "stopSound"}); return; }
+      const rm = e.target.closest("[data-remove-sound]");
+      if (rm) { this.engine.command({cmd: "removeSound", id: rm.dataset.removeSound}); return; }
+      const t = e.target.closest("[data-sound]");
+      if (t) this.engine.command({cmd: "previewSound", sound: t.dataset.sound});
+    });
+    pane.addEventListener("dblclick", e => {
+      const t = e.target.closest("[data-sound]");
+      if (!t || !this.state.selection.length) return;
+      // Use it on the selection: an Audio Source's sound (added when missing).
+      if (!this.state.details.sections?.some(sec => sec.id === "audio")) this.engine.command({cmd: "addComponent", type: "audio"});
+      this.setProp("components.audio.sound", t.dataset.sound);
+    });
+    pane.addEventListener("dragstart", e => {
+      const t = e.target.closest("[data-sound]");
+      if (t) { e.dataTransfer.setData("text/x-kern-sound", t.dataset.sound); e.dataTransfer.effectAllowed = "copy"; }
+    });
+  }
+
+  async importSound(file) {
+    if (file.size > MAX_SOUND_BYTES) { this.toast(`${file.name} is larger than ${MAX_SOUND_BYTES >> 20} MB - shorten or compress it (OGG / MP3)`); return null; }
+    const src = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
+    let duration = 0;
+    let dataUrl = src;
+    if (!/^data:(audio|video)\//.test(dataUrl)) dataUrl = "data:audio/" + (file.name.split(".").pop() || "wav").toLowerCase() + ";base64," + src.slice(src.indexOf(",") + 1);
+    if (this.audio) {
+      try { duration = (await this.audio.decode(dataUrl)).duration; }
+      catch { this.toast(`${file.name} is not an audio file this browser can play`); return null; }
+    }
+    const r = this.engine.command({cmd: "importSound", name: file.name.replace(/\.[^.]+$/, ""), src: dataUrl, duration});
+    if (r?.ok) {
+      this.toast(`Imported ${file.name}`);
+      this.toggleDrawer("sounds");
+    }
+    return r?.id || null;
   }
 
   renderLog(log) {

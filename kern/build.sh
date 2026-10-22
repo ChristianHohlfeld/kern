@@ -62,7 +62,7 @@ add_component() { while IFS= read -r f; do sources+=("$f"); done < <(find "$here
 
 objects=()
 if [ "$with_physics" = 1 ]; then
-  cflags=("${target[@]}" -std=c17 "${opt[@]}" "${features[@]}" -fvisibility=hidden -ffunction-sections -fdata-sections
+  cflags=("${target[@]}" -std=c17 "${opt[@]}" "${features[@]}" -fvisibility=hidden -ffunction-sections -fdata-sections -DBOX3D_DISABLE_SIMD -ffp-contract=off
           -I"$here/third_party/box3d/include" -I"$here/third_party/box3d/src" -w)
   key="$(printf '%s ' "${cflags[@]}" "$("$CC" --version | head -1)" | sha256sum | cut -c1-16)"
   cache="${KERN_OBJ_CACHE:-${TMPDIR:-/tmp}/kern-obj}/box3d-$key"
@@ -71,7 +71,7 @@ if [ "$with_physics" = 1 ]; then
   for c in "$here"/third_party/box3d/src/*.c; do
     o="$cache/$(basename "$c" .c).o"
     objects+=("$o")
-    newest_header="$(ls -t "$here"/third_party/box3d/src/*.h "$here"/third_party/box3d/include/box3d/*.h | head -1)"
+    newest_header="$(ls -t "$here"/third_party/box3d/src/*.h "$here"/third_party/box3d/src/*.inl "$here"/third_party/box3d/include/box3d/*.h | head -1)"
     if [ ! -f "$o" ] || [ "$c" -nt "$o" ] || [ "$newest_header" -nt "$o" ]; then
       "$CC" "${cflags[@]}" -c "$c" -o "$o" &
       pids+=($!)

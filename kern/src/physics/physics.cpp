@@ -39,6 +39,8 @@ void fill_base(b3JointDef& base, const JointSettings& s) {
   base.localFrameA = bt(s.frame_a);
   base.localFrameB = bt(s.frame_b);
   base.collideConnected = s.collide_connected;
+  if (s.constraint_hertz > 0) base.constraintHertz = s.constraint_hertz;
+  if (s.constraint_damping_ratio > 0) base.constraintDampingRatio = s.constraint_damping_ratio;
 }
 
 }  // namespace
@@ -86,6 +88,10 @@ bool World::create(const WorldSettings& s) {
   def.restitutionIterations = std::clamp(s.restitution_iterations, 0, 63);
   def.enableRestitutionPropagation = s.restitution_propagation;
   def.hitEventThreshold = max_of(0.0f, s.hit_event_threshold);
+  if (s.contact_hertz > 0) def.contactHertz = s.contact_hertz;
+  if (s.contact_damping_ratio > 0) def.contactDampingRatio = s.contact_damping_ratio;
+  if (s.contact_speed > 0) def.contactSpeed = s.contact_speed;
+  if (s.maximum_linear_speed > 0) def.maximumLinearSpeed = s.maximum_linear_speed;
   def.workerCount = 1;  // single-threaded WebAssembly: no scheduler threads
   const b3WorldId id = b3CreateWorld(&def);
   if (!b3World_IsValid(id)) return fail("Box3D could not create a world (too many worlds?)");
@@ -101,6 +107,8 @@ void World::destroy() {
     if (b3World_IsValid(id)) b3DestroyWorld(id);
   }
   world_ = 0;
+  for (void* m : meshes_) b3DestroyMesh(static_cast<b3MeshData*>(m));
+  meshes_.clear();
   body_users_.clear();
   shape_users_.clear();
   contact_begin_.clear();
@@ -208,6 +216,37 @@ Shape World::create_shape(Body body, const ShapeSettings& s) {
       if (!hull) { fail("Box3D rejected the hull (flat, degenerate or too many features)"); return {}; }
       id = b3CreateHullShape(bid, &def, hull);
       b3DestroyHull(hull);
+      break;
+    }
+    case ShapeKind::mesh: {
+      // Triangle meshes collide only on static bodies (Box3D "Triangle Meshes").
+      if (b3Body_GetType(bid) != b3_staticBody) { fail("triangle meshes need a static body"); return {}; }
+      if (s.points.size < 3 || s.indices.size < 3 || s.indices.size % 3) { fail("a mesh needs vertices and whole triangles"); return {}; }
+      std::vector<b3Vec3> verts;
+      verts.reserve(s.points.size);
+      for (const Vec3& p : s.points) {
+        if (!finite_vec(p)) { fail("non-finite mesh vertex"); return {}; }
+        verts.push_back(bv(s.center + s.rotation.rotate(p)));
+      }
+      std::vector<int32_t> idx;
+      idx.reserve(s.indices.size);
+      for (u32 i : s.indices) {
+        if (i >= s.points.size) { fail("mesh index out of range"); return {}; }
+        idx.push_back(static_cast<int32_t>(i));
+      }
+      b3MeshDef md{};
+      md.vertices = verts.data();
+      md.vertexCount = static_cast<int>(verts.size());
+      md.indices = idx.data();
+      md.triangleCount = static_cast<int>(idx.size() / 3);
+      md.weldVertices = true;
+      md.weldTolerance = 0.0005f;
+      md.identifyEdges = true;  // no ghost collisions on internal edges
+      b3MeshData* mesh = b3CreateMesh(&md, nullptr, 0);
+      if (!mesh) { fail("Box3D rejected the mesh (degenerate triangles?)"); return {}; }
+      id = b3CreateMeshShape(bid, &def, mesh, b3Vec3{1, 1, 1});
+      if (B3_IS_NULL(id)) { b3DestroyMesh(mesh); break; }
+      meshes_.push_back(mesh);
       break;
     }
   }
@@ -401,6 +440,11 @@ void World::set_pose(Body body, const Pose& p) {
   if (body_valid(body) && finite_vec(p.position) && finite_quat(p.rotation)) b3Body_SetTransform(body_id(body), bv(p.position), bq(p.rotation));
 }
 
+void World::set_body_type(Body body, BodyType type) {
+  if (!body_valid(body)) return;
+  b3Body_SetType(body_id(body), type == BodyType::dynamic ? b3_dynamicBody : type == BodyType::kinematic ? b3_kinematicBody : b3_staticBody);
+}
+
 void World::set_target_pose(Body body, const Pose& target, f32 dt) {
   if (body_valid(body) && finite_vec(target.position) && dt > 0) b3Body_SetTargetTransform(body_id(body), bt(target), dt, true);
 }
@@ -526,6 +570,211 @@ RayHit World::cast_ray(Vec3 origin, Vec3 translation, u64 mask_bits, Body ignore
   hit.normal = kv(closest.normal);
   hit.fraction = closest.fraction;
   return hit;
+}
+
+RayHit World::cast_sphere(Vec3 origin, f32 radius, Vec3 translation, u64 mask_bits, Body ignore) const {
+  RayHit hit;
+  if (!valid() || !finite_vec(origin) || !finite_vec(translation) || !(radius > 0)) return hit;
+  b3QueryFilter filter = b3DefaultQueryFilter();
+  filter.maskBits = mask_bits;
+  const b3Vec3 point{0, 0, 0};
+  b3ShapeProxy proxy{&point, 1, radius};
+  struct Closest {
+    u64 ignore = 0;
+    b3ShapeId shape = b3_nullShapeId;
+    b3Pos point{};
+    b3Vec3 normal{};
+    f32 fraction = 1;
+  } closest;
+  closest.ignore = ignore.id;
+  auto callback = [](b3ShapeId shape, b3Pos p, b3Vec3 n, float fraction, uint64_t, int, int, void* context) -> float {
+    Closest* c = static_cast<Closest*>(context);
+    if (b3Shape_IsSensor(shape) || (c->ignore && b3StoreBodyId(b3Shape_GetBody(shape)) == c->ignore)) return -1.0f;
+    c->shape = shape;
+    c->point = p;
+    c->normal = n;
+    c->fraction = fraction;
+    return fraction;
+  };
+  b3World_CastShape(world_id(world_), bv(origin), &proxy, bv(translation), filter, callback, &closest);
+  if (B3_IS_NULL(closest.shape)) return hit;
+  hit.hit = true;
+  hit.shape = shape_of(closest.shape);
+  hit.body = shape_body_checked(closest.shape);
+  hit.point = kv(closest.point);
+  hit.normal = kv(closest.normal);
+  hit.fraction = closest.fraction;
+  return hit;
+}
+
+namespace {
+struct MoverFilter {
+  u64 ignore = 0;
+  std::vector<MoverPlane>* out = nullptr;
+  Vec3 origin;
+};
+bool mover_accepts(b3ShapeId shape, void* context) {
+  const MoverFilter* f = static_cast<const MoverFilter*>(context);
+  if (b3Shape_IsSensor(shape)) return false;
+  return !(f->ignore && b3StoreBodyId(b3Shape_GetBody(shape)) == f->ignore);
+}
+b3Capsule capsule_of(const Capsule& c) { return {bv(c.center1), bv(c.center2), c.radius}; }
+}  // namespace
+
+f32 World::cast_mover(Vec3 origin, const Capsule& capsule, Vec3 translation, u64 mask_bits, Body ignore) const {
+  if (!valid() || !finite_vec(origin) || !finite_vec(translation)) return 0;
+  b3QueryFilter filter = b3DefaultQueryFilter();
+  filter.maskBits = mask_bits;
+  MoverFilter f;
+  f.ignore = ignore.id;
+  const b3Capsule c = capsule_of(capsule);
+  return b3World_CastMover(world_id(world_), bv(origin), &c, bv(translation), filter, &mover_accepts, &f);
+}
+
+void World::collide_mover(Vec3 origin, const Capsule& capsule, u64 mask_bits, Body ignore, std::vector<MoverPlane>& out) const {
+  out.clear();
+  if (!valid() || !finite_vec(origin)) return;
+  b3QueryFilter filter = b3DefaultQueryFilter();
+  filter.maskBits = mask_bits;
+  MoverFilter f;
+  f.ignore = ignore.id;
+  f.out = &out;
+  f.origin = origin;
+  const b3Capsule c = capsule_of(capsule);
+  auto callback = [](b3ShapeId shape, const b3PlaneResult* planes, int count, void* context) -> bool {
+    MoverFilter* f = static_cast<MoverFilter*>(context);
+    if (!mover_accepts(shape, context)) return true;
+    for (int i = 0; i < count && f->out->size() < 32; ++i) {
+      MoverPlane p;
+      p.normal = kv(planes[i].plane.normal);
+      p.offset = planes[i].plane.offset;
+      p.point = f->origin + kv(planes[i].point);
+      p.shape = shape_of(shape);
+      p.body = body_of(b3Shape_GetBody(shape));
+      f->out->push_back(p);
+    }
+    return true;
+  };
+  b3World_CollideMover(world_id(world_), bv(origin), &c, filter, callback, &f);
+}
+
+void World::explode(Vec3 center, f32 radius, f32 falloff, f32 impulse_per_area, u64 mask_bits) {
+  if (!valid() || !finite_vec(center) || !(radius > 0)) return;
+  b3ExplosionDef def = b3DefaultExplosionDef();
+  def.maskBits = mask_bits;
+  def.position = bv(center);
+  def.radius = radius;
+  def.falloff = max_of(0.0f, falloff);
+  def.impulsePerArea = impulse_per_area;
+  b3World_Explode(world_id(world_), &def);
+}
+
+void World::push_body(Body body, Vec3 point, Vec3 normal, Vec3 velocity) {
+  if (!body_valid(body) || body_type(body) != BodyType::dynamic) return;
+  const b3BodyId id = body_id(body);
+  const f32 inv_mass = b3Body_GetInverseMass(id);
+  const b3Matrix3 inv_i = b3Body_GetWorldInverseRotationalInertia(id);
+  const Vec3 r = point - kv(b3Body_GetWorldCenter(id));
+  const Vec3 rn = cross(r, normal);
+  const b3Vec3 irn = b3MulMV(inv_i, bv(rn));
+  const f32 k = inv_mass + dot(rn, kv(irn));
+  if (!(k > 0)) return;
+  const Vec3 vb = kv(b3Body_GetLinearVelocity(id)) + cross(kv(b3Body_GetAngularVelocity(id)), r);
+  const f32 vn = dot(vb - velocity, normal);
+  const f32 impulse = max_of(-vn / k, 0.0f);
+  if (impulse > 0) b3Body_ApplyLinearImpulse(id, bv(normal * impulse), bv(point), true);
+}
+
+// ---------------------------------------------------------------------------
+// character mover
+
+Capsule CharacterMover::capsule() const {
+  Capsule c;
+  c.radius = settings.radius;
+  c.center1 = {0, 0, settings.step_height + settings.radius};
+  c.center2 = {0, 0, max_of(settings.height - settings.radius, c.center1.z + 0.01f)};
+  return c;
+}
+
+bool CharacterMover::step(World& world, f32 dt, Vec3 wish, bool jump, bool sprint, Body self) {
+  if (!(dt > 0) || !world.valid()) return false;
+  const Settings& s = settings;
+  bool jumped = false;
+  // Friction on the ground (linear above stop_speed, constant below).
+  Vec3 horizontal{velocity_.x, velocity_.y, 0};
+  const f32 speed = length(horizontal);
+  if (on_ground_) {
+    if (speed < 0.05f) { velocity_.x = velocity_.y = 0; }
+    else {
+      const f32 control = speed < s.stop_speed ? s.stop_speed : speed;
+      const f32 ratio = max_of(0.0f, speed - control * s.friction * dt) / speed;
+      velocity_.x *= ratio;
+      velocity_.y *= ratio;
+    }
+  }
+  const f32 max_speed = sprint ? s.max_speed * max_of(1.0f, s.sprint) : s.max_speed;
+  wish.z = 0;
+  f32 wish_len = length(wish);
+  if (wish_len > 1) { wish = wish / wish_len; wish_len = 1; }
+  const Vec3 dir = wish_len > 1e-4f ? wish / wish_len : Vec3{};
+  const f32 desired = max_speed * wish_len;
+  if (on_ground_) velocity_.z = 0;
+  // Accelerate along the wish direction up to the desired speed.
+  const f32 current = dot(velocity_, dir);
+  const f32 add = desired - current;
+  if (add > 0 && wish_len > 0) {
+    const f32 accel = min_of(add, s.accelerate * max_speed * dt * (on_ground_ ? 1.0f : s.air_control));
+    velocity_ += dir * accel;
+  }
+  if (jump && on_ground_) {
+    velocity_.z = s.jump_speed;
+    on_ground_ = false;
+    jumped = true;
+  }
+  velocity_.z -= s.gravity * dt;
+
+  // Pogo: a damped spring between the lower sphere and the ground carries the capsule over steps.
+  const Capsule cap = capsule();
+  const f32 rest = s.step_height + s.radius;
+  const f32 ray = rest + s.radius;
+  const Vec3 ray_origin = position_ + cap.center1;
+  const RayHit ground = world.cast_sphere(ray_origin, s.radius * 0.6f, Vec3{0, 0, -ray}, s.mask_bits, self);
+  const f32 min_normal_z = std::cos(clamp(s.max_slope_deg, 0.0f, 89.0f) * 0.0174532925f);
+  if (!ground.hit || velocity_.z > 0 || ground.normal.z < min_normal_z) {
+    on_ground_ = false;
+    pogo_ = 0;
+  } else {
+    on_ground_ = true;
+    const f32 current_length = ground.fraction * ray + s.radius * 0.6f;
+    const f32 zeta = 0.7f, omega = 2 * 3.14159265f * 4.0f, oh = omega * dt;
+    pogo_ = (pogo_ - omega * oh * (current_length - rest)) / (1 + 2 * zeta * oh + oh * oh);
+  }
+
+  const Vec3 start = position_;
+  const Vec3 target = position_ + velocity_ * dt + Vec3{0, 0, pogo_ * dt};
+  for (int iteration = 0; iteration < 5; ++iteration) {
+    world.collide_mover(position_, cap, s.mask_bits, self, planes_);
+    std::vector<b3CollisionPlane> cp(planes_.size());
+    for (std::size_t i = 0; i < planes_.size(); ++i) cp[i] = {{bv(planes_[i].normal), planes_[i].offset}, FLT_MAX, 0, true};
+    const b3PlaneSolverResult r = b3SolvePlanes(bv(target - position_), cp.data(), static_cast<int>(cp.size()));
+    Vec3 delta = kv(r.delta);
+    const f32 fraction = world.cast_mover(position_, cap, delta, s.mask_bits, self);
+    delta = delta * fraction;
+    position_ += delta;
+    if (dot(delta, delta) < 1e-4f) {
+      // Clip the velocity against the final planes so pressing into a wall builds no speed.
+      velocity_ = kv(b3ClipVector(bv(velocity_), cp.data(), static_cast<int>(cp.size())));
+      break;
+    }
+    if (iteration == 4) velocity_ = kv(b3ClipVector(bv(velocity_), cp.data(), static_cast<int>(cp.size())));
+  }
+  (void)start;
+  // Push dynamic bodies the mover touches.
+  if (s.push_strength > 0)
+    for (const MoverPlane& p : planes_)
+      if (world.body_valid(p.body) && world.body_type(p.body) == BodyType::dynamic)
+        world.push_body(p.body, p.point, p.normal * -1.0f, velocity_ * s.push_strength);
+  return jumped;
 }
 
 i32 World::awake_body_count() const { return valid() ? b3World_GetAwakeBodyCount(world_id(world_)) : 0; }

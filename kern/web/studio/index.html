@@ -87,6 +87,7 @@
     <div class="drawer-head tabs">
       <button class="tab active" data-dtab="place">Place Actors</button>
       <button class="tab" data-dtab="textures">Textures</button>
+      <button class="tab" data-dtab="sounds">Sounds</button>
       <button class="tab" data-dtab="log">Output Log</button>
       <div class="spacer"></div>
       <div class="search small"><span data-icon="search"></span><input id="drawerFilter" placeholder="Search" spellcheck="false"></div>
@@ -95,6 +96,7 @@
     <div class="drawer-body">
       <div id="placePane" class="dpane"></div>
       <div id="texturePane" class="dpane" hidden></div>
+      <div id="soundPane" class="dpane" hidden></div>
       <div id="logPane" class="dpane" hidden><div id="log" class="mono"></div></div>
     </div>
   </section>
@@ -106,6 +108,8 @@
     <div id="statusText" class="dim"></div>
     <div class="spacer"></div>
     <div id="simStats" class="mono dim"></div>
+    <button class="sb icon" id="muteBtn" title="Sound on / off" data-icon="speaker"></button>
+    <div id="meter" title="Output level"><i></i><i></i></div>
     <div id="selInfo" class="dim"></div>
   </footer>
 
@@ -116,6 +120,7 @@
   <div id="splash"><div class="brand big"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h3.2v7.4L14.7 3h4L11.9 10.6 19.2 21h-4.1l-5.4-7.9-1.5 1.6V21H5z"/></svg></div><div>Kern Studio</div><small>Starting the engine</small></div>
   <input type="file" id="fileOpen" accept=".klevel,.json,application/json" hidden>
   <input type="file" id="fileTexture" accept="image/png,image/jpeg,image/webp" hidden>
+  <input type="file" id="fileSound" accept="audio/*,.wav,.mp3,.ogg,.oga,.m4a,.aac,.flac,.webm,.opus" hidden>
 </div>
 <script type="module">
 import {startStudio} from "./studio.mjs";

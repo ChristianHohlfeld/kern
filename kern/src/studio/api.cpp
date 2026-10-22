@@ -5,6 +5,7 @@
 // back as a pointer to a NUL-terminated buffer that stays valid until the next
 // call (kern_studio_result_length() gives its size).
 #include <memory>
+#include <vector>
 
 #include "kern/api/c_api.h"
 #include "kern/studio/studio.h"
@@ -123,6 +124,76 @@ KERN_EXPORT(kern_studio_texture_source) const char* kern_studio_texture_source(c
 KERN_EXPORT(kern_studio_texture_pixels) i32 kern_studio_texture_pixels(const char* id, u32 length, i32 width, i32 height, const u8* rgba) {
   return live() && g_host->studio->texture_pixels(std::string(text(id, length)), width, height, rgba) ? 1 : 0;
 }
+
+// ---- audio ----
+
+/// Starts the mixer at the output device rate; 1 on success.
+KERN_EXPORT(kern_studio_audio_init) i32 kern_studio_audio_init(u32 sample_rate) {
+  return live() && g_host->studio->audio_init(sample_rate) ? 1 : 0;
+}
+
+/// Renders `frames` frames of interleaved stereo; the pointer stays valid until the next call.
+KERN_EXPORT(kern_studio_audio_render) const f32* kern_studio_audio_render(u32 frames) {
+  if (!live()) return nullptr;
+  static std::vector<f32> buffer;
+  frames = frames > 16384 ? 16384 : frames;
+  buffer.resize(static_cast<std::size_t>(frames) * audio::kOutputChannels);
+  g_host->studio->audio_render(buffer.data(), frames);
+  return buffer.data();
+}
+
+/// Renders queued built-in sounds for about `budget_ms` (the page calls it from a timer, so
+/// music is ready quickly even when frames are slow).
+KERN_EXPORT(kern_studio_audio_prepare) i32 kern_studio_audio_prepare(f64 budget_ms) {
+  if (!live() || !g_host->studio->audio_ready()) return 1;
+  return g_host->studio->sound_bank().prepare(budget_ms > 0 ? budget_ms : 2) ? 1 : 0;
+}
+
+/// Imported sound ids that need decoded PCM: ["snd1", ...].
+KERN_EXPORT(kern_studio_pending_sounds) const char* kern_studio_pending_sounds() {
+  if (!live()) return nullptr;
+  json::Value list = json::Value::array();
+  for (const std::string& id : g_host->studio->pending_sounds()) list.push(id);
+  return answer(list);
+}
+
+KERN_EXPORT(kern_studio_sound_source) const char* kern_studio_sound_source(const char* id, u32 length) {
+  if (!live()) return nullptr;
+  return answer(g_host->studio->sound_source(std::string(text(id, length))));
+}
+
+/// Decoded PCM (interleaved f32, 1 or 2 channels, any rate).
+KERN_EXPORT(kern_studio_sound_pcm)
+i32 kern_studio_sound_pcm(const char* id, u32 length, const f32* samples, u32 frames, u32 channels, u32 rate) {
+  return live() && g_host->studio->sound_pcm(std::string(text(id, length)), samples, frames, channels, rate) ? 1 : 0;
+}
+
+KERN_EXPORT(kern_studio_sound_failed) void kern_studio_sound_failed(const char* id, u32 length, const char* reason, u32 reason_length) {
+  if (live()) g_host->studio->sound_failed(std::string(text(id, length)), std::string(text(reason, reason_length)));
+}
+
+// ---- network (the page moves datagrams; kern/web/studio/game.mjs KernNet) ----
+
+/// A datagram from peer `from` (a 53-bit id the page assigns).
+KERN_EXPORT(kern_studio_net_push) void kern_studio_net_push(f64 from, const u8* data, u32 bytes) {
+  if (live() && from > 0) g_host->studio->host_transport().push_incoming(net::Address{static_cast<u64>(from)}, data, static_cast<int>(bytes));
+}
+
+namespace {
+std::vector<u8> g_out;
+f64 g_out_to = 0;
+}  // namespace
+
+/// Next datagram to send: its size (0 = none); kern_studio_net_out() / kern_studio_net_out_to() give bytes and target.
+KERN_EXPORT(kern_studio_net_take) u32 kern_studio_net_take() {
+  if (!live()) return 0;
+  net::Address to;
+  if (!g_host->studio->host_transport().take_outgoing(to, g_out)) return 0;
+  g_out_to = static_cast<f64>(to.id);
+  return static_cast<u32>(g_out.size());
+}
+KERN_EXPORT(kern_studio_net_out) const u8* kern_studio_net_out() { return g_out.data(); }
+KERN_EXPORT(kern_studio_net_out_to) f64 kern_studio_net_out_to() { return g_out_to; }
 
 KERN_EXPORT(kern_studio_take_autosave) const char* kern_studio_take_autosave(f64 now_ms) {
   if (!live()) return nullptr;

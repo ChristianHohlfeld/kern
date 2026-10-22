@@ -1,5 +1,7 @@
 #include "kern/game/level.h"
 
+#include "kern/audio/synth.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -287,6 +289,12 @@ const TextureAsset* Level::texture(std::string_view id) const {
   return nullptr;
 }
 
+const SoundAsset* Level::sound(std::string_view id) const {
+  for (const SoundAsset& s : sounds)
+    if (s.id == id) return &s;
+  return nullptr;
+}
+
 // ---------------------------------------------------------------------------
 // colours
 
@@ -369,6 +377,8 @@ json::Value actor_to_json(const Actor& a) {
     x.set("lockAngular", std::move(la));
     x.set("linearVelocity", vec(b.linear_velocity));
     x.set("angularVelocity", vec(b.angular_velocity));
+    x.set("impactSound", b.impact_sound);
+    x.set("impactThreshold", num(b.impact_threshold));
     c.set("body", std::move(x));
   }
   if (!a.colliders.empty()) {
@@ -414,6 +424,7 @@ json::Value actor_to_json(const Actor& a) {
       x.set("length", num(j.length));
       x.set("breakForce", num(j.break_force));
       x.set("breakTorque", num(j.break_torque));
+      x.set("breakSound", j.break_sound);
       list.push(std::move(x));
     }
     c.set("joints", std::move(list));
@@ -433,6 +444,9 @@ json::Value actor_to_json(const Actor& a) {
     x.set("cameraDistance", num(k.camera_distance));
     x.set("cameraHeight", num(k.camera_height));
     x.set("cameraFov", num(k.camera_fov));
+    x.set("engineSound", k.engine_sound);
+    x.set("jumpSound", k.jump_sound);
+    x.set("boostSound", k.boost_sound);
     c.set("controller", std::move(x));
   }
   if (a.pickup) {
@@ -440,6 +454,7 @@ json::Value actor_to_json(const Actor& a) {
     x.set("points", num(a.pickup->points));
     x.set("burstColor", hex_color(a.pickup->burst_color));
     x.set("respawn", num(a.pickup->respawn));
+    x.set("sound", a.pickup->sound);
     c.set("pickup", std::move(x));
   }
   if (a.trigger) {
@@ -447,6 +462,7 @@ json::Value actor_to_json(const Actor& a) {
     x.set("action", trigger_action_name(a.trigger->action));
     x.set("message", a.trigger->message);
     x.set("once", a.trigger->once);
+    x.set("sound", a.trigger->sound);
     c.set("trigger", std::move(x));
   }
   if (a.rotator) {
@@ -474,6 +490,24 @@ json::Value actor_to_json(const Actor& a) {
     x.set("traffic", k.traffic);
     x.set("nightWindows", k.night_windows);
     c.set("city", std::move(x));
+  }
+  if (a.audio) {
+    const AudioComponent& k = *a.audio;
+    json::Value x = json::Value::object();
+    x.set("sound", k.sound);
+    x.set("volume", num(k.volume));
+    x.set("pitch", num(k.pitch));
+    x.set("loop", k.loop);
+    x.set("autoplay", k.autoplay);
+    x.set("spatial", k.spatial);
+    x.set("minDistance", num(k.min_distance));
+    x.set("maxDistance", num(k.max_distance));
+    x.set("rolloff", audio::rolloff_name(k.rolloff));
+    x.set("bus", audio::bus_name(k.bus));
+    x.set("doppler", num(k.doppler));
+    x.set("pitchBySpeed", num(k.pitch_by_speed));
+    x.set("delay", num(k.delay));
+    c.set("audio", std::move(x));
   }
   o.set("components", std::move(c));
   return o;
@@ -537,6 +571,8 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       br.flags("lockAngular", b.lock_angular);
       br.vector("linearVelocity", b.linear_velocity);
       br.vector("angularVelocity", b.angular_velocity);
+      br.string("impactSound", b.impact_sound);
+      br.number("impactThreshold", b.impact_threshold, 0, 1e4);
       if (!br.ok) return false;
       a.body = b;
     }
@@ -582,6 +618,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
         jr.number("length", j.length, 0, 1e5);
         jr.number("breakForce", j.break_force, 0, 1e12);
         jr.number("breakTorque", j.break_torque, 0, 1e12);
+        jr.string("breakSound", j.break_sound);
         if (!jr.ok) return false;
         a.joints.push_back(j);
       }
@@ -600,6 +637,9 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       kr.number("cameraDistance", k.camera_distance, 0, 500);
       kr.number("cameraHeight", k.camera_height, -100, 500);
       kr.number("cameraFov", k.camera_fov, 20, 120);
+      kr.string("engineSound", k.engine_sound);
+      kr.string("jumpSound", k.jump_sound);
+      kr.string("boostSound", k.boost_sound);
       if (!kr.ok) return false;
       a.controller = k;
     }
@@ -609,6 +649,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       pr.number("points", p.points, -1e6, 1e6);
       pr.color("burstColor", p.burst_color);
       pr.number("respawn", p.respawn, 0, 1e5);
+      pr.string("sound", p.sound);
       if (!pr.ok) return false;
       a.pickup = p;
     }
@@ -618,6 +659,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       tr.enumeration("action", kTriggerNames, t.action);
       tr.string("message", t.message);
       tr.boolean("once", t.once);
+      tr.string("sound", t.sound);
       if (!tr.ok) return false;
       a.trigger = t;
     }
@@ -653,6 +695,26 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       if (k.street > k.pitch * 0.5f) k.street = k.pitch * 0.5f;
       a.city = k;
     }
+    if (const json::Value* x = c.find("audio")) {
+      AudioComponent k;
+      Reader kr{*x, error};
+      kr.string("sound", k.sound);
+      kr.number("volume", k.volume, 0, 4);
+      kr.number("pitch", k.pitch, 0.05, 8);
+      kr.boolean("loop", k.loop);
+      kr.boolean("autoplay", k.autoplay);
+      kr.boolean("spatial", k.spatial);
+      kr.number("minDistance", k.min_distance, 0.01, 1e5);
+      kr.number("maxDistance", k.max_distance, 0.02, 1e5);
+      if (const json::Value* ro = x->find("rolloff"); ro && (!ro->is_string() || !audio::parse_rolloff(ro->as_string(), k.rolloff))) kr.fail("rolloff: unknown value");
+      if (const json::Value* bu = x->find("bus"); bu && (!bu->is_string() || !audio::parse_bus(bu->as_string(), k.bus) || k.bus == audio::Bus::master)) kr.fail("bus: unknown value");
+      kr.number("doppler", k.doppler, 0, 4);
+      kr.number("pitchBySpeed", k.pitch_by_speed, -10, 10);
+      kr.number("delay", k.delay, 0, 1e5);
+      if (!kr.ok) return false;
+      if (k.max_distance <= k.min_distance) k.max_distance = k.min_distance + 0.01f;
+      a.audio = k;
+    }
   }
   return r.ok;
 }
@@ -675,6 +737,13 @@ json::Value world_to_json(const WorldSettings& w) {
   o.set("goal", game_goal_name(w.goal));
   o.set("timeLimit", num(w.time_limit));
   o.set("scoreTarget", num(w.score_target));
+  o.set("masterVolume", num(w.master_volume));
+  o.set("music", w.music);
+  o.set("musicVolume", num(w.music_volume));
+  o.set("ambience", w.ambience);
+  o.set("ambienceVolume", num(w.ambience_volume));
+  o.set("reverb", num(w.reverb));
+  o.set("doppler", num(w.doppler));
   return o;
 }
 
@@ -697,6 +766,13 @@ bool world_from_json(const json::Value& v, WorldSettings& w, std::string* error)
   r.enumeration("goal", kGoalNames, w.goal);
   r.number("timeLimit", w.time_limit, 0, 1e6);
   r.number("scoreTarget", w.score_target, 0, 1e9);
+  r.number("masterVolume", w.master_volume, 0, 4);
+  r.string("music", w.music);
+  r.number("musicVolume", w.music_volume, 0, 4);
+  r.string("ambience", w.ambience);
+  r.number("ambienceVolume", w.ambience_volume, 0, 4);
+  r.number("reverb", w.reverb, 0, 1);
+  r.number("doppler", w.doppler, 0, 4);
   if (w.time_of_day >= 1) w.time_of_day = 0;
   return r.ok;
 }
@@ -727,6 +803,16 @@ json::Value to_json(const Level& level) {
     tex.push(std::move(x));
   }
   o.set("textures", std::move(tex));
+  json::Value snd = json::Value::array();
+  for (const SoundAsset& s : level.sounds) {
+    json::Value x = json::Value::object();
+    x.set("id", s.id);
+    x.set("name", s.name);
+    x.set("duration", num(s.duration));
+    x.set("src", s.src ? *s.src : std::string());
+    snd.push(std::move(x));
+  }
+  o.set("sounds", std::move(snd));
   return o;
 }
 
@@ -784,6 +870,16 @@ bool from_json(const json::Value& doc, Level& out, std::string* error) {
       if (t.id.empty() || t.src->rfind("data:image/", 0) != 0) continue;
       l.textures.push_back(std::move(t));
     }
+  if (const json::Value* snd = doc.find("sounds"); snd && snd->is_array())
+    for (const json::Value& v : snd->items()) {
+      SoundAsset s;
+      s.id = v["id"].as_string();
+      s.name = v["name"].as_string();
+      s.duration = static_cast<f32>(std::clamp(v["duration"].as_number(0), 0.0, 1e6));
+      s.src = std::make_shared<const std::string>(v["src"].as_string());
+      if (s.id.empty() || s.id.rfind("builtin:", 0) == 0 || (s.src->rfind("data:audio/", 0) != 0 && s.src->rfind("data:video/", 0) != 0 && s.src->rfind("data:application/ogg", 0) != 0)) continue;
+      l.sounds.push_back(std::move(s));
+    }
   out = std::move(l);
   return true;
 }
@@ -792,6 +888,12 @@ bool from_text(std::string_view text, Level& out, std::string* error) {
   json::Value doc;
   if (!json::parse(text, doc, error)) return false;
   return from_json(doc, out, error);
+}
+
+bool sound_reference_ok(const Level& level, std::string_view ref) {
+  if (ref.empty() || ref == "none" || ref == "auto") return true;
+  if (ref.rfind("builtin:", 0) == 0) return audio::find_builtin(ref.substr(8)) != nullptr;
+  return level.sound(ref) != nullptr;
 }
 
 std::vector<Issue> validate(const Level& level) {
@@ -818,6 +920,18 @@ std::vector<Issue> validate(const Level& level) {
         if (!collides) warn("joint target has neither a body nor collision (the joint is ignored)");
       }
     }
+    auto sound = [&](std::string_view ref, const char* what) {
+      if (!sound_reference_ok(level, ref)) warn(std::string(what) + " \"" + std::string(ref) + "\" does not exist (it is silent)");
+    };
+    if (a.body) sound(a.body->impact_sound, "impact sound");
+    for (const JointComponent& j : a.joints) sound(j.break_sound, "joint break sound");
+    if (a.controller) { sound(a.controller->engine_sound, "engine sound"); sound(a.controller->jump_sound, "jump sound"); sound(a.controller->boost_sound, "boost sound"); }
+    if (a.pickup) sound(a.pickup->sound, "pickup sound");
+    if (a.trigger) sound(a.trigger->sound, "trigger sound");
+    if (a.audio) {
+      sound(a.audio->sound, "audio source sound");
+      if (a.audio->sound.empty() || a.audio->sound == "none" || a.audio->sound == "auto") warn("the audio source has no sound");
+    }
     if (a.controller) ++players;
     if (a.controller && !a.body) error("a controller needs a body on the same actor");
     if (a.controller && a.body && a.body->motion != Motion::dynamic) warn("a controller only drives dynamic bodies");
@@ -828,6 +942,8 @@ std::vector<Issue> validate(const Level& level) {
       if (!sensor) warn("pickups and triggers react to sensor colliders; none is marked as sensor");
     }
   }
+  for (const char* ref : {level.world.music.c_str(), level.world.ambience.c_str()})
+    if (!sound_reference_ok(level, ref)) out.push_back({false, 0, std::string("world sound \"") + ref + "\" does not exist (it is silent)"});
   if (players > 1) out.push_back({false, 0, "more than one actor has a player controller; the first one is possessed"});
   if (level.world.goal == GameGoal::reach_goal) {
     bool goal = false;

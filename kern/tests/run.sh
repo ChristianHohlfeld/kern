@@ -15,8 +15,8 @@ pids=()
 for c in "$root"/third_party/box3d/src/*.c; do
   o="$out/box3d/$(basename "$c" .c).o"
   objects+=("$o")
-  if [ ! -f "$o" ] || [ "$c" -nt "$o" ]; then
-    "$cc" -std=c17 -O2 -g -DBOX3D_DISABLE_SIMD -w -I"$root/third_party/box3d/include" -I"$root/third_party/box3d/src" -c "$c" -o "$o" &
+  if [ ! -f "$o" ] || [ "$c" -nt "$o" ] || [ -n "$(find "$root/third_party/box3d" -name '*.h' -newer "$o" -o -name '*.inl' -newer "$o" | head -1)" ]; then
+    "$cc" -std=c17 -O2 -g -DBOX3D_DISABLE_SIMD -ffp-contract=off -w -I"$root/third_party/box3d/include" -I"$root/third_party/box3d/src" -c "$c" -o "$o" &
     pids+=($!)
   fi
 done

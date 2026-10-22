@@ -44,15 +44,17 @@ Die Seite enthält keine Editorlogik. Sie zeichnet die Panels aus dem JSON von `
 | Eingabe | Wirkung |
 |---|---|
 | Rechte Maustaste + WASD / QE | Fly Mode; Mausrad währenddessen ändert die Geschwindigkeit (1-8), Shift schneller, Z/C zoomen |
-| Linke Maustaste ziehen | vor/zurück und drehen |
-| Linke + rechte Maustaste | hoch/runter und seitwärts |
+| Linksklick | auswählen (Shift ergänzt, Ctrl schaltet um); Klick ins Leere hebt die Auswahl auf |
+| Actor mit links ziehen | über die Oberflächen unter dem Cursor verschieben, setzt auf (Grid-Snap) |
+| Ins Leere mit links ziehen | Rahmenauswahl (Shift ergänzt, Ctrl schaltet um) |
+| Rechte + linke Maustaste | im Fly Mode hoch/runter und seitwärts |
 | Mittlere Maustaste ziehen | schwenken |
 | Alt + links / rechts / Mitte | um die Auswahl kreisen / Dolly / schwenken |
 | Mausrad | vor/zurück (orthografisch: Zoom zum Cursor) |
 | F / End | Auswahl fokussieren / auf den Boden setzen |
 | Q W E R / Leertaste | Select / Move / Rotate / Scale / durchschalten |
 | Alt + Gizmo ziehen | beim Bewegen duplizieren |
-| Ctrl + Alt + ziehen | Rahmenauswahl (in orthografischen Ansichten genügt Ziehen) |
+| Aus „Place Actors“ ziehen | neuer Actor landet genau dort, wo losgelassen wird |
 | Ctrl+Z / Ctrl+Y | Rückgängig / Wiederholen (Edit → History zeigt alle Schritte) |
 | Ctrl+C / V / X / D, Entf | Kopieren, Einfügen, Ausschneiden, Duplizieren, Löschen |
 | H / Shift+H / Ctrl+H | Auswahl verstecken / den Rest verstecken / alles zeigen |
@@ -77,14 +79,17 @@ Ein Actor hat Name, Eltern-Actor, Outliner-Ordner, Hidden/Locked, Tags, Transfor
 |---|---|
 | Static Mesh | Box, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp mit PBR-Material (Farbe, Roughness, Metallic, Emissive, Opacity, Unlit, Schatten, zweiseitig, Textur mit Tiling); „Generate collision“ erzeugt einen passenden Collider |
 | Point Light | Farbe, Intensität, Radius |
-| Rigid Body (Box3D) | Static, Kinematic, Dynamic; Masse (0 = aus der Dichte), Dämpfung, Gravity Scale, Bullet, Sleep, Achsensperren, Startgeschwindigkeit |
+| Rigid Body (Box3D) | Static, Kinematic, Dynamic; Masse (0 = aus der Dichte), Dämpfung, Gravity Scale, Bullet, Sleep, Achsensperren, Startgeschwindigkeit; Aufprall-Sound mit Schwelle |
 | Collider (mehrere) | Fit to mesh, Box, Sphere, Capsule, Convex Hull; Offset, Rotation, Dichte, Reibung, Restitution, Rollwiderstand, Sensor, Kanäle (Kategorie/Maske/Gruppe) |
 | Constraint (mehrere) | Hinge, Slider, Ball, Fixed, Distance/Rope, Wheel, Motor, Parallel, No Collision; Anker und Achse lokal, Limits, Motor, Feder, Ruhelänge, Bruchkraft und -moment |
-| Player Controller | Hover Car, Rolling Ball, Character, Flyer, Vehicle; Geschwindigkeit, Beschleunigung, Wenderate, Sprung, Boost, Schwebehöhe, Kamera (Chase, First Person, Top Down) |
-| Pickup | Punkte, Partikelfarbe, Respawn |
-| Trigger | Goal, Hazard, Checkpoint, Message |
+| Player Controller | Hover Car, Rolling Ball, Character, Flyer, Vehicle; Geschwindigkeit, Beschleunigung, Wenderate, Sprung, Boost, Schwebehöhe, Kamera (Chase, First Person, Top Down); Motor-Loop, Sprung- und Boost-Sound |
+| Pickup | Punkte, Partikelfarbe, Respawn, Sound |
+| Trigger | Goal, Hazard, Checkpoint, Message; Sound (Automatic = passend zur Aktion) |
+| Audio Source | Sound, Lautstärke, Pitch, Loop, Autoplay, Startverzögerung, Bus; 3D: innerer Radius, Falloff, Roll-off (Inverse, Linear, Exponential), Doppler, Pitch nach Geschwindigkeit |
 | Rotator / Mover | Drehung bzw. Bewegung (Sinus, Ping-Pong, Schleife) |
 | Procedural City | Seed, Blöcke, Raster, Straßenbreite, Höhe, Bäume, Verkehr, beleuchtete Fenster in der Nacht |
+
+Constraints haben zusätzlich einen Bruch-Sound. Die World Settings enthalten unter „Audio“ Master-Lautstärke, Musik, Ambience (je mit Lautstärke), Hall und Doppler.
 
 Kind-Actors ohne eigenen Body werden beim Simulieren als Compound in den Body des nächsten Vorfahren geschweißt. Meshes mit Kollision, Pickups und Trigger ohne Body bekommen einen impliziten statischen Body, bei Animation durch Rotator oder Mover einen kinematischen. Gelenke verbinden den Actor (Body B) mit dem Ziel-Actor (Body A, 0 = Welt). Ausnahme sind Wheel-Gelenke: Dort ist das Chassis Body A.
 
@@ -92,7 +97,19 @@ Fehler wie verwaiste Referenzen oder ungültige Werte verhindern Play; Warnungen
 
 ## Place Actors
 
-Basic: Cube, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp, Empty Actor · Lights: Point Light · Physics: Physics Cube, Physics Sphere, Physics Barrel, Crate Stack, Pendulum, Hinged Door, Chain, See-Saw · Gameplay: Hover Car, Rolling Ball, Character, Drone, Orb, Star, Goal, Hazard, Checkpoint, Message Trigger, Moving Platform, Spinner · Procedural: Procedural City.
+Basic: Cube, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp, Empty Actor · Lights: Point Light · Physics: Physics Cube, Physics Sphere, Physics Barrel, Crate Stack, Pendulum, Hinged Door, Chain, See-Saw · Gameplay: Hover Car, Rolling Ball, Character, Drone, Orb, Star, Goal, Hazard, Checkpoint, Message Trigger, Moving Platform, Spinner · Audio: Audio Source, Ambient Wind, City Ambience, Radio · Procedural: Procedural City.
+
+## Sound
+
+Die Sound-Engine ist C++ im Engine-Modul (`kern/src/audio`): ein Software-Mixer mit 64 Stimmen (Hermite-Resampling, Prioritäten, Voice Stealing, virtuelle Stimmen außerhalb der Hörweite), 3D-Klang am Listener der Kamera (Equal-Power-Panning, Roll-off, Luftdämpfung, Tiefpass hinter dem Hörer, Doppler), Bussen (Music, Effects, Ambience, Interface, Voice → Master) mit klickfreien Lautstärkerampen, Tiefpass und Hall-Send, einem Freeverb-Hall, Peak-Limiter und Soft-Clip. Die Ausgabe überschreitet nie ±1.
+
+Eingebaut sind knapp 30 synthetisierte Sounds (Pickup, Jump, Impact, Explosion, Motor, Hover, Wind, Stadt, Servo, Quack, UI-Klicks und zwei Musik-Loops). Sie werden deterministisch und in Zeitscheiben gerendert, ein Level mit Musik ruckelt beim Laden nicht. Eigene Dateien (WAV, MP3, OGG, M4A, FLAC – was der Browser dekodieren kann) importiert man im Content Drawer unter **Sounds**, per Drag & Drop auf die Seite oder über das Plus am Sound-Feld; sie liegen als Data-URL im Level und werden per Windowed-Sinc auf die Ausgaberate gebracht.
+
+Bedienung: Ein Klick auf einen Sound im Tab Sounds spielt ihn an, ein Doppelklick setzt ihn auf die Auswahl, Ziehen in den Viewport platziert eine Audio Source. Jedes Sound-Feld hat eine Vorhör-Taste. Ausgewählte Audio Sources zeigen innen den vollen und außen den Falloff-Radius. Die Statusleiste hat Stummschalter und Pegelanzeige.
+
+Während Play und Simulate spielt das Spiel Musik, Ambience und Audio Sources, den Motor-Loop des Spielers (Pitch und Lautstärke folgen Tempo und Gas), Schritte, Landungen, Sprung, Boost, Pickups, Trigger, Sieg/Niederlage, Aufpralle von Bodies und brechende Gelenke. Die Ereignisse entstehen in den festen Physikschritten und sind deterministisch. Pause pausiert alle Stimmen.
+
+Im Browser überträgt `kern/web/studio/game.mjs` (`KernAudio`) das PCM an die Lautsprecher: per AudioWorklet (Blob- oder Data-Modul), sonst per ScriptProcessor. Die erste Berührung, Taste oder der erste Klick startet den Ton (Browser-Regel, iOS eingeschlossen; `navigator.audioSession` steht auf „playback“). Exportierte Spiele haben denselben Ton.
 
 Vorlagen unter File → New Level: Orb Run, Physics Lab (alle Gelenktypen: Stapel, Pendel, Tür, Seilbrücke mit Bruchstelle, Drehteller mit Motor, Lift, Rover auf Wheel-Gelenken), Basic und Empty.
 
@@ -118,12 +135,16 @@ Die Seite spricht den Editor über die C-ABI in `kern/src/studio/api.cpp` an:
 | `kern_studio_take_ui()` | Aufträge an die Seite: `capturePointer`, `releasePointer`, `clipboard`, `readClipboard`, `popup`, `dialog`, `save`, `saveAs`, `open`, `importTexture`, `packageGame`, `toggleDrawer`, `toggleLog`, `fullscreen`, `rename` |
 | `kern_studio_pending_textures()`, `…_texture_source(id)`, `…_texture_pixels(id, w, h, rgba)` | Texturen dekodiert die Seite |
 | `kern_studio_take_autosave(now)`, `kern_studio_dirty()` | Autosave |
+| `kern_studio_audio_init(rate)`, `kern_studio_audio_render(frames)` | Mixer starten, Stereo-PCM ziehen |
+| `kern_studio_pending_sounds()`, `…_sound_source(id)`, `…_sound_pcm(id, pcm, frames, channels, rate)`, `…_sound_failed(id, reason)` | importierte Sounds dekodiert die Seite |
 
 Befehle (`{"cmd": …}`):
 
 - Auswahl: `select {ids, add, toggle, focus}`, `selectRange {id}`, `selectAll`, `deselect`, `selectChildren`, `selectFolder {folder}`
-- Actors: `spawn {item, at | viewport+x+y}`, `delete`, `duplicate`, `copy`, `cut`, `paste`, `pasteText {text}`, `rename {id, name}`, `attach {ids, parent}`, `moveTo {ids, parent | folder}`, `setFolder {folder}`, `renameFolder {from, to}`, `group`, `snapToFloor`, `hide`/`show {ids | folder}`, `showAll`, `lock {value}`, `focus {ids}`, `connect {kind}`
+- Actors: `spawn {item, at | viewport+x+y, sound}`, `delete`, `duplicate`, `copy`, `cut`, `paste`, `pasteText {text}`, `rename {id, name}`, `attach {ids, parent}`, `moveTo {ids, parent | folder}`, `setFolder {folder}`, `renameFolder {from, to}`, `group`, `snapToFloor`, `hide`/`show {ids | folder}`, `showAll`, `lock {value}`, `focus {ids}`, `connect {kind}`
 - Properties: `set {path, value}` (z. B. `transform.position`, `components.mesh.material.color`, `components.joints.0.lower`), `setWorld {path, value}`, `addComponent {type}`, `removeComponent {type, index}`, `importTexture {name, src, width, height}`, `removeTexture {id}`
+- Sound: `previewSound {sound, volume, pitch}`, `stopSound`, `importSound {name, src, duration}`, `removeSound {id}`, `renameSound {id, name}`, `mute {muted}`
+- Hilfen: `project {id | point, viewport}` liefert die Bildschirmposition
 - Historie: `undo`, `redo`, `historyJump {index}` (aufeinanderfolgende Änderungen derselben Eigenschaft werden zu einem Schritt zusammengefasst)
 - Play: `play {mode: play|simulate}`, `stop`, `pause`, `stepFrame`, `eject`, `restart`, `keep`, `gameInput {moveX, moveY, up, jump, boost}`, `pointerCaptured {value}`
 - Werkzeuge und Ansichten: `tool`, `space`, `snap`, `cameraSpeed`, `layout`, `maximize`, `activeViewport`, `viewType`, `viewMode`, `showFlag`, `gameView`, `fov`, `bookmark {slot, set}`

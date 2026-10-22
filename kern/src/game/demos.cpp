@@ -90,6 +90,11 @@ Level orb_run_level() {
   w.ground_color = {0.19f, 0.27f, 0.15f};
   w.kill_z = -20;
   w.substeps = 4;
+  w.music = "builtin:music_drive";
+  w.music_volume = 0.45f;
+  w.ambience = "builtin:city";
+  w.ambience_volume = 0.5f;
+  w.reverb = 0.3f;
 
   Actor city = make("City", {0, 0, 0});
   city.city = CityComponent{};
@@ -192,6 +197,11 @@ Level physics_lab_level() {
   l.world.time_of_day = 0.45f;
   l.world.goal = GameGoal::reach_goal;
   l.world.kill_z = -15;
+  l.world.music = "builtin:music_calm";
+  l.world.music_volume = 0.35f;
+  l.world.ambience = "builtin:hum";
+  l.world.ambience_volume = 0.25f;
+  l.world.reverb = 0.45f;
 
   Actor floor = make("Floor", {0, 0, -0.25f});
   floor.mesh = box_mesh({70, 50, 0.5f}, {0.5f, 0.53f, 0.56f}, 0.85f);

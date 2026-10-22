@@ -83,8 +83,359 @@ export class StudioEngine {
       img.src = this.textureSource(id);
     }
   }
+  // ---- audio ----
+  audioInit(rate) { return this.e.kern_studio_audio_init(rate) === 1; }
+  /** Renders queued built-in sounds for about `ms`; true when none is left. */
+  audioPrepare(ms) { return this.e.kern_studio_audio_prepare(ms) === 1; }
+  /** Interleaved stereo PCM of the next `frames` frames (a copy). */
+  audioRender(frames) {
+    const ptr = this.e.kern_studio_audio_render(frames);
+    if (!ptr) return new Float32Array(frames * 2);
+    return new Float32Array(this.kern.memory.buffer, ptr, frames * 2).slice();
+  }
+  soundSource(id) { return this.withStrings([id], (p, n) => this.text(this.e.kern_studio_sound_source(p, n))); }
+  soundPcm(id, pcm, frames, channels, rate) {
+    const ptr = this.e.kern_alloc(Math.max(4, pcm.length * 4));
+    try {
+      new Float32Array(this.kern.memory.buffer, ptr, pcm.length).set(pcm);
+      return this.withStrings([id], (p, n) => this.e.kern_studio_sound_pcm(p, n, ptr, frames, channels, rate)) === 1;
+    } finally {
+      this.e.kern_free(ptr);
+    }
+  }
+  soundFailed(id, reason) { this.withStrings([id, reason || ""], (p, n, rp, rn) => this.e.kern_studio_sound_failed(p, n, rp, rn)); }
+  /** Decodes the level's imported sounds (data URLs) with Web Audio for the engine's mixer. */
+  pollSounds(audio) {
+    if (!audio?.context) return;
+    this.soundDecoding ??= new Set();
+    const ids = this.result(this.e.kern_studio_pending_sounds()) || [];
+    for (const id of ids) {
+      if (this.soundDecoding.has(id)) continue;
+      this.soundDecoding.add(id);
+      const src = this.soundSource(id) || "";
+      audio.decode(src).then(d => {
+        this.soundDecoding.delete(id);
+        if (!this.soundPcm(id, d.pcm, d.frames, d.channels, d.rate)) this.soundFailed(id, "the decoded audio was rejected");
+      }, error => {
+        this.soundDecoding.delete(id);
+        this.soundFailed(id, error?.message || "the browser could not decode it");
+      });
+    }
+  }
+  // ---- network ----
+  netPush(from, bytes) {
+    const ptr = this.e.kern_alloc(Math.max(4, bytes.length));
+    try {
+      this.kern.u8.set(bytes, ptr);
+      this.e.kern_studio_net_push(from, ptr, bytes.length);
+    } finally {
+      this.e.kern_free(ptr);
+    }
+  }
+  /** The next datagram the engine wants sent ({to, bytes}) or null. */
+  netTake() {
+    const n = this.e.kern_studio_net_take();
+    if (!n) return null;
+    const bytes = new Uint8Array(this.kern.memory.buffer, this.e.kern_studio_net_out(), n).slice();
+    return {to: this.e.kern_studio_net_out_to(), bytes};
+  }
   contextLost() { this.e.kern_studio_context_lost(); }
   contextRestored() { return this.e.kern_studio_context_restored() === 1; }
+}
+
+// ---------------------------------------------------------------------------
+// Audio output: the engine's C++ mixer renders PCM, this moves it to the speakers.
+
+/** AudioWorklet processor: plays queued chunks, reports what it consumed (frames). */
+const WORKLET_SOURCE = `
+class KernOutput extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.queue = [];
+    this.offset = 0;
+    this.consumed = 0;
+    this.underruns = 0;
+    this.blocks = 0;
+    this.port.onmessage = e => { if (e.data === "flush") { this.queue.length = 0; this.offset = 0; } else this.queue.push(e.data); };
+  }
+  process(inputs, outputs) {
+    const out = outputs[0], l = out[0], r = out[1] || out[0], n = l.length;
+    let i = 0;
+    while (i < n && this.queue.length) {
+      const chunk = this.queue[0], frames = chunk.length >> 1;
+      const take = Math.min(n - i, frames - this.offset);
+      for (let k = 0; k < take; k++) { l[i + k] = chunk[(this.offset + k) * 2]; r[i + k] = chunk[(this.offset + k) * 2 + 1]; }
+      i += take;
+      this.offset += take;
+      if (this.offset >= frames) { this.queue.shift(); this.offset = 0; }
+    }
+    if (i < n) { this.underruns++; for (; i < n; i++) { l[i] = 0; r[i] = 0; } }
+    this.consumed += n;
+    if (++this.blocks % 4 === 0) this.port.postMessage([this.consumed, this.underruns]);
+    return true;
+  }
+}
+registerProcessor("kern-output", KernOutput);
+`;
+
+/**
+ * Speaker output for the engine mixer. Works everywhere Web Audio does: an
+ * AudioWorklet where available (Blob or data: module), a ScriptProcessor
+ * otherwise. Browsers start audio only after a user gesture, so the first
+ * pointer / key / touch event resumes the context (iOS included; the audio
+ * session is set to "playback" so the ring switch does not mute games).
+ */
+export class KernAudio {
+  constructor(render, {latency = 0.07} = {}) {
+    this.render = render;        // frames -> Float32Array (interleaved stereo)
+    this.latency = latency;      // seconds kept queued ahead of the device
+    this.context = null;
+    this.node = null;
+    this.mode = "none";
+    this.written = 0;
+    this.consumed = 0;
+    this.underruns = 0;
+    this.started = false;
+  }
+  static supported() { return typeof (globalThis.AudioContext || globalThis.webkitAudioContext) === "function"; }
+  get rate() { return this.context?.sampleRate || 0; }
+  get running() { return this.context?.state === "running"; }
+  /** Creates the context (suspended until a gesture) and returns its sample rate. */
+  create() {
+    if (this.context) return this.rate;
+    const Ctx = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!Ctx) return 0;
+    try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch { /* not supported */ }
+    try { this.context = new Ctx({latencyHint: "interactive"}); } catch { try { this.context = new Ctx(); } catch { return 0; } }
+    const unlock = () => {
+      if (!this.context) return;
+      if (this.context.state !== "running") this.context.resume().catch(() => {});
+      if (!this.node) this.connect();
+    };
+    for (const type of ["pointerdown", "keydown", "touchend", "mousedown"]) addEventListener(type, unlock, {capture: true, passive: true});
+    this.unlock = unlock;
+    document.addEventListener("visibilitychange", () => { if (!document.hidden && this.context?.state === "interrupted") this.context.resume().catch(() => {}); });
+    return this.rate;
+  }
+  async connect() {
+    if (this.node || this.connecting || !this.context) return;
+    this.connecting = true;
+    const ctx = this.context;
+    if (ctx.audioWorklet && globalThis.AudioWorkletNode) {
+      const urls = [];
+      try { urls.push(URL.createObjectURL(new Blob([WORKLET_SOURCE], {type: "text/javascript"}))); } catch { /* no blobs */ }
+      urls.push("data:text/javascript;base64," + btoa(WORKLET_SOURCE));
+      for (const url of urls) {
+        try {
+          await ctx.audioWorklet.addModule(url);
+          const node = new AudioWorkletNode(ctx, "kern-output", {numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2]});
+          node.port.onmessage = e => { this.consumed = e.data[0]; this.underruns = e.data[1]; };
+          node.connect(ctx.destination);
+          this.node = node;
+          this.mode = "worklet";
+          break;
+        } catch { /* blocked by a content security policy: try the next way */ }
+      }
+    }
+    if (!this.node && ctx.createScriptProcessor) {
+      const node = ctx.createScriptProcessor(1024, 0, 2);
+      node.onaudioprocess = e => {
+        const l = e.outputBuffer.getChannelData(0), r = e.outputBuffer.getChannelData(1), n = l.length;
+        const pcm = this.render(n);
+        for (let i = 0; i < n; i++) { l[i] = pcm[i * 2]; r[i] = pcm[i * 2 + 1]; }
+      };
+      node.connect(ctx.destination);
+      this.node = node;
+      this.mode = "script";
+    }
+    this.connecting = false;
+    this.started = !!this.node;
+  }
+  /** Keeps the worklet's queue `latency` seconds ahead; call every frame (and from a timer). */
+  pump() {
+    if (this.mode !== "worklet" || !this.running) return;
+    const rate = this.rate, target = Math.ceil(this.latency * rate / 128) * 128;
+    let queued = this.written - this.consumed;
+    if (queued < -rate) { this.written = this.consumed; queued = 0; }  // after a long stall: start over
+    let guard = 0;
+    while (queued < target && guard++ < 16) {
+      const frames = Math.min(2048, Math.max(128, target - queued));
+      const pcm = this.render(frames);
+      this.node.port.postMessage(pcm, [pcm.buffer]);
+      this.written += frames;
+      queued += frames;
+    }
+  }
+  /** Decodes a data: URL (any format the browser plays) to interleaved PCM (1 or 2 channels). */
+  async decode(src) {
+    const comma = src.indexOf(",");
+    if (!src.startsWith("data:") || comma < 0) throw Error("not a data URL");
+    const meta = src.slice(5, comma), body = src.slice(comma + 1);
+    let bytes;
+    if (/;base64$/i.test(meta)) {
+      const bin = atob(body);
+      bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    } else bytes = new TextEncoder().encode(decodeURIComponent(body));
+    const buffer = await new Promise((resolve, reject) => {
+      const p = this.context.decodeAudioData(bytes.buffer, resolve, reject);
+      if (p?.then) p.then(resolve, reject);
+    });
+    const channels = Math.min(2, buffer.numberOfChannels), frames = buffer.length;
+    const pcm = new Float32Array(frames * channels);
+    if (buffer.numberOfChannels > 2) {
+      // Down-mix surround to stereo (even channels left, odd right).
+      const l = new Float32Array(frames), r = new Float32Array(frames);
+      for (let c = 0; c < buffer.numberOfChannels; c++) {
+        const d = buffer.getChannelData(c), t = c % 2 ? r : l;
+        for (let i = 0; i < frames; i++) t[i] += d[i] / Math.ceil(buffer.numberOfChannels / 2);
+      }
+      for (let i = 0; i < frames; i++) { pcm[i * 2] = l[i]; pcm[i * 2 + 1] = r[i]; }
+    } else {
+      for (let c = 0; c < channels; c++) {
+        const d = buffer.getChannelData(c);
+        for (let i = 0; i < frames; i++) pcm[i * channels + c] = d[i];
+      }
+    }
+    return {pcm, frames, channels, rate: buffer.sampleRate, duration: buffer.duration};
+  }
+}
+
+/** Connects the engine's mixer to the speakers; returns the KernAudio (or null without Web Audio). */
+export function startAudio(engine) {
+  if (!KernAudio.supported()) return null;
+  const audio = new KernAudio(frames => engine.audioRender(frames));
+  const rate = audio.create();
+  if (!rate || !engine.audioInit(rate)) return null;
+  // Timer pump: keeps sound flowing when frames are slow (and while the tab is in the background),
+  // and renders the level's built-in sounds between frames.
+  setInterval(() => { audio.pump(); engine.audioPrepare(5); }, 20);
+  return audio;
+}
+
+// ---------------------------------------------------------------------------
+// Network transport: moves Kern Net datagrams (kern/src/net) between browsers.
+// Kern's C++ stack does acks, resends, channels, the handshake and timeouts;
+// this only delivers bytes, like UDP would.
+//
+//   "local"  BroadcastChannel: tabs of this browser on this machine, no server
+//   "relay"  WebSocket to tools/net_relay.mjs: players on different machines
+
+const randomPeerId = () => {
+  const a = new Uint32Array(2);
+  crypto.getRandomValues(a);
+  return (a[0] & 0x1fffff) * 4294967296 + a[1] || 1;  // 53-bit, never 0
+};
+
+/** Host-side datagram transport for one engine. */
+export class KernNet {
+  constructor(engine) {
+    this.engine = engine;
+    this.kind = null;
+    this.room = "";
+    this.self = 0;
+    this.host = 0;
+    this.channel = null;
+    this.socket = null;
+    this.timer = 0;
+    this.onstatus = null;
+    this.sent = 0;
+    this.received = 0;
+  }
+  get active() { return !!this.kind; }
+
+  /** Opens the transport; resolves with {self, host} (host 0 = this peer hosts). */
+  async open({kind = "local", room = "kern", hosting = false, url = ""} = {}) {
+    this.close();
+    this.kind = kind;
+    this.room = room;
+    if (kind === "local") {
+      this.self = randomPeerId();
+      this.channel = new BroadcastChannel("kern-net-" + room);
+      this.channel.onmessage = e => this.onLocal(e.data);
+      if (hosting) {
+        this.host = this.self;
+        this.announce = setInterval(() => this.channel?.postMessage({hello: this.self}), 500);
+        this.channel.postMessage({hello: this.self});
+      } else {
+        this.host = await new Promise((resolve, reject) => {
+          const done = id => { clearTimeout(t); this.channel.removeEventListener("message", listen); resolve(id); };
+          const listen = e => { if (e.data?.hello) done(e.data.hello); };
+          const t = setTimeout(() => { this.channel?.removeEventListener("message", listen); reject(Error(`no game is hosted in room "${room}" in this browser`)); }, 4000);
+          this.channel.addEventListener("message", listen);
+          this.channel.postMessage({who: this.self});
+        });
+      }
+    } else {
+      const ws = new WebSocket(url);
+      ws.binaryType = "arraybuffer";
+      this.socket = ws;
+      const hello = await new Promise((resolve, reject) => {
+        ws.onerror = () => reject(Error("the relay " + url + " is not reachable"));
+        ws.onopen = () => ws.send(JSON.stringify(hosting ? {host: room} : {join: room}));
+        ws.onmessage = e => { if (typeof e.data === "string") resolve(JSON.parse(e.data)); };
+      });
+      if (!hosting && !hello.host) throw Error(`nobody hosts room "${room}" on the relay`);
+      this.self = hello.id;
+      this.host = hello.host;
+      ws.onmessage = e => {
+        if (typeof e.data === "string" || e.data.byteLength < 9) return;
+        const view = new DataView(e.data);
+        const from = view.getUint32(0, true) + view.getUint32(4, true) * 4294967296;
+        this.deliver(from, new Uint8Array(e.data, 8));
+      };
+      ws.onclose = () => this.onstatus?.("The relay closed the connection");
+    }
+    this.timer = setInterval(() => this.flush(), 8);
+    return {self: this.self, host: hosting ? 0 : this.host};
+  }
+
+  onLocal(m) {
+    if (!m) return;
+    if (m.who && this.host === this.self) this.channel.postMessage({hello: this.self});
+    if (m.to === this.self && m.data) this.deliver(m.from, new Uint8Array(m.data));
+  }
+
+  deliver(from, bytes) {
+    this.received++;
+    this.engine.netPush(from, bytes);
+  }
+
+  /** Sends what the engine queued (called from a timer and every frame). */
+  flush() {
+    if (!this.kind) return;
+    for (let guard = 0; guard < 256; guard++) {
+      const d = this.engine.netTake();
+      if (!d) break;
+      this.sent++;
+      if (this.channel) this.channel.postMessage({from: this.self, to: d.to, data: d.bytes.buffer}, [d.bytes.buffer]);
+      else if (this.socket?.readyState === 1) {
+        const out = new Uint8Array(8 + d.bytes.length);
+        const view = new DataView(out.buffer);
+        view.setUint32(0, d.to % 4294967296, true);
+        view.setUint32(4, Math.floor(d.to / 4294967296), true);
+        out.set(d.bytes, 8);
+        this.socket.send(out);
+      }
+    }
+  }
+
+  close() {
+    clearInterval(this.timer);
+    clearInterval(this.announce);
+    this.channel?.close();
+    this.socket?.close();
+    this.channel = this.socket = null;
+    this.kind = null;
+    this.host = this.self = 0;
+  }
+}
+
+/** Opens the network for an engine and hosts or joins (shared by the editor and packaged games). */
+export async function openNetwork(engine, net, {host, room = "kern", relay = ""}) {
+  const r = await net.open({kind: relay ? "relay" : "local", room, hosting: host, url: relay});
+  engine.command({cmd: "netAddress", self: r.self});
+  return host ? engine.command({cmd: "netHost"}) : engine.command({cmd: "netJoin", server: r.host});
 }
 
 export const modifiers = e => (e.shiftKey ? 1 : 0) | (e.ctrlKey || e.metaKey ? 2 : 0) | (e.altKey ? 4 : 0);
@@ -221,10 +572,27 @@ export async function startGame({levelText = null, template = null, bytes = null
   };
   size();
   if (!engine.init(canvas.width, canvas.height, true)) throw Error(kern.lastError());
+  const audio = startAudio(engine);
   const opened = template ? engine.command({cmd: "new", template}) : engine.command({cmd: "open", text: levelText, name: "game.klevel"});
   if (!opened?.ok) throw Error(engine.state()?.statusText || "the level could not be loaded");
-  const started = engine.command({cmd: "play", mode: "play"});
-  if (!started?.ok) throw Error(engine.state()?.statusText || "the level has errors");
+  const params = new URLSearchParams(location.search);
+  const online = params.get("host") ?? params.get("join");
+  let net = null;
+  if (online != null) {
+    net = new KernNet(engine);
+    net.flushEveryFrame = true;
+    try {
+      await openNetwork(engine, net, {host: params.has("host"), room: online || "kern", relay: params.get("relay") || ""});
+    } catch (error) {
+      net.close();
+      net = null;
+      document.getElementById("loading").textContent = "Online play failed: " + error.message + " - playing alone";
+      engine.command({cmd: "play", mode: "play"});
+    }
+  } else {
+    const started = engine.command({cmd: "play", mode: "play"});
+    if (!started?.ok) throw Error(engine.state()?.statusText || "the level has errors");
+  }
   const $ = id => document.getElementById(id);
   $("loading").hidden = true;
   const hud = $("hud"), stick = $("stick"), knob = stick.firstElementChild;
@@ -293,7 +661,9 @@ export async function startGame({levelText = null, template = null, bytes = null
     }
     engine.frame(time);
     engine.takeUi();
-    if (time - lastTextures > 250) { lastTextures = time; engine.pollTextures(); }
+    audio?.pump();
+    net?.flush();
+    if (time - lastTextures > 250) { lastTextures = time; engine.pollTextures(); engine.pollSounds(audio); }
     const st = engine.status();
     const html = hudHtml(st?.hud);
     if (html !== hudKey) { hudKey = html; hud.innerHTML = html; }
@@ -301,7 +671,7 @@ export async function startGame({levelText = null, template = null, bytes = null
   };
   requestAnimationFrame(frame);
   canvas.focus();
-  const api = {engine, get status() { return engine.status(); }, command: c => engine.command(c)};
+  const api = {engine, audio, net, get status() { return engine.status(); }, command: c => engine.command(c)};
   window.KernGame = api;
   return api;
 }

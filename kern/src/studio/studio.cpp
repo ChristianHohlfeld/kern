@@ -33,6 +33,9 @@ Vec3 ViewCamera::right() const {
 }
 
 Studio::Studio() {
+  mixer_ = std::make_unique<audio::Mixer>();
+  bank_ = std::make_unique<game::SoundBank>(*mixer_);
+  game_audio_ = std::make_unique<game::GameAudio>(*mixer_, *bank_);
   for (u32 i = 0; i < 4; ++i) views_[i].index = i;
   // Quad layout defaults like Unreal: perspective, top, front, side.
   views_[1].type = ViewType::top;
@@ -47,6 +50,150 @@ Studio::Studio() {
 Studio::~Studio() {
   if (world_) world_->stop();
   world_.reset();
+  game_audio_.reset();
+  bank_.reset();
+  mixer_.reset();
+}
+
+// ---------------------------------------------------------------------------
+// audio
+
+bool Studio::audio_init(u32 sample_rate) {
+  if (mixer_->ready() && mixer_->sample_rate() == sample_rate) return true;
+  game_audio_->end(0);
+  bank_->clear();
+  preview_ = 0;
+  if (!mixer_->init(sample_rate, 64)) return false;
+  game_audio_->set_muted(game_audio_->muted());
+  audio_scene_ = ~0ull;
+  return true;
+}
+
+void Studio::audio_render(f32* out, u32 frames) {
+  if (!out || !frames) return;
+  if (!mixer_->ready()) {
+    for (u32 i = 0; i < frames * audio::kOutputChannels; ++i) out[i] = 0;
+    return;
+  }
+  mixer_->render(out, frames);
+}
+
+std::vector<std::string> Studio::pending_sounds() const { return bank_->pending_imports(); }
+
+std::string Studio::sound_source(const std::string& id) const {
+  if (const std::string* s = bank_->source(id)) return *s;
+  if (const game::SoundAsset* a = level_.sound(id)) return a->src ? *a->src : std::string();
+  return {};
+}
+
+bool Studio::sound_pcm(const std::string& id, const f32* samples, u32 frames, u32 channels, u32 rate) {
+  const bool ok = bank_->set_pcm(id, samples, frames, channels, rate);
+  if (!ok) report("Could not use the sound \"" + id + "\": " + last_error(), "error");
+  return ok;
+}
+
+void Studio::sound_failed(const std::string& id, const std::string& reason) {
+  bank_->set_failed(id, reason);
+  const game::SoundAsset* a = level_.sound(id);
+  report("Could not decode the sound \"" + (a ? a->name : id) + "\"" + (reason.empty() ? std::string() : ": " + reason), "error");
+}
+
+void Studio::preview_sound(const std::string& ref, f32 volume, f32 pitch) {
+  stop_preview();
+  if (ref.empty() || ref == "none" || ref == "auto") return;
+  preview_ref_ = ref;
+  preview_volume_ = clamp(volume, 0.0f, 4.0f);
+  preview_pitch_ = clamp(pitch, 0.05f, 8.0f);
+  bank_->sync_assets(level_);
+  bank_->request(ref);
+  touch();
+}
+
+void Studio::stop_preview() {
+  if (preview_) mixer_->stop(preview_, 0.05f);
+  preview_ = 0;
+  preview_ref_.clear();
+  touch();
+}
+
+bool Studio::previewing() const { return !preview_ref_.empty() || (preview_ && mixer_->playing(preview_)); }
+
+std::string Studio::import_sound(const std::string& name, const std::string& src, f32 duration) {
+  if (src.rfind("data:audio/", 0) != 0 && src.rfind("data:video/", 0) != 0 && src.rfind("data:application/ogg", 0) != 0) {
+    report("Only audio files can be imported as sounds", "error");
+    return {};
+  }
+  std::string id;
+  edit("Import Sound", [&](game::Level& l) {
+    u32 n = 1;
+    for (;;) {
+      id = "snd" + std::to_string(n++);
+      if (!l.sound(id)) break;
+    }
+    game::SoundAsset s;
+    s.id = id;
+    s.name = name.empty() ? id : name;
+    s.src = std::make_shared<const std::string>(src);
+    s.duration = clamp(duration, 0.0f, 1e6f);
+    l.sounds.push_back(std::move(s));
+    return true;
+  });
+  if (!id.empty()) report("Imported sound \"" + (name.empty() ? id : name) + "\"");
+  return id;
+}
+
+bool Studio::remove_sound(const std::string& id) {
+  return edit("Remove Sound", [&](game::Level& l) {
+    for (std::size_t i = 0; i < l.sounds.size(); ++i)
+      if (l.sounds[i].id == id) {
+        l.sounds.erase(l.sounds.begin() + static_cast<std::ptrdiff_t>(i));
+        return true;
+      }
+    return false;
+  });
+}
+
+void Studio::set_muted(bool muted) {
+  game_audio_->set_muted(muted);
+  touch();
+}
+
+void Studio::update_audio(const Camera& listener, f32 dt) {
+  if (!mixer_->ready()) return;
+  if (play_ == PlayState::editing) {
+    if (audio_scene_ != scene_revision_) {
+      // Keep the level's sounds prepared so Play starts with everything in place.
+      bank_->request_level(level_);
+      audio_scene_ = scene_revision_;
+    }
+    game_audio_->apply_settings(level_.world);
+  }
+  bank_->prepare(play_ == PlayState::editing ? 6 : 3);
+  if (!preview_ref_.empty()) {
+    if (const audio::ClipId clip = bank_->clip(preview_ref_)) {
+      audio::PlayParams p;
+      p.bus = audio::Bus::ui;
+      p.volume = preview_volume_;
+      p.pitch = preview_pitch_;
+      p.priority = 1000;
+      preview_ = mixer_->play(clip, p);
+      preview_ref_.clear();
+      touch();
+    } else if (bank_->failed(preview_ref_)) {
+      report("The sound \"" + preview_ref_ + "\" is not available", "warn");
+      preview_ref_.clear();
+      touch();
+    }
+  }
+  if (preview_ && !mixer_->playing(preview_)) { preview_ = 0; touch(); }
+  game_audio_->update(*world_, listener, dt);
+  if (play_ == PlayState::editing) {
+    audio::Listener l;
+    l.position = listener.eye;
+    l.forward = normalize(listener.target - listener.eye, {1, 0, 0});
+    l.up = listener.up;
+    mixer_->set_listener(l);
+  }
 }
 
 bool Studio::init(Renderer* renderer, game::NightWindows* windows, bool player_only) {
@@ -139,7 +286,14 @@ namespace {
 /// Document equality for the history: everything that is saved except the
 /// editor camera (camera moves are not undo steps).
 bool same_document(const game::Level& a, const game::Level& b) {
-  if (a.name != b.name || a.next_id != b.next_id || a.actors.size() != b.actors.size() || a.textures.size() != b.textures.size()) return false;
+  if (a.name != b.name || a.next_id != b.next_id || a.actors.size() != b.actors.size() || a.textures.size() != b.textures.size() ||
+      a.sounds.size() != b.sounds.size())
+    return false;
+  for (std::size_t i = 0; i < a.sounds.size(); ++i) {
+    const game::SoundAsset &x = a.sounds[i], &y = b.sounds[i];
+    if (x.id != y.id || x.name != y.name || x.duration != y.duration) return false;
+    if (x.src != y.src && (!x.src || !y.src || *x.src != *y.src)) return false;
+  }
   if (json::stringify(game::world_to_json(a.world)) != json::stringify(game::world_to_json(b.world))) return false;
   for (std::size_t i = 0; i < a.textures.size(); ++i) {
     const game::TextureAsset &x = a.textures[i], &y = b.textures[i];
@@ -553,6 +707,88 @@ void Studio::keep_simulation_changes() {
 // ---------------------------------------------------------------------------
 // play
 
+game::GameWorld& Studio::world_of(u32 viewport) {
+  if (viewport >= 1 && viewport - 1 < clients_.size()) return *clients_[viewport - 1].world;
+  return *world_;
+}
+
+void Studio::start_local_clients() {
+  clients_.clear();
+  for (i32 i = 1; i < clamp(net_play_.players, 1, 4); ++i) {
+    LocalClient c;
+    c.world = std::make_unique<game::GameWorld>(*r_, windows_);
+    c.world->set_layers(layer::client0 << (i - 1));
+    c.transport = hub_->create();
+    c.game = std::make_unique<game::NetGame>(*c.world);
+    c.game->join(level_, *c.transport, hub_server_->address(), {}, 1000 + static_cast<u64>(i));
+    clients_.push_back(std::move(c));
+  }
+}
+
+void Studio::stop_net() {
+  for (LocalClient& c : clients_) {
+    if (c.game) c.game->stop();
+    if (c.world) { c.world->stop(); c.world->clear(); }
+  }
+  clients_.clear();
+  if (net_) net_->stop();
+  net_.reset();
+  hub_server_.reset();
+  hub_.reset();
+  net_remote_ = false;
+}
+
+bool Studio::net_host() {
+  if (play_ != PlayState::editing) stop();
+  net_remote_ = true;
+  net_play_.players = 1;
+  return play(game::SimMode::play);
+}
+
+bool Studio::net_join(u64 server) {
+  if (play_ != PlayState::editing) stop();
+  if (!server) { report("No server to join", "error"); return false; }
+  stop_net();
+  net_ = std::make_unique<game::NetGame>(*world_);
+  net_remote_ = true;
+  net_->join(level_, host_transport_, net::Address{server}, {}, static_cast<u64>(now_ * 1000.0) | 1);
+  play_ = PlayState::playing;
+  paused_ = false;
+  ejected_ = false;
+  mouse_captured_ = true;
+  json::Value a = json::Value::object();
+  a.set("action", "capturePointer");
+  a.set("viewport", active_view_);
+  push_ui(std::move(a));
+  report("Joining the game...");
+  ++scene_revision_;
+  return true;
+}
+
+void Studio::net_stop() { stop(); }
+
+void Studio::update_net(f32 dt, const game::PlayInput& in) {
+  net_time_ += dt;
+  if (hub_) {
+    hub_->simulator().settings = net_play_.network;
+    hub_->advance_time(net_time_);
+  }
+  game::PlayInput idle;
+  net_->update(net_time_, dt, active_view_ == 0 || clients_.empty() ? in : idle);
+  for (std::size_t i = 0; i < clients_.size(); ++i) {
+    LocalClient& c = clients_[i];
+    const bool active = active_view_ == i + 1;
+    const game::PlayInput& cin = active ? in : idle;
+    c.game->update(net_time_, dt, cin);
+    if (c.game->playing()) {
+      Camera cam = c.camera_valid ? c.camera : camera_of(views_[i + 1]);
+      c.camera_valid = c.world->update_camera(cam, dt, cin);
+      c.camera = cam;
+    }
+    c.world->present(now_, c.camera.eye);
+  }
+}
+
 bool Studio::play(game::SimMode mode) {
   if (play_ != PlayState::editing) {
     // Simulate <-> Play while running.
@@ -576,7 +812,29 @@ bool Studio::play(game::SimMode mode) {
     for (const game::Actor& a : level_.actors) player |= a.controller.has_value();
     if (!player) { report("No actor has a Player Controller - simulating instead", "warn"); mode = game::SimMode::simulate; }
   }
-  if (!world_->start(level_, mode)) { report(std::string("Could not start: ") + last_error(), "error"); return false; }
+  const bool networked = mode == game::SimMode::play && (net_remote_ || net_play_.players > 1);
+  if (networked) {
+    // Listen server: this world hosts; local players join through the in-process network.
+    const bool remote = net_remote_;
+    stop_net();
+    net_ = std::make_unique<game::NetGame>(*world_);
+    bool ok = false;
+    if (remote) {
+      net_remote_ = true;
+      ok = net_->host(level_, host_transport_, {}, static_cast<u64>(now_ * 1000.0) | 1);
+    } else {
+      hub_ = std::make_unique<net::LoopbackNetwork>(7);
+      hub_->simulator().settings = net_play_.network;
+      hub_server_ = hub_->create();
+      ok = net_->host(level_, *hub_server_);
+    }
+    if (!ok) { stop_net(); report(std::string("Could not start: ") + last_error(), "error"); return false; }
+    net_time_ = 0;
+    if (!remote) {
+      start_local_clients();
+      if (prefs_.layout == Layout::single) prefs_.layout = Layout::quad;
+    }
+  } else if (!world_->start(level_, mode)) { report(std::string("Could not start: ") + last_error(), "error"); return false; }
   for (const std::string& e : world_->events()) report(e, "warn");
   world_->events().clear();
   play_ = mode == game::SimMode::play ? PlayState::playing : PlayState::simulating;
@@ -597,6 +855,7 @@ bool Studio::play(game::SimMode mode) {
 
 void Studio::stop() {
   if (play_ == PlayState::editing) return;
+  stop_net();
   world_->stop();
   play_ = PlayState::editing;
   paused_ = false;
@@ -609,6 +868,7 @@ void Studio::stop() {
   report("Stopped - back to editing");
   ++scene_revision_;
   synced_revision_ = ~0ull;
+  world_synced_ = ~0ull;
 }
 
 void Studio::toggle_pause() {

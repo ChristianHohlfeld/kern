@@ -49,7 +49,8 @@ struct ShapePlan {
   Quat rotation;
   Vec3 size{1, 1, 1};
   f32 radius = 0.5f, length = 1;
-  std::vector<Vec3> points;       // hull, body frame
+  std::vector<Vec3> points;       // hull / mesh vertices, body frame
+  std::vector<u32> indices;       // mesh triangles
   ColliderComponent source;       // material, filter, sensor
   bool automatic = false;         // fitted to a mesh
 };
@@ -76,9 +77,13 @@ struct PlayInput {
   bool jump = false, boost = false;
   f32 look_x = 0, look_y = 0;          // camera orbit in degrees since the last frame
   f32 zoom = 0;                        // camera distance change (wheel)
+  // Remote players: the direction their camera looks (degrees) for camera-relative movement.
+  f32 view_yaw = 0;
+  bool has_view_yaw = false;
 };
 
-enum class SimMode : u8 { none, simulate, play };
+/// replica: a network client's copy of a server's game (poses come from snapshots, see net_game.h).
+enum class SimMode : u8 { none, simulate, play, replica };
 enum class GameStatus : u8 { inactive, playing, won, lost };
 const char* game_status_name(GameStatus s);
 
@@ -92,6 +97,17 @@ struct Hud {
   f32 speed = 0;                  // m/s of the player
   f32 boost = -1;                 // 0..1, < 0: the controller has no boost
   f32 best = 0;                   // best finishing time of this session (0 = none)
+};
+
+/// A sound the simulation asks for (GameAudio plays it). Cues are produced in
+/// fixed steps and so are deterministic; the caller drains them every frame.
+struct SoundCue {
+  std::string sound;              // "builtin:<name>" or an imported sound id
+  Vec3 position;
+  f32 volume = 1, pitch = 1;
+  bool spatial = true;
+  audio::Bus bus = audio::Bus::sfx;
+  ActorId actor = 0;
 };
 
 struct SimStats {
@@ -137,6 +153,8 @@ class GameWorld {
   bool start(const Level& level, SimMode mode);
   void stop();
   bool running() const { return mode_ != SimMode::none; }
+  /// Counts start() calls (restart included): listeners notice a fresh run.
+  u32 session() const { return session_; }
   SimMode mode() const { return mode_; }
   void set_paused(bool paused) { paused_ = paused; }
   bool paused() const { return paused_; }
@@ -150,6 +168,36 @@ class GameWorld {
   /// Moves `camera` like the player's camera; false without a possessed player.
   bool update_camera(Camera& camera, f32 dt, const PlayInput& input);
   ActorId player() const { return player_; }
+  f32 camera_yaw() const { return camera_yaw_; }
+  f32 sim_time() const { return sim_time_; }
+
+  // ---- players (multiplayer) ----
+  /// Adds a player pawn: a copy of `source` (0 = the level's player actor) with its children,
+  /// placed next to the spawn. `id` forces the root's id (network clients mirror the server);
+  /// children follow with consecutive ids. Returns the pawn's root actor (0 on failure).
+  ActorId add_pawn(ActorId source = 0, ActorId id = 0);
+  bool remove_pawn(ActorId pawn);
+  /// The actor a pawn was copied from (the pawn itself for the level's own player).
+  ActorId pawn_source(ActorId pawn) const;
+  /// Input of a remote player's pawn (used in the next fixed steps).
+  void set_pawn_input(ActorId pawn, const PlayInput& input);
+  /// The pawn this machine controls and the camera follows.
+  void set_local_pawn(ActorId pawn);
+  std::vector<ActorId> pawns() const;
+  /// Collected pickups / used triggers since the last call (appended as id, alive).
+  void take_alive_changes(std::vector<std::pair<ActorId, bool>>& out);
+  std::vector<ActorId> dead_actors() const;
+  void set_alive(ActorId id, bool alive);
+  /// Actors whose pose changes while running (dynamic and kinematic bodies).
+  void networked_actors(std::vector<ActorId>& out) const;
+  Hud& hud_mut() { return hud_; }
+
+  // ---- replica (network client) ----
+  /// Starts `level` as a replica: bodies only follow the poses set here, rules run on the server.
+  bool start_replica(const Level& level);
+  void set_replica_pose(ActorId id, Vec3 position, Quat rotation);
+  /// Advances the replica's clock (`time` = the server time being shown).
+  void step_replica(f32 dt, f32 time, const PlayInput& input);
   const Hud& hud() const { return hud_; }
   SimStats stats() const;
   const Level& level() const { return level_; }  // the level being presented or simulated
@@ -167,6 +215,11 @@ class GameWorld {
   void debug_lines(bool colliders, bool contacts, bool joints, std::vector<f32>& positions, std::vector<f32>& colors) const;
   /// Messages of the last steps (pickups, joints breaking, ...); cleared by the caller.
   std::vector<std::string>& events() { return events_; }
+  /// Sounds of the last steps (jumps, pickups, impacts, ...); cleared by the caller.
+  std::vector<SoundCue>& sound_cues() { return cues_; }
+  /// False for collected pickups and used triggers (and their children).
+  bool actor_alive(ActorId id) const;
+  const PlayInput& last_input() const { return last_input_; }
 
  private:
   struct Visual;
@@ -175,12 +228,14 @@ class GameWorld {
   struct SimJoint;
   struct Traffic;
 
+  physics::Body create_body(const BodyPlan& plan);
   void sync_actor_mesh(const Actor& a, const Mat4& world);
   void sync_city(const Actor& a, const Mat4& world);
   void remove_visual(ActorId id);
   void sync_ground(const WorldSettings& w);
   Material material_for(const MaterialDesc& m, u32* texture) const;
-  void compute_world_matrices(f32 time);
+  /// `alpha` blends from the previous fixed step's poses to the current ones (render interpolation).
+  void compute_world_matrices(f32 time, f32 alpha = 1);
   Mat4 animated_local(const Actor& a, f32 time) const;
   void fixed_step(const PlayInput& input, f32 dt);
   void drive_player(const PlayInput& input, f32 dt);
@@ -188,7 +243,8 @@ class GameWorld {
   void handle_events();
   void collect(ActorId pickup);
   void trigger(ActorId actor);
-  void finish(GameStatus status, std::string message);
+  void finish(GameStatus status, std::string message, bool jingle = true);
+  void cue(const std::string& sound, Vec3 at, f32 volume = 1, f32 pitch = 1, bool spatial = true, audio::Bus bus = audio::Bus::sfx, ActorId actor = 0);
   void say(std::string message);
   void respawn_player();
   bool grounded(physics::Body body, f32 reach) const;
@@ -220,6 +276,7 @@ class GameWorld {
 
   // simulation
   SimMode mode_ = SimMode::none;
+  u32 session_ = 0;
   bool paused_ = false;
   physics::World physics_;
   physics::MouseGrab grab_;
@@ -235,19 +292,44 @@ class GameWorld {
   f64 accumulator_ = 0;
   f32 sim_time_ = 0;
   ActorId player_ = 0;
-  Vec3 spawn_position_;
-  Quat spawn_rotation_;
-  bool jump_latch_ = false;
-  f32 boost_ = 1;
+  void possess_character(bool on);
+  void touched(physics::Shape shape, physics::Body body);
+  void create_joints(const Actor& a);
   f32 shake_ = 0;
-  f32 steer_vis_ = 0, pitch_vis_ = 0, last_forward_ = 0;
   Vec3 camera_eye_;
   f32 camera_yaw_ = 0, camera_pitch_ = 18, camera_zoom_ = 1;
   bool camera_reset_ = true;
   Hud hud_;
   u32 broken_joints_ = 0;
   std::vector<std::string> events_;
+  std::vector<SoundCue> cues_;
   PlayInput last_input_;
+  // sound state
+  std::unordered_map<ActorId, f32> last_impact_;
+  /// One player's controller state (the local one and every remote one).
+  struct Pawn {
+    ActorId actor = 0, source = 0;
+    std::vector<ActorId> actors;      // the pawn's actors (root first)
+    PlayInput input;                  // remote players: their latest input
+    f32 yaw = 0;                      // camera yaw for camera-relative movement (degrees)
+    Vec3 spawn_position;
+    Quat spawn_rotation;
+    bool jump_latch = false, was_boosting = false, airborne = false;
+    f32 boost = 1, fall_speed = 0, stride = 0;
+    u32 steps = 0;
+    f32 steer_vis = 0, pitch_vis = 0, last_forward = 0;
+    // Character players walk with Box3D's kinematic mover instead of fighting the solver.
+    physics::CharacterMover mover;
+    bool use_mover = false;
+    f32 mover_lift = 0;               // body origin above the feet
+  };
+  std::vector<std::unique_ptr<Pawn>> pawns_;
+  Pawn idle_pawn_;                    // state target when nobody is possessed
+  Pawn* pw_ = &idle_pawn_;            // the pawn being driven
+  Pawn* local_ = nullptr;             // the pawn this machine controls
+  Pawn* pawn_of(ActorId actor);
+  std::vector<std::pair<ActorId, bool>> alive_changes_;
+  std::unordered_map<ActorId, std::pair<Vec3, Quat>> replica_poses_;
 };
 
 }  // namespace kern::game

@@ -245,6 +245,8 @@ b3WorldId b3CreateWorld( const b3WorldDef* def )
 
 	memset( world, 0, sizeof( b3World ) );
 
+	world->simdWidth = b3GetSIMDWidth();
+
 	world->worldId = (uint16_t)worldId;
 	world->generation = revision;
 	world->inUse = true;
@@ -330,6 +332,7 @@ b3WorldId b3CreateWorld( const b3WorldDef* def )
 	world->restitutionIterations = b3ClampInt( def->restitutionIterations, 0, B3_MAX_RESTITUTION_ITERATIONS );
 	world->enableRestitutionPropagation = def->enableRestitutionPropagation;
 	world->maxLinearSpeed = def->maximumLinearSpeed;
+	world->isotropicInertiaTolerance = b3ClampFloat( def->isotropicInertiaTolerance, 0.0f, 1.0f );
 	world->contactSpeed = def->contactSpeed;
 	world->contactHertz = def->contactHertz;
 	world->contactDampingRatio = def->contactDampingRatio;
@@ -2029,6 +2032,17 @@ bool b3World_IsWarmStartingEnabled( b3WorldId worldId )
 	return world->enableWarmStarting;
 }
 
+void b3World_EnableSSE2Fallback( b3WorldId worldId, bool flag )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return;
+	}
+
+	world->simdWidth = flag ? 4 : b3GetSIMDWidth();
+}
+
 int b3World_GetAwakeBodyCount( b3WorldId worldId )
 {
 	b3World* world = b3GetUnlockedWorldFromId( worldId );
@@ -2200,6 +2214,27 @@ float b3World_GetMaximumLinearSpeed( b3WorldId worldId )
 {
 	b3World* world = b3GetWorldFromId( worldId );
 	return world->maxLinearSpeed;
+}
+
+void b3World_SetIsotropicInertiaTolerance( b3WorldId worldId, float tolerance )
+{
+	B3_ASSERT( b3IsValidFloat( tolerance ) );
+
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return;
+	}
+
+	B3_REC( world, WorldSetIsotropicInertiaTolerance, worldId, tolerance );
+
+	world->isotropicInertiaTolerance = b3ClampFloat( tolerance, 0.0f, 1.0f );
+}
+
+float b3World_GetIsotropicInertiaTolerance( b3WorldId worldId )
+{
+	b3World* world = b3GetWorldFromId( worldId );
+	return world->isotropicInertiaTolerance;
 }
 
 b3Profile b3World_GetProfile( b3WorldId worldId )

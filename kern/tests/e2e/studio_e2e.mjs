@@ -156,6 +156,87 @@ const vpCenter = async (page, i = 0) => {
   check(await until(async () => (await state(page)).level.actors === n0 + 2), "undo removes the placed prefab");
   await page.keyboard.press("Control+Space");
 
+  // Left mouse: a click selects, dragging an actor slides it over the surfaces, the camera stays put.
+  {
+    const vr = (await vpCenter(page)).r;
+    const prevSelection = (await state(page)).selection;
+    await cmd(page, {cmd: "tool", tool: "select"});  // no gizmo in the way: grab the actor itself
+    // A cube in the open (high above the city) so nothing else is under the cursor.
+    await cmd(page, {cmd: "spawn", item: "cube", at: [40, 40, 120]});
+    const id = (await state(page)).selection[0];
+    await cmd(page, {cmd: "focus", ids: [id]});
+    await page.waitForTimeout(200);
+    const pos = async () => (await state(page)).details.sections.find(sec => sec.id === "transform").fields.find(f => f.path === "transform.position").value;
+    const p0 = await pos();
+    const cam0 = (await status(page)).camera.position;
+    const pr = await cmd(page, {cmd: "project", id});
+    check(pr.visible, "the new cube is on screen");
+    await page.mouse.move(vr.left + pr.x, vr.top + pr.y);
+    await page.mouse.down();
+    for (let k = 1; k <= 10; k++) await page.mouse.move(vr.left + pr.x + k * 12, vr.top + pr.y + k * 3);
+    await page.mouse.up();
+    const st = await state(page);
+    check(st.selection.length === 1 && st.selection[0] === id, `pressing an actor selects it (${JSON.stringify(st.selection)} / ${id})`);
+    const p1 = await pos();
+    const cam1 = (await status(page)).camera.position;
+    check(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) > 0.5, `left-dragging an actor moves it (${Math.hypot(p1[0] - p0[0], p1[1] - p0[1]).toFixed(2)} m)`);
+    check(Math.hypot(cam1[0] - cam0[0], cam1[1] - cam0[1], cam1[2] - cam0[2]) < 1e-4, "left-dragging never moves the camera");
+    await page.keyboard.press("Control+z");
+    check(await until(async () => { const p = await pos(); return Math.hypot(p[0] - p0[0], p[1] - p0[1]) < 1e-3; }), "undo puts the dragged actor back");
+    // Shift + drag always draws a marquee (as does dragging empty space).
+    await page.keyboard.down("Shift");
+    await page.mouse.move(vr.left + 8, vr.top + 30);
+    await page.mouse.down();
+    await page.mouse.move(vr.left + vr.width - 8, vr.top + vr.height - 8, {steps: 6});
+    await page.mouse.up();
+    await page.keyboard.up("Shift");
+    check(await until(async () => (await state(page)).selection.length > 1), "a marquee selects everything inside");
+    await cmd(page, {cmd: "select", ids: prevSelection});
+    await cmd(page, {cmd: "tool", tool: "translate"});
+  }
+
+  // Sound: the C++ mixer plays through Web Audio (worklet), built-ins preview, imported files decode.
+  {
+    await page.mouse.click(5, 5);
+    check(await until(async () => (await page.evaluate(() => window.KernStudio.audio))?.state === "running", 10000), "the audio context runs after the first click");
+    const a0 = await page.evaluate(() => window.KernStudio.audio);
+    check(a0.mode === "worklet", `audio goes through an AudioWorklet (${a0.mode})`);
+    check(a0.rate >= 22050, `the mixer runs at the device rate (${a0.rate} Hz)`);
+    await page.waitForTimeout(400);
+    const a1 = await page.evaluate(() => window.KernStudio.audio);
+    check(a1.consumed > a0.consumed, "the device consumes the mixer's output");
+    await page.keyboard.press("Control+Space");
+    await page.click('#drawer .tab[data-dtab="sounds"]');
+    check(await until(async () => (await page.locator("#soundPane .snd").count()) >= 25), "the Sounds tab lists the built-in library");
+    await page.locator('#soundPane .snd[data-sound="builtin:quack"]').click();
+    check(await until(async () => (await status(page)).audio?.voices > 0, 5000), "clicking a sound previews it");
+    check(await until(async () => (await status(page)).audio?.peak?.[0] > 0.01, 5000), "the preview is audible on the meter");
+    // Import a generated WAV file.
+    const sid = await page.evaluate(async () => {
+      const rate = 22050, n = Math.round(rate * 2), bytes = new DataView(new ArrayBuffer(44 + n * 2));
+      const str = (o, t) => { for (let i = 0; i < t.length; i++) bytes.setUint8(o + i, t.charCodeAt(i)); };
+      str(0, "RIFF"); bytes.setUint32(4, 36 + n * 2, true); str(8, "WAVEfmt "); bytes.setUint32(16, 16, true);
+      bytes.setUint16(20, 1, true); bytes.setUint16(22, 1, true); bytes.setUint32(24, rate, true); bytes.setUint32(28, rate * 2, true);
+      bytes.setUint16(32, 2, true); bytes.setUint16(34, 16, true); str(36, "data"); bytes.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) bytes.setInt16(44 + i * 2, Math.round(Math.sin(i / rate * 2 * Math.PI * 660) * 12000), true);
+      return window.KernStudio.importSoundFile(new File([bytes.buffer], "beep.wav", {type: "audio/wav"}));
+    });
+    check(!!sid, `an imported WAV becomes a sound asset (${sid})`);
+    const st = await state(page);
+    check(st.sounds.imported.some(x => x.id === sid && Math.abs(x.duration - 2) < 0.05), "the import knows its duration");
+    await cmd(page, {cmd: "stopSound"});
+    await page.waitForTimeout(150);
+    await cmd(page, {cmd: "previewSound", sound: sid});
+    check(await until(async () => (await state(page)).sounds.previewing && (await status(page)).audio?.voices > 0, 5000), "the imported sound decodes and plays");
+    await page.keyboard.press("Control+z");
+    check(await until(async () => !(await state(page)).sounds.imported.some(x => x.id === sid)), "undo removes the imported sound");
+    // Mute.
+    await page.click("#muteBtn");
+    check(await until(async () => (await state(page)).sounds.muted), "the status bar mutes the sound");
+    await page.click("#muteBtn");
+    await page.keyboard.press("Control+Space");
+  }
+
   // Context menu on a right click (no drag).
   await page.mouse.click(c.x, c.y, {button: "right"});
   check(await until(async () => (await page.locator(".menu .mi").count()) > 2), "right click opens the viewport context menu");
@@ -185,6 +266,7 @@ const vpCenter = async (page, i = 0) => {
   const docBefore = await page.evaluate(() => window.KernStudio.engine.command({cmd: "packageText"}).text ?? "");
   const scrubLabel = page.locator("#details label.scrub").first();
   if (await scrubLabel.count()) {
+    await scrubLabel.scrollIntoViewIfNeeded();
     const lb = await scrubLabel.boundingBox();
     await page.mouse.move(lb.x + lb.width / 2, lb.y + lb.height / 2);
     await page.mouse.down();
@@ -255,6 +337,37 @@ const vpCenter = async (page, i = 0) => {
   check(await until(async () => (await page.locator(".dialog .keys tr").count()) > 10), "F1 shows the controls");
   await page.keyboard.press("Escape");
 
+  // Multiplayer in the editor: a listen server and a local client in the next viewport.
+  await cmd(page, {cmd: "new", template: "orbRun"});
+  await cmd(page, {cmd: "netPlayers", players: 2});
+  await cmd(page, {cmd: "play", mode: "play"});
+  check(await until(async () => (await status(page)).net?.clients?.[0]?.hud?.status === "playing", 45000), "2 players: the local client joins the listen server");
+  check((await status(page)).net?.players === 2, "the server counts both players");
+  await page.waitForTimeout(500);
+  await shot(page, "studio-multiplayer.png");
+  await cmd(page, {cmd: "stop"});
+  await cmd(page, {cmd: "netPlayers", players: 1});
+  await cmd(page, {cmd: "layout", layout: "single"});
+
+  // Online between two tabs of the browser (BroadcastChannel transport, Kern Net on top).
+  {
+    const guest = await ctx.newPage();
+    guest.on("pageerror", e => errors.push("guest: " + e.message));
+    await guest.goto(base + "/generated/studio.html");
+    await guest.waitForFunction(() => window.KernStudio && window.KernStudio.frames() > 5, null, {timeout: 90000});
+    await cmd(page, {cmd: "submitDialog", name: "netHost", values: {room: "e2e", relay: ""}});
+    check(await until(async () => (await status(page)).net?.role === "server", 15000), "Host Online Game starts a server");
+    await cmd(guest, {cmd: "submitDialog", name: "netJoin", values: {room: "e2e", relay: ""}});
+    check(await until(async () => (await status(guest)).net?.status?.startsWith("Connected (slot"), 30000), "a second tab joins the hosted game");
+    check(await until(async () => (await status(page)).net?.players === 2, 15000), "the host sees two players");
+    const gs = await status(guest);
+    check(gs.hud?.status === "playing", "the guest plays the host's game");
+    await cmd(guest, {cmd: "netStop"});
+    check(await until(async () => (await status(page)).net?.players === 1, 15000), "the host notices the guest leaving");
+    await cmd(page, {cmd: "netStop"});
+    await guest.close();
+  }
+
   // Package a game and play the packaged page.
   await cmd(page, {cmd: "new", template: "orbRun"});
   const html = await page.evaluate(() => window.KernStudio.packageHtml("Orb Run"));
@@ -276,6 +389,9 @@ const vpCenter = async (page, i = 0) => {
   const gs = await until(async () => { const st = await game.evaluate(() => window.KernGame.status); return st.hud?.speed > 2 && st; }, 45000) || await game.evaluate(() => window.KernGame.status);
   await game.keyboard.up("KeyW");
   check(gs.hud.speed > 2, `the packaged game drives (${gs.hud.speed} m/s)`);
+  check(await until(async () => (await game.evaluate(() => window.KernGame.audio?.context?.state)) === "running", 10000), "the packaged game's audio runs");
+  check(await until(async () => (await game.evaluate(() => window.KernGame.status.audio?.voices)) >= 2, 10000), "the packaged game plays music and the engine");
+  check(await game.evaluate(() => window.KernGame.audio.mode) !== "none", `the packaged game outputs sound (${await game.evaluate(() => window.KernGame.audio.mode)})`);
   check(await ink(game) > 40, "the packaged game renders");
   check(await game.locator(".k-hud-stats").count() === 1, "the packaged game shows its HUD");
   await shot(game, "game.png");

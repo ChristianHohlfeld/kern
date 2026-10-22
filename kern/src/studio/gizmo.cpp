@@ -253,6 +253,7 @@ void Studio::begin_gizmo(Viewport& v, u32 axes, u32 modifiers) {
     gizmo_.selection_before = selection_;
   }
   gizmo_.duplicated = false;
+  gizmo_.surface = false;
   if ((modifiers & 4) && play_ == PlayState::editing) {
     // Alt-drag moves a copy (Unreal). Copy and move form ONE undo step, committed when the drag ends.
     duplicate_in_place();
@@ -306,8 +307,114 @@ void Studio::begin_gizmo(Viewport& v, u32 axes, u32 modifiers) {
   touch();
 }
 
+bool Studio::surface_under(const Viewport& v, f32 x, f32 y, const std::vector<ActorId>& ignore, Vec3& point) {
+  Ray r;
+  if (!ray(v, x, y, r)) return false;
+  auto moving = [&](ActorId id) {
+    for (const game::Actor* a = level_.find(id); a; a = a->parent ? level_.find(a->parent) : nullptr)
+      for (ActorId i : ignore)
+        if (a->id == i) return true;
+    return false;
+  };
+  PickQuery q;
+  q.layers = layer::scene;
+  PickHit hit;
+  for (int attempt = 0; attempt < 16; ++attempt) {
+    if (!r_->pick_ray(r, q, hit)) break;
+    const ActorId id = world_->actor_for_mesh(hit.mesh);
+    const game::Actor* a = id ? level_.find(id) : nullptr;
+    if (!id || (a && !a->hidden && !moving(id))) {
+      point = hit.point;
+      return true;
+    }
+    q.ignore_id = hit.mesh;  // one of the dragged actors: look behind it
+    r.origin = hit.point + r.direction * 0.001f;
+  }
+  return false;
+}
+
+void Studio::begin_surface_drag(Viewport& v, Vec3 grab_point) {
+  gizmo_.before = level_;
+  gizmo_.selection_before = selection_;
+  gizmo_.base = level_;
+  gizmo_.duplicated = false;
+  gizmo_.surface = true;
+  gizmo_.active = true;
+  gizmo_.moved = false;
+  gizmo_.viewport = v.index;
+  gizmo_.tool = Tool::translate;
+  gizmo_.axes = 7;
+  gizmo_.delta = {};
+  gizmo_.start_point = grab_point;
+  gizmo_.start_x = v.x;
+  gizmo_.start_y = v.y;
+  gizmo_.start.clear();
+  Aabb box;
+  for (ActorId id : selection_roots()) {
+    Mat4 m;
+    if (world_->actor_matrix(id, m)) gizmo_.start.push_back({id, m});
+    Aabb b;
+    if (world_->actor_bounds(id, b)) box.extend(b);
+  }
+  gizmo_.pivot = gizmo_.start.empty() ? grab_point : gizmo_.start.front().second.translation();
+  gizmo_.lift = box.valid() ? grab_point.z - box.min.z : 0;
+  v.drag = Drag::gizmo;
+  touch();
+}
+
+void Studio::update_surface_drag(Viewport& v) {
+  if (!v.moved || gizmo_.start.empty()) return;
+  std::vector<ActorId> ignore;
+  for (auto& s : gizmo_.start) ignore.push_back(s.first);
+  Vec3 surface, delta;
+  if (v.type != ViewType::perspective) {
+    // Orthographic views: slide in the view plane.
+    Ray r;
+    Vec3 hit;
+    const Camera cam = camera_of(v);
+    const Vec3 dir = normalize(cam.target - cam.eye);
+    if (!ray(v, v.x, v.y, r) || !internal::ray_plane(r.origin, r.direction, gizmo_.start_point, dir, hit)) return;
+    delta = hit - gizmo_.start_point;
+    if (snap_.grid) {
+      const Vec3 p = gizmo_.pivot + delta;
+      for (int i = 0; i < 3; ++i)
+        if (std::fabs(dir[i]) < 0.5f) delta[i] = internal::snap(p[i], snap_.grid_size) - gizmo_.pivot[i];
+    }
+  } else if (surface_under(v, v.x, v.y, ignore, surface)) {
+    // Rest the selection's bottom on the surface, the grab point above the cursor.
+    delta = {surface.x - gizmo_.start_point.x, surface.y - gizmo_.start_point.y, surface.z + gizmo_.lift - gizmo_.start_point.z};
+  } else {
+    // Nothing underneath (sky): slide on the horizontal plane through the grab point.
+    Ray r;
+    Vec3 hit;
+    if (!ray(v, v.x, v.y, r) || !internal::ray_plane(r.origin, r.direction, gizmo_.start_point, {0, 0, 1}, hit)) return;
+    if (distance(hit, camera_of(v).eye) > 2000) return;
+    delta = {hit.x - gizmo_.start_point.x, hit.y - gizmo_.start_point.y, 0};
+  }
+  if (snap_.grid && v.type == ViewType::perspective) {
+    const Vec3 p = gizmo_.pivot + delta;
+    delta.x = internal::snap(p.x, snap_.grid_size) - gizmo_.pivot.x;
+    delta.y = internal::snap(p.y, snap_.grid_size) - gizmo_.pivot.y;
+  }
+  gizmo_.delta = delta;
+  gizmo_.moved = true;
+  level_ = gizmo_.base;
+  for (auto& [id, w0] : gizmo_.start) {
+    game::Actor* a = level_.find(id);
+    if (!a) continue;
+    const Mat4 parent_inv = a->parent ? internal::inverse(level_.world_matrix(a->parent)) : Mat4{};
+    game::Transform t = game::matrix_transform(parent_inv * (Mat4::translate(delta) * w0));
+    t.rotation = a->transform.rotation;
+    t.scale = a->transform.scale;
+    a->transform = t;
+  }
+  ++scene_revision_;
+  touch();
+}
+
 void Studio::update_gizmo(Viewport& v) {
   if (!gizmo_.active) return;
+  if (gizmo_.surface) { update_surface_drag(v); return; }
   Ray r;
   if (!ray(v, v.x, v.y, r)) return;
   const Camera cam = camera_of(v);

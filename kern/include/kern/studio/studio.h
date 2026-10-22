@@ -16,6 +16,9 @@
 
 #include "kern/core/json.h"
 #include "kern/game/runtime.h"
+#include "kern/game/net_game.h"
+#include "kern/game/sound.h"
+#include "kern/net/transport.h"
 #include "kern/gfx/renderer.h"
 
 namespace kern::studio {
@@ -51,6 +54,7 @@ enum : u32 {
   joints = 1u << 7,       // joint and contact debug lines
   gizmo0 = 1u << 8,       // + viewport index (4 viewports)
   ortho_grid0 = 1u << 12, // + viewport index
+  client0 = 1u << 16,     // + client index: worlds of network clients in multi-player Play
 };
 }
 
@@ -68,7 +72,7 @@ struct ViewCamera {
   Vec3 right() const;
 };
 
-enum class Drag : u8 { none, fly, lmb_move, pedestal, pan, orbit, dolly, gizmo, marquee, ortho_pan, grab, look };
+enum class Drag : u8 { none, fly, pedestal, pan, orbit, dolly, gizmo, marquee, ortho_pan, grab, look };
 
 struct Viewport {
   u32 index = 0;                // 0..3
@@ -109,6 +113,8 @@ struct GizmoDrag {
   Vec3 factor{1, 1, 1};         // scale
   bool duplicated = false;
   bool moved = false;
+  bool surface = false;         // dragged by the actor itself: slides over surfaces under the cursor
+  f32 lift = 0;                 // surface drag: grab point height above the selection's bottom
   u32 viewport = 0;
   game::Level before;           // the level when the drag started (undo / cancel)
   game::Level base;             // the level the live preview starts from (before + Alt-duplicates)
@@ -187,6 +193,48 @@ class Studio {
   bool texture_pixels(const std::string& id, i32 w, i32 h, const u8* rgba);
   std::string texture_source(const std::string& id) const;
 
+  // ---- audio (the host pulls rendered PCM; see kern/web/audio.mjs) ----
+  /// Starts the mixer at the output device's rate. Without it the studio is silent.
+  bool audio_init(u32 sample_rate);
+  bool audio_ready() const { return mixer_->ready(); }
+  /// Interleaved stereo of the next `frames` frames.
+  void audio_render(f32* out, u32 frames);
+  audio::Mixer& mixer() { return *mixer_; }
+  game::SoundBank& sound_bank() { return *bank_; }
+  game::GameAudio& game_audio() { return *game_audio_; }
+  /// Imported sounds that need decoded PCM from the host.
+  std::vector<std::string> pending_sounds() const;
+  std::string sound_source(const std::string& id) const;
+  bool sound_pcm(const std::string& id, const f32* samples, u32 frames, u32 channels, u32 rate);
+  void sound_failed(const std::string& id, const std::string& reason);
+  /// Plays a sound reference on the UI bus (the details panel's preview button). One at a time.
+  void preview_sound(const std::string& ref, f32 volume = 1, f32 pitch = 1);
+  void stop_preview();
+  bool previewing() const;
+  /// Adds an imported sound (a data: URL) as one undo step; returns its id.
+  std::string import_sound(const std::string& name, const std::string& src, f32 duration);
+  bool remove_sound(const std::string& id);
+  void set_muted(bool muted);
+  bool muted() const { return game_audio_->muted(); }
+
+  // ---- multiplayer ----
+  /// Play with several players in this editor (Unreal's "Number of Players"): the
+  /// level's world is a listen server, every further player a network client with
+  /// its own world and viewport, connected through an in-process network.
+  struct NetPlaySettings {
+    i32 players = 1;                      // 1..4
+    net::SimulatorSettings network;       // latency, jitter, loss for the local players
+  };
+  NetPlaySettings& net_play() { return net_play_; }
+  /// Real network play (browser host transport, see kern/web/studio/game.mjs KernNet).
+  bool net_host();
+  bool net_join(u64 server);
+  void net_stop();
+  net::HostTransport& host_transport() { return host_transport_; }
+  game::NetGame* net_game() { return net_.get(); }
+  /// World a viewport shows (the main world or a client's).
+  game::GameWorld& world_of(u32 viewport);
+
   // ---- direct API (commands call these; tests use them) ----
   const game::Level& level() const { return level_; }
   game::Level& edit_level() { return level_; }
@@ -234,7 +282,7 @@ class Studio {
   std::vector<ActorId> selection_roots() const;
 
   // actors
-  ActorId spawn(const std::string& item, std::optional<Vec3> at = {});
+  ActorId spawn(const std::string& item, std::optional<Vec3> at = {}, const std::string& sound = {});
   ActorId add_actor(game::Actor actor, bool select_it = true);
   void delete_selection();
   void delete_selection(const char* label);
@@ -267,6 +315,7 @@ class Studio {
   void eject();
   PlayState play_state() const { return play_; }
   game::GameWorld& world() { return *world_; }
+  const Preferences& prefs() const { return prefs_; }
 
   // tools
   void set_tool(Tool t);
@@ -311,6 +360,12 @@ class Studio {
   f32 gizmo_scale(const Viewport& v, Vec3 pivot) const;
   void begin_gizmo(Viewport& v, u32 axes, u32 modifiers);
   void update_gizmo(Viewport& v);
+  /// Drag the selection by grabbing an actor: it follows the cursor over whatever
+  /// surface is underneath (other actors, the ground), resting on it.
+  void begin_surface_drag(Viewport& v, Vec3 grab_point);
+  void update_surface_drag(Viewport& v);
+  /// Surface under the cursor ignoring the given actors (and their children).
+  bool surface_under(const Viewport& v, f32 x, f32 y, const std::vector<ActorId>& ignore, Vec3& point);
   void end_gizmo(bool accept);
   void build_gizmo_meshes(Viewport& v);
   // overlays
@@ -369,6 +424,11 @@ class Studio {
   f32 fps_ = 0;
   u64 revision_ = 1;
   u64 scene_revision_ = 0, synced_revision_ = ~0ull;
+  u64 world_synced_ = ~0ull;              // scene revision the presentation (meshes for picking) shows
+  /// Brings the presentation up to date now (commands that pick or measure right after an edit).
+  void ensure_world_synced() {
+    if (play_ == PlayState::editing && world_synced_ != scene_revision_) { world_->sync(level_); world_synced_ = scene_revision_; }
+  }
   std::vector<LogLine> log_;
   std::vector<UiAction> ui_;
   std::unordered_map<u32, ViewCamera> bookmarks_;
@@ -387,6 +447,34 @@ class Studio {
   u64 overlay_key_ = 0, wireframe_key_ = 0;
   bool any_wireframe_ = false;
   u32 next_texture_ = 1;
+  // audio
+  std::unique_ptr<audio::Mixer> mixer_;
+  std::unique_ptr<game::SoundBank> bank_;
+  std::unique_ptr<game::GameAudio> game_audio_;
+  audio::VoiceId preview_ = 0;
+  std::string preview_ref_;               // waiting for its clip
+  f32 preview_volume_ = 1, preview_pitch_ = 1;
+  u64 audio_scene_ = ~0ull;
+  void update_audio(const Camera& listener, f32 dt);
+  // multiplayer
+  struct LocalClient {
+    std::unique_ptr<game::GameWorld> world;
+    std::unique_ptr<net::Transport> transport;
+    std::unique_ptr<game::NetGame> game;
+    Camera camera;
+    bool camera_valid = false;
+  };
+  NetPlaySettings net_play_;
+  std::unique_ptr<net::LoopbackNetwork> hub_;
+  std::unique_ptr<net::Transport> hub_server_;
+  std::vector<LocalClient> clients_;      // client i shows in viewport i + 1
+  std::unique_ptr<game::NetGame> net_;    // the main world's role (listen server or remote client)
+  net::HostTransport host_transport_;
+  bool net_remote_ = false;               // net_ talks over host_transport_
+  f64 net_time_ = 0;
+  void start_local_clients();
+  void stop_net();
+  void update_net(f32 dt, const game::PlayInput& in);
 };
 
 }  // namespace kern::studio

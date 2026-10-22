@@ -82,6 +82,7 @@ void actor_kind(const game::Actor& a, const char*& type, const char*& icon) {
   if (a.controller) { type = "Player"; icon = "player"; return; }
   if (a.trigger) { type = "Trigger"; icon = "trigger"; return; }
   if (a.pickup) { type = "Pickup"; icon = "pickup"; return; }
+  if (a.audio && !a.mesh) { type = "Audio Source"; icon = "speaker"; return; }
   if (!a.joints.empty() && a.mesh) { type = "Constrained Mesh"; icon = "joint"; return; }
   if (a.mesh) {
     if (a.body && a.body->motion == game::Motion::dynamic) { type = "Physics Mesh"; icon = "physics"; return; }
@@ -130,7 +131,7 @@ json::Value Studio::key(std::string_view key, std::string_view code, bool down, 
   }
   const bool m_shift = mods & shift, m_ctrl = mods & ctrl, m_alt = mods & alt;
   const bool flying = std::any_of(views_.begin(), views_.end(), [](const Viewport& v) {
-    return v.drag == Drag::fly || v.drag == Drag::pedestal || v.drag == Drag::lmb_move;
+    return v.drag == Drag::fly || v.drag == Drag::pedestal;
   });
   const bool playing_pawn = play_ == PlayState::playing && !ejected_;
 
@@ -460,6 +461,35 @@ json::Value Studio::menu_json(std::string_view name) const {
     m.push(entry(play_ == PlayState::playing ? "Eject from Player" : "Possess Player", cmd("eject"), "F8", !editing));
     m.push(entry("Restart Game", cmd("restart"), "Ctrl+R", !editing));
     m.push(entry("Keep Simulation Changes", cmd("keep"), "K", play_ == PlayState::simulating && sel));
+    m.push(separator());
+    {
+      // Unreal's "Number of Players": a listen server and local clients in the other viewports.
+      json::Value players = json::Value::array();
+      for (i32 n = 1; n <= 4; ++n) {
+        json::Value c = cmd("netPlayers");
+        c.set("players", n);
+        json::Value e = entry(n == 1 ? "1 Player" : std::to_string(n) + " Players (listen server)", std::move(c), "", editing);
+        e.set("checked", net_play_.players == n);
+        players.push(std::move(e));
+      }
+      m.push(submenu("Number of Players", std::move(players)));
+      json::Value lag = json::Value::array();
+      const struct { const char* label; f32 latency, jitter, loss; } presets[] = {
+          {"Perfect", 0, 0, 0}, {"LAN (5 ms)", 5, 1, 0}, {"Average (50 ms, 1% loss)", 50, 10, 1}, {"Bad (150 ms, 5% loss)", 150, 40, 5}, {"Terrible (300 ms, 20% loss)", 300, 100, 20}};
+      for (const auto& p : presets) {
+        json::Value c = cmd("netSimulate");
+        c.set("latency", p.latency);
+        c.set("jitter", p.jitter);
+        c.set("loss", p.loss);
+        json::Value e = entry(p.label, std::move(c));
+        e.set("checked", net_play_.network.latency_ms == p.latency && net_play_.network.loss_percent == p.loss);
+        lag.push(std::move(e));
+      }
+      m.push(submenu("Network Emulation", std::move(lag)));
+      m.push(entry("Host Online Game...", cmd("dialog", "name", "netHost"), "", editing));
+      m.push(entry("Join Online Game...", cmd("dialog", "name", "netJoin"), "", editing));
+      m.push(entry("Leave Online Game", cmd("netStop"), "", net_remote_));
+    }
   } else if (name == "help") {
     m.push(entry("Controls...", cmd("dialog", "name", "controls"), "F1"));
     m.push(entry("About Kern Studio", cmd("dialog", "name", "about")));
@@ -618,6 +648,15 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
     c.set("primary", true);
     b.push(std::move(c));
     d.set("buttons", std::move(b));
+  } else if (name == "netHost" || name == "netJoin") {
+    const bool host = name == "netHost";
+    d.set("title", host ? "Host Online Game" : "Join Online Game");
+    d.set("text", host ? "Players join with the same room name. Leave the relay empty for players in other tabs of this browser; "
+                         "for other machines run tools/net_relay.mjs and enter its address (ws://host:8790). Everyone needs this level."
+                       : "Enter the room the host chose (and the relay address if the host uses one). You need the same level as the host.");
+    fields.push(field("room", "Room", "text", "kern"));
+    fields.push(field("relay", "Relay (optional)", "text", ""));
+    buttons(host ? "Host" : "Join");
   } else if (name == "rename") {
     const ActorId id = args.is_object() && args["id"].is_number() ? static_cast<ActorId>(args["id"].as_number()) : primary();
     const game::Actor* a = level_.find(id);
@@ -629,15 +668,17 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
     d.set("title", "Controls");
     const char* rows[][2] = {
         {"Right mouse + WASD / QE", "Fly (Unreal fly mode); wheel while flying changes speed, Shift = faster, Z / C zoom"},
-        {"Left mouse drag", "Move forward / back and turn"},
-        {"Left + right mouse", "Move up / down and sideways"},
+        {"Left click", "Select (Shift adds, Ctrl toggles); click empty space to deselect"},
+        {"Left drag on an actor", "Move it over the surfaces under the cursor (snaps to the grid)"},
+        {"Left drag on empty space", "Marquee select (Shift adds, Ctrl toggles)"},
+        {"Right + left mouse", "Move up / down and sideways while flying"},
         {"Middle mouse drag", "Pan"},
         {"Alt + left / right / middle", "Orbit / dolly / pan around the selection"},
         {"Mouse wheel", "Move forward / back (zoom in orthographic views)"},
         {"F  /  End", "Focus selection  /  snap to floor"},
         {"Q  W  E  R  /  Space", "Select / move / rotate / scale  /  cycle"},
         {"Alt + drag gizmo", "Duplicate while moving"},
-        {"Ctrl + Alt + drag", "Marquee select"},
+        {"Drag from Place Actors", "Drop a new actor exactly where you release it"},
         {"Ctrl+Z / Ctrl+Y", "Undo / redo"},
         {"Ctrl+C / V / X / D, Delete", "Copy, paste, cut, duplicate, delete"},
         {"H  /  Shift+H  /  Ctrl+H", "Hide selected / hide others / show all"},
@@ -685,6 +726,16 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
 }
 
 json::Value Studio::submit_dialog(std::string_view name, const json::Value& values) {
+  if (name == "netHost" || name == "netJoin") {
+    // The page opens the transport, tells us our address and then hosts / joins.
+    json::Value a = json::Value::object();
+    a.set("action", "netOpen");
+    a.set("host", name == "netHost");
+    a.set("room", values["room"].is_string() && !values["room"].as_string().empty() ? values["room"].as_string() : std::string("kern"));
+    a.set("relay", values["relay"].is_string() ? values["relay"].as_string() : std::string());
+    push_ui(std::move(a));
+    return ok();
+  }
   if (name == "new") {
     const std::string t = values["template"].is_string() ? values["template"].as_string() : "basic";
     load_level(template_level(t));
@@ -817,6 +868,35 @@ json::Value Studio::state() {
     tex.push(std::move(e));
   }
   s.set("textures", std::move(tex));
+  {
+    json::Value au = json::Value::object();
+    au.set("ready", audio_ready());
+    au.set("muted", muted());
+    au.set("previewing", previewing());
+    json::Value imported = json::Value::array();
+    for (const game::SoundAsset& snd : level_.sounds) {
+      json::Value e = json::Value::object();
+      e.set("id", snd.id);
+      e.set("name", snd.name);
+      e.set("duration", internal::round_num(snd.duration, 100));
+      imported.push(std::move(e));
+    }
+    au.set("imported", std::move(imported));
+    static const json::Value builtin = [] {
+      json::Value list = json::Value::array();
+      for (const audio::BuiltinSound& b : audio::builtin_sounds()) {
+        json::Value e = json::Value::object();
+        e.set("id", std::string("builtin:") + b.name);
+        e.set("name", b.label);
+        e.set("category", b.category);
+        e.set("loop", b.loop);
+        list.push(std::move(e));
+      }
+      return list;
+    }();
+    au.set("builtin", builtin);
+    s.set("sounds", std::move(au));
+  }
   json::Value h = json::Value::object();
   h.set("canUndo", can_undo());
   h.set("index", static_cast<f64>(history_index_));
@@ -880,6 +960,58 @@ json::Value Studio::status() {
     stats.set("steps", static_cast<f64>(st.steps));
     s.set("sim", std::move(stats));
   }
+  if (audio_ready()) {
+    const audio::Stats& st = mixer_->stats();
+    json::Value au = json::Value::object();
+    json::Value peak = json::Value::array();
+    peak.push(internal::round_num(st.master.peak[0], 1000));
+    peak.push(internal::round_num(st.master.peak[1], 1000));
+    au.set("peak", std::move(peak));
+    au.set("voices", st.voices);
+    au.set("audible", st.audible);
+    au.set("muted", muted());
+    s.set("audio", std::move(au));
+  }
+  if (net_) {
+    const game::NetStats& ns = net_->stats();
+    json::Value n = json::Value::object();
+    n.set("role", net_->role() == game::NetRole::server ? "server" : "client");
+    n.set("status", net_->status());
+    n.set("players", ns.players);
+    n.set("rtt", internal::round_num(ns.rtt_ms, 10));
+    n.set("loss", internal::round_num(ns.packet_loss, 10));
+    n.set("up", internal::round_num(ns.sent_kbps, 10));
+    n.set("down", internal::round_num(ns.received_kbps, 10));
+    n.set("local", static_cast<u32>(clients_.size()));
+    json::Value cl = json::Value::array();
+    for (const LocalClient& c : clients_) {
+      json::Value o = json::Value::object();
+      o.set("status", c.game->status());
+      o.set("rtt", internal::round_num(c.game->stats().rtt_ms, 10));
+      o.set("buffer", internal::round_num(c.game->stats().buffer_ms, 10));
+      if (c.game->playing()) {
+        const game::Hud& h = c.world->hud();
+        json::Value hud = json::Value::object();
+        hud.set("status", game::game_status_name(h.status));
+        hud.set("title", h.title);
+        hud.set("message", h.message);
+        hud.set("messageAge", internal::round_num(h.message_age, 100));
+        hud.set("score", internal::round_num(h.score, 10));
+        hud.set("pickups", h.pickups);
+        hud.set("pickupsTotal", h.pickups_total);
+        hud.set("elapsed", internal::round_num(h.elapsed, 100));
+        hud.set("remaining", internal::round_num(h.remaining, 100));
+        hud.set("speed", internal::round_num(h.speed, 10));
+        hud.set("boost", internal::round_num(h.boost, 100));
+        hud.set("best", 0.0);
+        hud.set("player", true);
+        o.set("hud", std::move(hud));
+      }
+      cl.push(std::move(o));
+    }
+    n.set("clients", std::move(cl));
+    s.set("net", std::move(n));
+  }
   if (player_only_) return s;
   const Viewport& v = views_[active_view_];
   json::Value cam = json::Value::object();
@@ -892,7 +1024,7 @@ json::Value Studio::status() {
   json::Value views = json::Value::array();
   for (const Viewport& w : views_) {
     json::Value o = json::Value::object();
-    static const char* drags[] = {"none", "fly", "move", "pedestal", "pan", "orbit", "dolly", "gizmo", "marquee", "pan", "grab", "look"};
+    static const char* drags[] = {"none", "fly", "pedestal", "pan", "orbit", "dolly", "gizmo", "marquee", "pan", "grab", "look"};
     o.set("drag", drags[static_cast<u32>(w.drag)]);
     if (w.drag == Drag::marquee && w.moved) {
       json::Value r = json::Value::array();
@@ -994,7 +1126,7 @@ json::Value Studio::run(const json::Value& c) {
       }
       if (at && v.type != ViewType::perspective && v.type != ViewType::top && v.type != ViewType::bottom) {}  // side views keep the hit
     }
-    const ActorId id = spawn(str("item"), at);
+    const ActorId id = spawn(str("item"), at, str("sound"));
     json::Value r = ok(id != 0);
     r.set("id", id);
     return r;
@@ -1178,7 +1310,32 @@ json::Value Studio::run(const json::Value& c) {
   }
 
   // ---- play ----
-  if (name == "play") return ok(play(str("mode") == "simulate" ? game::SimMode::simulate : game::SimMode::play));
+  if (name == "play") {
+    if (c["players"].is_number()) net_play_.players = clamp(static_cast<i32>(num("players")), 1, 4);
+    return ok(play(str("mode") == "simulate" ? game::SimMode::simulate : game::SimMode::play));
+  }
+  if (name == "netPlayers") {
+    net_play_.players = clamp(static_cast<i32>(num("players", 1)), 1, 4);
+    report(net_play_.players == 1 ? "Play: one player" : "Play: " + std::to_string(net_play_.players) + " players (listen server + " + std::to_string(net_play_.players - 1) + " client" + (net_play_.players > 2 ? "s" : "") + ")");
+    touch();
+    return ok();
+  }
+  if (name == "netSimulate") {
+    net_play_.network.latency_ms = clamp(static_cast<f32>(num("latency", net_play_.network.latency_ms)), 0.0f, 1000.0f);
+    net_play_.network.jitter_ms = clamp(static_cast<f32>(num("jitter", net_play_.network.jitter_ms)), 0.0f, 500.0f);
+    net_play_.network.loss_percent = clamp(static_cast<f32>(num("loss", net_play_.network.loss_percent)), 0.0f, 90.0f);
+    net_play_.network.duplicate_percent = clamp(static_cast<f32>(num("duplicate", net_play_.network.duplicate_percent)), 0.0f, 50.0f);
+    host_transport_.simulator().settings = net_play_.network;
+    touch();
+    return ok();
+  }
+  if (name == "netAddress") {
+    host_transport_.set_address(net::Address{static_cast<u64>(num("self"))});
+    return ok();
+  }
+  if (name == "netHost") return ok(net_host());
+  if (name == "netJoin") return ok(net_join(static_cast<u64>(num("server"))));
+  if (name == "netStop") { net_stop(); return ok(); }
   if (name == "stop") { stop(); return ok(); }
   if (name == "pause") { toggle_pause(); return ok(); }
   if (name == "stepFrame") { if (play_ != PlayState::editing) world_->step_once(play_input()); return ok(); }
@@ -1339,6 +1496,53 @@ json::Value Studio::run(const json::Value& c) {
     return r;
   }
   if (name == "saved") { mark_saved(); report("Saved " + level_.name); return ok(); }
+  // ---- audio ----
+  if (name == "previewSound") {
+    preview_sound(str("sound"), static_cast<f32>(num("volume", 1)), static_cast<f32>(num("pitch", 1)));
+    return ok();
+  }
+  if (name == "stopSound") { stop_preview(); return ok(); }
+  if (name == "importSound") {
+    const std::string id = import_sound(str("name"), str("src"), static_cast<f32>(num("duration")));
+    json::Value r = ok(!id.empty());
+    r.set("id", id);
+    return r;
+  }
+  if (name == "removeSound") return ok(remove_sound(str("id")));
+  if (name == "renameSound") {
+    const std::string id = str("id"), to = str("name");
+    if (to.empty()) return error("a sound needs a name");
+    return ok(edit("Rename Sound", [&](game::Level& l) {
+      for (game::SoundAsset& s : l.sounds)
+        if (s.id == id) { s.name = to; return true; }
+      return false;
+    }));
+  }
+  if (name == "mute") {
+    set_muted(c["muted"].is_bool() ? c["muted"].as_bool() : !muted());
+    report(muted() ? "Sound muted" : "Sound on");
+    return ok();
+  }
+  if (name == "project") {
+    // Screen position (CSS pixels in the viewport) of an actor's pivot, or of a world point.
+    const u32 vi = view_index();
+    Vec3 p;
+    if (c["id"].is_number()) {
+      const ActorId id = static_cast<ActorId>(num("id"));
+      Mat4 m;
+      if (world_->actor_matrix(id, m)) p = m.translation();
+      else if (level_.find(id)) p = level_.world_matrix(id).translation();  // not presented yet (added this frame)
+      else return error("unknown actor");
+    } else if (c["point"].is_array() && c["point"].size() == 3) {
+      p = {static_cast<f32>(c["point"][0].as_number()), static_cast<f32>(c["point"][1].as_number()), static_cast<f32>(c["point"][2].as_number())};
+    } else return error("project needs id or point");
+    f32 x = 0, y = 0;
+    json::Value r = ok();
+    r.set("visible", to_screen(views_[vi], p, x, y));
+    r.set("x", x);
+    r.set("y", y);
+    return r;
+  }
   if (name == "packageText") {
     json::Value r = ok();
     game::Level copy = level_;

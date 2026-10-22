@@ -1649,32 +1649,34 @@ int b3FindHullSupportVertex( const b3HullData* hull, b3Vec3 direction )
 	int vertexCount = hull->vertexCount;
 	const float* vx = b3GetHullSoaVertices( hull );
 
-	int soaVertexCount = ( vertexCount + 3 ) & ~3;
+	int soaVertexCount = b3GetHullSoaStride( vertexCount );
 	const float* vy = vx + soaVertexCount;
 	const float* vz = vy + soaVertexCount;
 
-	b3FloatW dx = b3SplatW( direction.x );
-	b3FloatW dy = b3SplatW( direction.y );
-	b3FloatW dz = b3SplatW( direction.z );
-	b3FloatW four = b3SplatW( 4.0f );
-	b3FloatW index = b3SetW( 0.0f, 1.0f, 2.0f, 3.0f );
-	b3FloatW bestDotW = b3SplatW( -FLT_MAX );
-	b3FloatW bestIndexW = b3SplatW( -1.0f );
+	b3FloatW4 dx = b3SplatW4( direction.x );
+	b3FloatW4 dy = b3SplatW4( direction.y );
+	b3FloatW4 dz = b3SplatW4( direction.z );
+	b3FloatW4 four = b3SplatW4( 4.0f );
+	b3FloatW4 index = b3SetW4( 0.0f, 1.0f, 2.0f, 3.0f );
+	b3FloatW4 bestDotW = b3SplatW4( -FLT_MAX );
+	b3FloatW4 bestIndexW = b3SplatW4( -1.0f );
 
-	for ( int i = 0; i < soaVertexCount; i += 4 )
+	// Keep this at 4 wide to avoid regressing 4 wide platforms.
+	int loopCount = ( vertexCount + 3 ) & ~3;
+	for ( int i = 0; i < loopCount; i += 4 )
 	{
-		b3FloatW dot =
-			b3AddW( b3AddW( b3MulW( dx, b3LoadW( vx + i ) ), b3MulW( dy, b3LoadW( vy + i ) ) ), b3MulW( dz, b3LoadW( vz + i ) ) );
-		b3FloatW mask = b3GreaterThanW( dot, bestDotW );
-		bestDotW = b3BlendW( bestDotW, dot, mask );
-		bestIndexW = b3BlendW( bestIndexW, index, mask );
-		index = b3AddW( index, four );
+		b3FloatW4 dot = b3AddW4( b3AddW4( b3MulW4( dx, b3LoadW4( vx + i ) ), b3MulW4( dy, b3LoadW4( vy + i ) ) ),
+								 b3MulW4( dz, b3LoadW4( vz + i ) ) );
+		b3FloatW4 mask = b3GreaterThanW4( dot, bestDotW );
+		bestDotW = b3BlendW4( bestDotW, dot, mask );
+		bestIndexW = b3BlendW4( bestIndexW, index, mask );
+		index = b3AddW4( index, four );
 	}
 
 	_Alignas( 16 ) float dots[4];
 	_Alignas( 16 ) float indices[4];
-	b3StoreW( dots, bestDotW );
-	b3StoreW( indices, bestIndexW );
+	b3StoreW4( dots, bestDotW );
+	b3StoreW4( indices, bestIndexW );
 
 	for ( int lane = 0; lane < 4; ++lane )
 	{
@@ -2218,8 +2220,8 @@ b3HullData* b3CreateHull( const b3Vec3* points, int pointCount, int maxVertexCou
 		while ( edge != face->edge );
 	}
 
-	int soaVertexCount = ( vertexCount + 3 ) & ~3;
-	int soaNormalCount = ( faceCount + 3 ) & ~3;
+	int soaVertexCount = b3GetHullSoaStride( vertexCount );
+	int soaNormalCount = b3GetHullSoaStride( faceCount );
 
 	// Allocate the hull. Arrays hang off the end.
 	size_t byteCount = b3AlignUp8( sizeof( b3HullData ) );
@@ -2492,7 +2494,7 @@ b3HullData* b3CloneAndTransformHull( const b3HullData* original, b3Transform tra
 	b3Matrix3 matrix = b3MakeMatrixFromQuat( transform.q );
 	b3Vec3* points = b3GetHullPointsWrite( hull );
 
-	int soaVertexCount = ( vertexCount + 3 ) & ~3;
+	int soaVertexCount = b3GetHullSoaStride( vertexCount );
 	float* vx = b3GetHullSoaVerticesWrite( hull );
 	float* vy = vx + soaVertexCount;
 	float* vz = vy + soaVertexCount;
@@ -2514,7 +2516,7 @@ b3HullData* b3CloneAndTransformHull( const b3HullData* original, b3Transform tra
 	}
 
 	b3Plane* planes = b3GetHullPlanesWrite( hull );
-	int soaNormalCount = ( faceCount + 3 ) & ~3;
+	int soaNormalCount = b3GetHullSoaStride( faceCount );
 	float* nx = b3GetHullSoaNormalsWrite( hull );
 	float* ny = nx + soaNormalCount;
 	float* nz = ny + soaNormalCount;

@@ -1,13 +1,13 @@
 # Kern Engine
 
-Kern ist eine 3D-Engine in **C++20**, die mit wasi-sdk nach **WebAssembly** kompiliert und im Browser über **WebGL2** zeichnet – mit **Box3D**-Physik, einer Spiel-Laufzeit aus Levels, Actors und Komponenten und **Kern Studio**, einem Engine-Editor im Stil der Unreal Engine: Viewports mit Fly Mode, Gizmos, Outliner, Details, Content Drawer, Play und Simulate im Viewport, Spiele als eine HTML-Datei. Kein three.js, kein Emscripten, keine Engine-Logik in JavaScript.
+Kern ist eine 3D-Engine in **C++20**, die mit wasi-sdk nach **WebAssembly** kompiliert und im Browser über **WebGL2** zeichnet – mit **Box3D**-Physik, einer **Sound-Engine in C++** (Mixer, 3D-Klang, Hall, Synthesizer), einer Spiel-Laufzeit aus Levels, Actors und Komponenten und **Kern Studio**, einem Engine-Editor im Stil der Unreal Engine: Viewports mit Fly Mode, Gizmos, Outliner, Details, Content Drawer, Play und Simulate im Viewport, Spiele als eine HTML-Datei. Kein three.js, kein Emscripten, keine Engine-Logik in JavaScript.
 
 **Live:** https://christianhohlfeld.github.io/kern/ – Kern Studio (startet mit Orb Run), spielbare Levels und C++-Beispiele im Browser.
 
 | | |
 |---|---|
 | Engine, Renderer, Geometrie, App-Laufzeit | [`kern/README.md`](kern/README.md) |
-| Kern Studio, Steuerung, Komponenten, `.klevel`-Format, Protokoll | [`kern/docs/studio.md`](kern/docs/studio.md) |
+| Kern Studio, Steuerung, Komponenten, Sound, `.klevel`-Format, Protokoll | [`kern/docs/studio.md`](kern/docs/studio.md) |
 | Lizenzen der Fremdbibliotheken (Earcut, Box3D) | [`kern/LICENSES.md`](kern/LICENSES.md) |
 
 ## Schnellstart

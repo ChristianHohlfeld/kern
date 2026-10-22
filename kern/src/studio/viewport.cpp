@@ -93,6 +93,7 @@ void Studio::set_viewport_rect(u32 index, Rect rect, f32 css_width, f32 css_heig
 // picking
 
 ActorId Studio::pick(u32 index, f32 x, f32 y, Vec3* hit_point) {
+  ensure_world_synced();
   Viewport& v = viewport(index);
   Ray r;
   if (!ray(v, x, y, r)) return 0;
@@ -202,12 +203,6 @@ void Studio::apply_drag(Viewport& v, f32 dx, f32 dy, u32 mods) {
       c.yaw -= dx * sens;
       c.pitch = clamp(c.pitch - dy * sens * inv, -89.9f, 89.9f);
       break;
-    case Drag::lmb_move: {
-      c.yaw -= dx * sens;
-      const f32 y = c.yaw * kDegToRad;
-      c.position += Vec3{std::cos(y), std::sin(y), 0} * (-dy * move);
-      break;
-    }
     case Drag::pedestal:
       c.position.z -= dy * move;
       c.position += c.right() * (dx * move);
@@ -329,13 +324,21 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
             v.pivot = hit;
             begin_drag(v, Drag::grab);
           }
-        } else if (!persp || ((mods & ctrl) && (mods & alt))) begin_drag(v, Drag::marquee);
-        else if (v.drag == Drag::fly) begin_drag(v, Drag::pedestal);
-        else begin_drag(v, Drag::lmb_move);
+        } else if (v.drag == Drag::fly && persp) begin_drag(v, Drag::pedestal);
+        else {
+          // Left button: click selects; dragging an actor slides it over the surfaces
+          // under the cursor; dragging empty space (or with Shift / Ctrl) draws a marquee.
+          Vec3 hit;
+          const ActorId id = (mods & (shift | ctrl)) || play_ != PlayState::editing ? 0 : pick(index, x, y, &hit);
+          if (id) {
+            if (!selected(id)) select({id});
+            begin_surface_drag(v, hit);
+          } else begin_drag(v, Drag::marquee);
+        }
       } else if (button == 2) {
         if ((mods & alt) && persp) begin_drag(v, Drag::dolly);
         else if (!persp) begin_drag(v, Drag::ortho_pan);
-        else if (v.drag == Drag::lmb_move) begin_drag(v, Drag::pedestal);
+        else if (v.drag == Drag::gizmo || v.drag == Drag::marquee) break;  // left drag in progress
         else begin_drag(v, Drag::fly);
       } else if (button == 1) {
         begin_drag(v, persp ? Drag::pan : Drag::ortho_pan);
@@ -365,12 +368,13 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
       // Releasing one button of a two-button drag continues with the other.
       v.buttons = static_cast<u32>(buttons);
       if (d == Drag::pedestal && type == up) {
-        v.drag = (buttons & 2) ? Drag::fly : (buttons & 1) ? Drag::lmb_move : Drag::none;
+        v.drag = (buttons & 2) ? Drag::fly : Drag::none;
         break;
       }
+      const bool surface = d == Drag::gizmo && gizmo_.surface;
       if (d == Drag::marquee && v.moved && type == up) marquee_select(v, mods);
       end_drag(v);
-      if (click_now && button == 0 && (d == Drag::lmb_move || d == Drag::marquee)) click(v, x, y, mods);
+      if (click_now && button == 0 && (surface || d == Drag::marquee)) click(v, x, y, mods);
       if (click_now && button == 2 && (d == Drag::fly || d == Drag::ortho_pan) && play_ != PlayState::playing) {
         // Right click: select what is under the cursor and open the context menu.
         const ActorId id = pick(index, x, y);
@@ -417,6 +421,7 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
 }
 
 void Studio::focus_selection(i32 index) {
+  ensure_world_synced();
   Viewport& v = viewport(index < 0 ? active_view_ : static_cast<u32>(index));
   Aabb box;
   for (ActorId id : selection_) {
@@ -476,23 +481,30 @@ void Studio::frame(f64 now_ms) {
   update_cameras(dt);
   if (play_ != PlayState::editing) {
     const game::PlayInput in = play_input();
-    world_->step(dt, in);
+    // In multi-player Play the active viewport's player gets the input; the others idle.
+    const bool main_has_input = !net_ || clients_.empty() || active_view_ == 0;
+    const game::PlayInput main_in = main_has_input ? in : game::PlayInput{};
+    if (net_) update_net(dt, in);
+    else world_->step(dt, in);
     if (play_ == PlayState::playing && !ejected_) {
-      Camera c = play_camera_valid_ ? play_camera_ : camera_of(views_[active_view_]);
-      play_camera_valid_ = world_->update_camera(c, dt, in);
+      Camera c = play_camera_valid_ ? play_camera_ : camera_of(views_[0]);
+      play_camera_valid_ = world_->update_camera(c, dt, main_in);
       play_camera_ = c;
     }
     look_dx_ = look_dy_ = play_zoom_ = 0;
     for (const std::string& e : world_->events()) report(e, e.rfind("Game lost", 0) == 0 ? "warn" : "info");
     world_->events().clear();
-  } else if (synced_revision_ != scene_revision_) {
-    world_->sync(level_);
+  } else {
+    ensure_world_synced();
   }
   sync_overlays();
   // Lighting and the presentation of the moving world use the active viewport's eye.
   const Viewport& active = views_[active_view_];
-  const Camera eye_cam = play_ == PlayState::playing && !ejected_ && play_camera_valid_ ? play_camera_ : camera_of(active);
+  const bool client_view = active_view_ >= 1 && active_view_ - 1 < clients_.size() && clients_[active_view_ - 1].camera_valid;
+  const Camera eye_cam = client_view ? clients_[active_view_ - 1].camera
+                         : play_ == PlayState::playing && !ejected_ && play_camera_valid_ ? play_camera_ : camera_of(active);
   world_->present(now_ms, eye_cam.eye);
+  update_audio(eye_cam, dt);
   // Clear the whole drawing buffer once (gaps between quad viewports).
   for (Viewport& v : views_) {
     if (!v.visible) continue;
@@ -503,12 +515,16 @@ void Studio::frame(f64 now_ms) {
 
 void Studio::render_viewport(Viewport& v, f64 now_ms) {
   (void)now_ms;
-  const bool playing_here = play_ == PlayState::playing && !ejected_ && v.index == active_view_ && play_camera_valid_;
-  Camera cam = playing_here ? play_camera_ : camera_of(v);
+  // Multi-player Play: viewports 1..3 show the local clients' worlds through their cameras.
+  LocalClient* client = v.index >= 1 && v.index - 1 < clients_.size() ? &clients_[v.index - 1] : nullptr;
+  const bool playing_here = client ? client->camera_valid
+                                   : play_ == PlayState::playing && !ejected_ && play_camera_valid_ && (v.index == active_view_ || (!clients_.empty() && v.index == 0));
+  Camera cam = client && client->camera_valid ? client->camera : playing_here ? play_camera_ : camera_of(v);
+  game::GameWorld& world = client ? *client->world : *world_;
   const f32 aspect = static_cast<f32>(v.rect.w) / static_cast<f32>(max_of(1, v.rect.h));
   (void)aspect;
   r_->camera = cam;
-  world_->apply_lighting(cam.eye);
+  world.apply_lighting(cam.eye);
   Lighting& l = r_->lighting;
   const bool helpers = !v.game_view && !playing_here && !player_only_;
   if (!v.flags.fog || cam.orthographic) l.fog_density = 0;
@@ -561,6 +577,13 @@ void Studio::render_viewport(Viewport& v, f64 now_ms) {
       vp.height = min_of(vp.height, r_->height() - vp.y);
       if (vp.width <= 0 || vp.height <= 0) return;
     }
+  }
+  if (client) {
+    // The client's world only (its own meshes on its layer), no editor helpers.
+    const u32 bit = layer::client0 << (v.index - 1);
+    p.layers = (p.layers & ~layer::scene & ~(layer::grid | layer::icons | layer::selection | layer::colliders | layer::joints | layer::bounds |
+                                               (layer::gizmo0 << v.index))) | bit;
+    if (v.mode == ViewMode::wireframe) p.layers = bit, p.sky = true, p.clear_color = {0.09f, 0.1f, 0.12f, 1};
   }
   RenderStats stats;
   if (!r_->render(p, stats)) {

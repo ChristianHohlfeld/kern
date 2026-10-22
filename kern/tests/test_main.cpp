@@ -11,6 +11,8 @@
 #include "kern/game/demos.h"
 #include "kern/game/runtime.h"
 #include "kern/studio/studio.h"
+#include "kern/net/client_server.h"
+#include "kern/game/net_game.h"
 
 #include <algorithm>
 #include <memory>
@@ -1349,6 +1351,1007 @@ TEST(game_world_rules) {
   f.world->stop();
 }
 
+TEST(game_character_mover) {
+  GameFixture f;
+  game::Level l = game::basic_level();
+  game::Actor hero;
+  hero.name = "Hero";
+  hero.transform.position = {-6, 0, 1.0f};
+  hero.mesh = game::MeshComponent{};
+  hero.mesh->shape = game::Shape::capsule;
+  hero.mesh->radius = 0.4f;
+  hero.mesh->height = 1.8f;
+  hero.body = game::BodyComponent{};
+  hero.body->mass = 75;
+  hero.controller = game::ControllerComponent{};
+  hero.controller->mode = game::ControlMode::character;
+  hero.controller->max_speed = 5;
+  hero.controller->jump_speed = 6;
+  const game::ActorId hero_id = l.add(hero).id;
+  auto box = [&](const char* name, Vec3 at, Vec3 size, bool dynamic) {
+    game::Actor a;
+    a.name = name;
+    a.transform.position = at;
+    a.mesh = game::MeshComponent{};
+    a.mesh->size = size;
+    a.mesh->collision = true;
+    if (dynamic) { a.body = game::BodyComponent{}; a.body->mass = 20; }
+    return l.add(a).id;
+  };
+  box("Step", {-2, 0, 0.15f}, {2, 4, 0.3f}, false);          // 30 cm step: walked over
+  box("Wall", {4, 0, 1.5f}, {0.5f, 6, 3}, false);           // blocks
+  const game::ActorId crate = box("Crate", {-4, 3, 0.5f}, {1, 1, 1}, true);
+  game::Actor orb;
+  orb.name = "Orb";
+  orb.transform.position = {1, 0, 0.9f};
+  orb.pickup = game::PickupComponent{};
+  game::ColliderComponent sensor;
+  sensor.shape = game::ColliderShape::sphere;
+  sensor.radius = 0.5f;
+  sensor.sensor = true;
+  orb.colliders.push_back(sensor);
+  l.add(orb);
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {20, 20, 0.5f};
+  CHECK(f.world->start(l, game::SimMode::play));
+  CHECK(f.world->player() == hero_id);
+  CHECK(f.world->physics().body_type(f.world->actor_body(hero_id)) == physics::BodyType::kinematic);
+  Camera cam;
+  game::PlayInput in;
+  for (int i = 0; i < 30; ++i) { f.world->step(1.0f / 60, in); f.world->update_camera(cam, 1.0f / 60, in); }
+  const f32 rest_z = f.world->physics().pose(f.world->actor_body(hero_id)).position.z;
+  CHECK(rest_z > 0.7f && rest_z < 1.3f);  // standing on the floor (feet near 0.0, origin 0.9 above)
+  // Walk along +X (the chase camera looks along the hero's facing, +X): over the step, through the orb, into the wall.
+  in.move_y = 1;
+  f32 max_z = 0;
+  for (int i = 0; i < 240; ++i) {
+    f.world->step(1.0f / 60, in);
+    f.world->update_camera(cam, 1.0f / 60, in);
+    max_z = std::max(max_z, f.world->physics().pose(f.world->actor_body(hero_id)).position.z);
+  }
+  const Vec3 at_wall = f.world->physics().pose(f.world->actor_body(hero_id)).position;
+  CHECK(max_z > rest_z + 0.2f);                 // climbed the step
+  CHECK(at_wall.x > 2.5f && at_wall.x < 3.8f);  // stopped by the wall (wall face at 3.75, radius 0.4)
+  CHECK(f.world->hud().pickups == 1);           // walked through the orb sensor
+  // Jump.
+  in.move_y = 0;
+  in.jump = true;
+  f.world->step(1.0f / 60, in);
+  in.jump = false;
+  f32 peak = 0;
+  for (int i = 0; i < 40; ++i) { f.world->step(1.0f / 60, in); peak = std::max(peak, f.world->physics().pose(f.world->actor_body(hero_id)).position.z); }
+  CHECK(peak > rest_z + 0.5f);
+  for (int i = 0; i < 90; ++i) f.world->step(1.0f / 60, in);
+  CHECK(std::fabs(f.world->physics().pose(f.world->actor_body(hero_id)).position.z - rest_z) < 0.15f);
+  // Walking into the crate pushes it.
+  const Vec3 crate0 = f.world->physics().pose(f.world->actor_body(crate)).position;
+  f.world->physics().set_pose(f.world->actor_body(hero_id), {{-4, 0.5f, rest_z}, {}});
+  f.world->stop();
+  CHECK(f.world->start(l, game::SimMode::play));
+  // Start right next to the crate, facing +Y via the camera yaw: drive with move_x / move_y relative to the camera.
+  for (int i = 0; i < 20; ++i) f.world->step(1.0f / 60, {});
+  physics::World& phys = f.world->physics();
+  (void)phys;
+  game::PlayInput towards;
+  // Camera yaw follows the hero facing +X; +Y is "left" (move_x = -1).
+  towards.move_x = -1;
+  for (int i = 0; i < 20; ++i) f.world->step(1.0f / 60, towards);
+  // Teleport next to the crate and keep walking into it.
+  game::Level copy = l;
+  for (game::Actor& a : copy.actors) if (a.id == hero_id) a.transform.position = {-4, 1.5f, 1.0f};
+  f.world->stop();
+  CHECK(f.world->start(copy, game::SimMode::play));
+  for (int i = 0; i < 90; ++i) f.world->step(1.0f / 60, towards);
+  const Vec3 crate1 = f.world->physics().pose(f.world->actor_body(crate)).position;
+  CHECK(crate1.y > crate0.y + 0.3f);
+  // Ejecting turns the hero back into a dynamic body; possessing again uses the mover.
+  CHECK(f.world->set_mode(game::SimMode::simulate));
+  CHECK(f.world->physics().body_type(f.world->actor_body(hero_id)) == physics::BodyType::dynamic);
+  CHECK(f.world->set_mode(game::SimMode::play));
+  CHECK(f.world->physics().body_type(f.world->actor_body(hero_id)) == physics::BodyType::kinematic);
+  f.world->stop();
+}
+
+// ---------------------------------------------------------------------------
+// Audio
+
+namespace {
+struct Rendered {
+  std::vector<f32> pcm;
+  f32 peak_l = 0, peak_r = 0, rms_l = 0, rms_r = 0;
+  bool finite = true;
+};
+Rendered render_mixer(audio::Mixer& m, u32 frames) {
+  Rendered r;
+  r.pcm.resize(static_cast<std::size_t>(frames) * 2);
+  // Odd block sizes on purpose: the mixer must not depend on the host's buffer size.
+  u32 done = 0, block = 97;
+  while (done < frames) {
+    const u32 n = std::min(block, frames - done);
+    m.render(r.pcm.data() + done * 2, n);
+    done += n;
+    block = block == 97 ? 512 : block == 512 ? 128 : 97;
+  }
+  f64 sl = 0, sr = 0;
+  for (u32 i = 0; i < frames; ++i) {
+    const f32 l = r.pcm[i * 2], rr = r.pcm[i * 2 + 1];
+    r.finite = r.finite && std::isfinite(l) && std::isfinite(rr);
+    r.peak_l = std::max(r.peak_l, std::fabs(l));
+    r.peak_r = std::max(r.peak_r, std::fabs(rr));
+    sl += l * l;
+    sr += rr * rr;
+  }
+  r.rms_l = static_cast<f32>(std::sqrt(sl / frames));
+  r.rms_r = static_cast<f32>(std::sqrt(sr / frames));
+  return r;
+}
+std::vector<f32> sine(u32 rate, f32 seconds, f32 hz, f32 amp = 0.5f) {
+  std::vector<f32> v(static_cast<std::size_t>(rate * seconds));
+  for (std::size_t i = 0; i < v.size(); ++i) v[i] = amp * std::sin(2 * kPi * hz * static_cast<f32>(i) / static_cast<f32>(rate));
+  return v;
+}
+}  // namespace
+
+TEST(audio_mixer_panning_and_limits) {
+  audio::Mixer m;
+  CHECK(!m.ready());
+  CHECK(m.init(48000, 16));
+  const audio::ClipId tone = m.adopt_clip(sine(48000, 1, 440), 1, "tone");
+  CHECK(tone != 0);
+  CHECK_NEAR(m.clip_info(tone)->duration, 1.0f, 1e-3f);
+  // Hard left.
+  audio::PlayParams p;
+  p.pan = -1;
+  audio::VoiceId v = m.play(tone, p);
+  CHECK(v != 0 && m.playing(v));
+  Rendered r = render_mixer(m, 4800);
+  CHECK(r.finite);
+  CHECK(r.rms_l > 0.1f);
+  CHECK(r.rms_r < r.rms_l * 0.02f);
+  m.stop(v);
+  render_mixer(m, 2400);
+  CHECK(!m.playing(v));
+  // Eight loud voices at once: the limiter keeps the output inside [-1, 1].
+  for (int i = 0; i < 8; ++i) {
+    audio::PlayParams q;
+    q.volume = 4;
+    q.pitch = 1 + 0.01f * i;
+    m.play(tone, q);
+  }
+  r = render_mixer(m, 9600);
+  CHECK(r.finite);
+  CHECK(r.peak_l <= 1.0f && r.peak_r <= 1.0f);
+  CHECK(r.peak_l > 0.5f);
+  CHECK(m.stats().limiter_reduction_db < 0);
+  // One-shots end by themselves, loops keep going.
+  m.stop_all();
+  render_mixer(m, 2400);
+  const audio::VoiceId once = m.play(tone, {});
+  audio::PlayParams lp;
+  lp.loop = true;
+  const audio::VoiceId loop = m.play(tone, lp);
+  render_mixer(m, 48000 + 4800);
+  CHECK(!m.playing(once));
+  CHECK(m.playing(loop));
+  CHECK(m.position_of(loop) < 1.0f);
+  // Pitch 2 plays an octave up: the clip ends after half its length.
+  m.stop_all();
+  render_mixer(m, 2400);
+  audio::PlayParams fast;
+  fast.pitch = 2;
+  const audio::VoiceId f2 = m.play(tone, fast);
+  render_mixer(m, 26000);
+  CHECK(!m.playing(f2));
+  // Muted buses are silent, and the bus meters see their own signal only.
+  m.stop_all();
+  render_mixer(m, 2400);
+  m.bus(audio::Bus::music).muted = true;
+  audio::PlayParams mp;
+  mp.bus = audio::Bus::music;
+  mp.loop = true;
+  m.play(tone, mp);
+  r = render_mixer(m, 4800);
+  CHECK(m.stats().buses[static_cast<u32>(audio::Bus::music)].peak[0] < 1e-4f);
+  m.bus(audio::Bus::music).muted = false;
+  r = render_mixer(m, 4800);
+  CHECK(r.peak_l > 0.1f);
+  CHECK(m.stats().buses[static_cast<u32>(audio::Bus::music)].peak[0] > 0.1f);
+  CHECK(m.stats().buses[static_cast<u32>(audio::Bus::sfx)].peak[0] < 1e-4f);
+  // Invalid input is rejected.
+  CHECK(m.create_clip(nullptr, 10, 1, 48000, "x") == 0);
+  const std::vector<f32> bad = {0.1f, NAN, 0.2f};
+  CHECK(m.create_clip(bad.data(), 3, 1, 48000, "nan") == 0 || m.clip_info(m.create_clip(bad.data(), 3, 1, 48000, "nan"))->peak <= 1);
+  CHECK(m.play(9999, {}) == 0);
+}
+
+TEST(audio_mixer_resampling_and_stereo) {
+  audio::Mixer m;
+  CHECK(m.init(48000));
+  // 1 s at 22050 Hz becomes 48000 frames; a 1 kHz tone stays 1 kHz (zero crossings).
+  const std::vector<f32> src = sine(22050, 1, 1000);
+  const audio::ClipId c = m.create_clip(src.data(), static_cast<u32>(src.size()), 1, 22050, "low");
+  CHECK(c != 0);
+  CHECK(m.clip_info(c)->frames >= 47990 && m.clip_info(c)->frames <= 48010);
+  const std::vector<f32>& pcm = *m.clip_samples(c);
+  u32 crossings = 0;
+  for (std::size_t i = 1000; i < 47000; ++i) crossings += (pcm[i - 1] < 0) != (pcm[i] < 0);
+  CHECK(crossings > 1900 && crossings < 2020);  // 2 per period, 46000 frames ~ 958 periods
+  // Stereo clips keep their channels.
+  std::vector<f32> st(48000 * 2);
+  for (u32 i = 0; i < 48000; ++i) { st[i * 2] = 0.5f * std::sin(2 * kPi * 300 * i / 48000.0f); st[i * 2 + 1] = 0; }
+  const audio::ClipId sc = m.create_clip(st.data(), 48000, 2, 48000, "stereo");
+  CHECK(sc != 0 && m.clip_info(sc)->channels == 2);
+  m.play(sc, {});
+  Rendered r = render_mixer(m, 9600);
+  CHECK(r.rms_l > 0.1f && r.rms_r < 0.01f);
+  // Destroying a clip stops its voices.
+  CHECK(m.destroy_clip(sc));
+  r = render_mixer(m, 2400);
+  CHECK(m.stats().voices == 0);
+  CHECK(m.clip_info(sc) == nullptr);
+}
+
+TEST(audio_mixer_spatial) {
+  audio::Mixer m;
+  CHECK(m.init(48000));
+  const audio::ClipId tone = m.adopt_clip(sine(48000, 1, 330), 1, "tone");
+  audio::Listener l;
+  l.position = {0, 0, 0};
+  l.forward = {1, 0, 0};
+  l.up = {0, 0, 1};
+  m.set_listener(l);
+  auto level_at = [&](Vec3 at, audio::Rolloff ro = audio::Rolloff::inverse, f32 mn = 1, f32 mx = 50) {
+    m.stop_all();
+    render_mixer(m, 1200);
+    audio::PlayParams p;
+    p.spatial = true;
+    p.loop = true;
+    p.position = at;
+    p.rolloff = ro;
+    p.min_distance = mn;
+    p.max_distance = mx;
+    m.play(tone, p);
+    render_mixer(m, 2400);  // ramps settle
+    return render_mixer(m, 9600);
+  };
+  // +Y is left when looking along +X with Z up.
+  Rendered left = level_at({0, 5, 0});
+  CHECK(left.rms_l > left.rms_r * 2);
+  Rendered right = level_at({0, -5, 0});
+  CHECK(right.rms_r > right.rms_l * 2);
+  // Further is quieter; beyond max_distance a linear source is silent.
+  Rendered near = level_at({4, 0, 0}), far = level_at({30, 0, 0});
+  CHECK(near.rms_l > far.rms_l * 2);
+  Rendered gone = level_at({80, 0, 0}, audio::Rolloff::linear, 1, 50);
+  CHECK(gone.rms_l < 1e-3f);
+  CHECK(m.stats().virtual_voices >= 1);
+  // Doppler: a source rushing towards the listener plays higher (more zero crossings).
+  auto crossings = [&](Vec3 vel) {
+    m.stop_all();
+    render_mixer(m, 1200);
+    audio::PlayParams p;
+    p.spatial = true;
+    p.loop = true;
+    p.position = {10, 0, 0};
+    p.velocity = vel;
+    m.play(tone, p);
+    render_mixer(m, 4800);
+    Rendered r = render_mixer(m, 48000);
+    u32 n = 0;
+    for (std::size_t i = 2; i < r.pcm.size(); i += 2) n += (r.pcm[i - 2] < 0) != (r.pcm[i] < 0);
+    return n;
+  };
+  const u32 still = crossings({}), towards = crossings({-60, 0, 0});
+  CHECK(still > 640 && still < 680);
+  CHECK(towards > still + 40);
+  // Pausing everything holds the position.
+  m.stop_all();
+  render_mixer(m, 1200);
+  audio::PlayParams p;
+  p.loop = true;
+  const audio::VoiceId v = m.play(tone, p);
+  render_mixer(m, 4800);
+  const f32 at = m.position_of(v);
+  m.set_all_paused(true);
+  Rendered silent = render_mixer(m, 4800);
+  CHECK_NEAR(m.position_of(v), at, 1e-3f);
+  CHECK(silent.peak_l < 0.05f);
+  m.set_all_paused(false);
+  render_mixer(m, 4800);
+  CHECK(m.position_of(v) > at + 0.05f);
+}
+
+TEST(audio_mixer_voice_stealing) {
+  audio::Mixer m;
+  CHECK(m.init(44100, 4));
+  const audio::ClipId tone = m.adopt_clip(sine(44100, 2, 220), 1, "tone");
+  std::vector<audio::VoiceId> ids;
+  for (int i = 0; i < 4; ++i) ids.push_back(m.play(tone, {}));
+  audio::PlayParams important;
+  important.priority = 10;
+  const audio::VoiceId vip = m.play(tone, important);
+  CHECK(vip != 0 && m.playing(vip));
+  u32 alive = 0;
+  for (audio::VoiceId id : ids) alive += m.playing(id);
+  CHECK(alive == 3);
+  CHECK(m.stats().stolen >= 1);
+  // Low priority cannot steal from higher priorities once all are important.
+  for (int i = 0; i < 3; ++i) m.play(tone, important);
+  audio::PlayParams low;
+  low.priority = -5;
+  CHECK(m.play(tone, low) == 0);
+  render_mixer(m, 1000);
+  CHECK(m.stats().voices <= 4);
+}
+
+TEST(audio_builtin_library) {
+  const u32 rate = 48000;
+  CHECK(audio::builtin_sounds().size() >= 25);
+  CHECK(audio::find_builtin("quack") && audio::find_builtin("music_drive") && !audio::find_builtin("nope"));
+  for (const audio::BuiltinSound& b : audio::builtin_sounds()) {
+    std::vector<f32> pcm;
+    u32 ch = 0;
+    CHECK(audio::render_builtin(b.name, rate, pcm, ch));
+    CHECK(ch == 1 || ch == 2);
+    CHECK(!pcm.empty());
+    f32 peak = 0;
+    bool finite = true;
+    for (f32 x : pcm) { finite = finite && std::isfinite(x); peak = std::max(peak, std::fabs(x)); }
+    if (!finite || peak > 1.0f || peak < 0.02f) std::printf("    %s: finite %d peak %.3f\n", b.name, finite, peak);
+    CHECK(finite);
+    CHECK(peak <= 1.0f);
+    CHECK(peak > 0.02f);
+    if (b.loop) {
+      // Seamless: the jump from the last frame to the first is no larger than a typical step.
+      const std::size_t n = pcm.size() / ch;
+      f32 seam = 0, typical = 0;
+      for (u32 c = 0; c < ch; ++c) seam = std::max(seam, std::fabs(pcm[(n - 1) * ch + c] - pcm[c]));
+      for (std::size_t i = 1; i < n; ++i) typical += std::fabs(pcm[i * ch] - pcm[(i - 1) * ch]);
+      typical /= static_cast<f32>(n);
+      if (seam > typical * 12 + 0.02f) std::printf("    %s: seam %.4f typical %.4f\n", b.name, seam, typical);
+      CHECK(seam <= typical * 12 + 0.02f);
+    }
+  }
+  // Deterministic: the same sound renders bit-identically, and the sliced job equals the one-shot render.
+  std::vector<f32> a, b;
+  u32 ca = 0, cb = 0;
+  audio::render_builtin("explosion", rate, a, ca);
+  audio::render_builtin("explosion", rate, b, cb);
+  CHECK(a == b);
+  audio::BuiltinJob job;
+  CHECK(job.start("music_calm", rate));
+  CHECK(!job.done());
+  int steps = 0;
+  while (!job.step(0.5)) ++steps;
+  CHECK(steps > 1);
+  u32 cj = 0;
+  const std::vector<f32> sliced = job.take(cj);
+  std::vector<f32> whole;
+  u32 cw = 0;
+  audio::render_builtin("music_calm", rate, whole, cw);
+  CHECK(cj == cw && sliced == whole);
+  CHECK(!job.start("nope", rate));
+}
+
+TEST(audio_level_fields_round_trip) {
+  game::Level l = game::basic_level();
+  game::Actor speaker;
+  speaker.name = "Speaker";
+  speaker.audio = game::AudioComponent{};
+  speaker.audio->sound = "snd1";
+  speaker.audio->volume = 0.7f;
+  speaker.audio->bus = audio::Bus::ambience;
+  speaker.audio->rolloff = audio::Rolloff::linear;
+  speaker.audio->min_distance = 3;
+  speaker.audio->max_distance = 60;
+  speaker.audio->pitch_by_speed = 0.5f;
+  speaker.body = game::BodyComponent{};
+  speaker.body->impact_sound = "builtin:break";
+  speaker.body->impact_threshold = 4;
+  l.add(speaker);
+  l.world.music = "builtin:music_drive";
+  l.world.music_volume = 0.4f;
+  l.world.reverb = 0.6f;
+  game::SoundAsset snd;
+  snd.id = "snd1";
+  snd.name = "Engine";
+  snd.duration = 2.5f;
+  snd.src = std::make_shared<const std::string>("data:audio/wav;base64,UklGRg==");
+  l.sounds.push_back(snd);
+  const std::string text = game::to_text(l, 2);
+  game::Level back;
+  std::string err;
+  CHECK(game::from_text(text, back, &err));
+  const game::Actor* sp = nullptr;
+  for (const game::Actor& a : back.actors) if (a.name == "Speaker") sp = &a;
+  CHECK(sp && sp->audio);
+  CHECK(sp->audio->sound == "snd1");
+  CHECK_NEAR(sp->audio->volume, 0.7f, 1e-5f);
+  CHECK(sp->audio->bus == audio::Bus::ambience);
+  CHECK(sp->audio->rolloff == audio::Rolloff::linear);
+  CHECK_NEAR(sp->audio->max_distance, 60.0f, 1e-4f);
+  CHECK(sp->body->impact_sound == "builtin:break");
+  CHECK(back.world.music == "builtin:music_drive");
+  CHECK_NEAR(back.world.reverb, 0.6f, 1e-5f);
+  CHECK(back.sounds.size() == 1 && back.sound("snd1") && back.sound("snd1")->name == "Engine");
+  CHECK(game::to_text(back, 2) == text);
+  // Unknown references are warnings, not errors.
+  game::Level bad = back;
+  for (game::Actor& a : bad.actors) if (a.audio) a.audio->sound = "builtin:does_not_exist";
+  bool warned = false, errors = false;
+  for (const game::Issue& i : game::validate(bad)) { warned |= i.text.find("does not exist") != std::string::npos; errors |= i.error; }
+  CHECK(warned && !errors);
+  // Bad values are rejected with a message.
+  game::Level rejected;
+  std::string text2 = text;
+  const std::size_t at = text2.find("\"bus\": \"ambience\"");
+  CHECK(at != std::string::npos);
+  text2.replace(at, std::strlen("\"bus\": \"ambience\""), "\"bus\": \"loud\"");
+  CHECK(!game::from_text(text2, rejected, &err));
+  CHECK(err.find("bus") != std::string::npos);
+  // Only audio data URLs are accepted as sound assets.
+  std::string text3 = text;
+  const std::size_t d = text3.find("data:audio/wav");
+  text3.replace(d, std::strlen("data:audio/wav"), "javascript:alert");
+  game::Level filtered;
+  CHECK(game::from_text(text3, filtered, &err));
+  CHECK(filtered.sounds.empty());
+}
+
+TEST(audio_game_world_cues) {
+  GameFixture f;
+  audio::Mixer mixer;
+  CHECK(mixer.init(48000));
+  game::SoundBank bank(mixer);
+  game::GameAudio ga(mixer, bank);
+  game::Level l = game::basic_level();
+  game::Actor ball;
+  ball.name = "Ball";
+  ball.transform.position = {0, 0, 1};
+  ball.mesh = game::MeshComponent{};
+  ball.mesh->shape = game::Shape::sphere;
+  ball.body = game::BodyComponent{};
+  ball.controller = game::ControllerComponent{};
+  ball.controller->mode = game::ControlMode::rolling;
+  ball.controller->jump_speed = 6;
+  const game::ActorId ball_id = l.add(ball).id;
+  game::Actor crate;
+  crate.name = "Crate";
+  crate.transform.position = {5, 5, 6};
+  crate.mesh = game::MeshComponent{};
+  crate.body = game::BodyComponent{};
+  crate.body->motion = game::Motion::dynamic;
+  l.add(crate);
+  game::Actor orb;
+  orb.name = "Orb";
+  orb.transform.position = {-4, 0, 0.6f};
+  orb.pickup = game::PickupComponent{};
+  l.add(orb);
+  game::Actor hum;
+  hum.name = "Hum";
+  hum.transform.position = {2, 0, 1};
+  hum.audio = game::AudioComponent{};
+  hum.audio->delay = 0.2f;
+  l.add(hum);
+  l.world.music = "builtin:music_calm";
+  // Everything the level uses is prepared ahead (all built-ins render in time slices).
+  bank.request_level(l);
+  CHECK(bank.queued() > 5);
+  while (!bank.prepare(5)) {}
+  CHECK(bank.ready("builtin:music_calm") && bank.ready("builtin:impact") && bank.ready("builtin:jump") && bank.ready("builtin:pickup") && bank.ready("builtin:hum"));
+  CHECK(f.world->start(l, game::SimMode::play));
+  Camera cam;
+  f.world->update_camera(cam, 1.0f / 60, {});
+  game::PlayInput in;
+  auto frame = [&](const game::PlayInput& input) {
+    f.world->step(1.0f / 60, input);
+    f.world->update_camera(cam, 1.0f / 60, input);
+    ga.update(*f.world, cam, 1.0f / 60);
+    render_mixer(mixer, 800);
+  };
+  for (int i = 0; i < 120; ++i) frame(in);
+  CHECK(ga.active());
+  // The crate fell and hit the ground: an impact.
+  const u32 after_fall = ga.cues_played();
+  CHECK(after_fall >= 1);
+  // Music, the hum and the impact sounded.
+  CHECK(mixer.stats().voices >= 2);
+  // Jump.
+  in.jump = true;
+  frame(in);
+  in.jump = false;
+  for (int i = 0; i < 5; ++i) frame(in);
+  CHECK(ga.cues_played() > after_fall);
+  // Pickup.
+  const u32 before_pickup = ga.cues_played();
+  f.world->physics().set_pose(f.world->actor_body(ball_id), {{-4, 0, 0.6f}, {}});
+  for (int i = 0; i < 10; ++i) frame(in);
+  CHECK(f.world->hud().pickups == 1);
+  CHECK(ga.cues_played() > before_pickup);
+  CHECK(ga.cues_dropped() == 0);
+  Rendered r = render_mixer(mixer, 4800);
+  CHECK(r.finite && r.peak_l > 0.01f && r.peak_l <= 1.0f);
+  // Pause silences the world (positions held), stop fades everything out.
+  f.world->set_paused(true);
+  ga.update(*f.world, cam, 1.0f / 60);
+  render_mixer(mixer, 4800);
+  r = render_mixer(mixer, 4800);
+  CHECK(mixer.stats().buses[static_cast<u32>(audio::Bus::music)].peak[0] < 1e-4f);
+  CHECK(mixer.stats().buses[static_cast<u32>(audio::Bus::sfx)].peak[0] < 1e-4f);
+  f.world->set_paused(false);
+  // A restart begins a fresh session (music again, sources again).
+  CHECK(f.world->restart());
+  ga.update(*f.world, cam, 1.0f / 60);
+  CHECK(ga.active());
+  f.world->stop();
+  ga.update(*f.world, cam, 1.0f / 60);
+  CHECK(!ga.active());
+  render_mixer(mixer, 48000 / 2);
+  CHECK(mixer.stats().voices == 0);
+  // Deterministic cues: two runs of the same level produce the same cue sequence.
+  auto trace = [&]() {
+    GameFixture g;
+    std::string out;
+    CHECK(g.world->start(l, game::SimMode::play));
+    game::PlayInput jump;
+    for (int i = 0; i < 120; ++i) {
+      jump.jump = i == 70;
+      g.world->step(1.0f / 60, jump);
+      for (const game::SoundCue& c : g.world->sound_cues()) {
+        char buf[160];
+        std::snprintf(buf, sizeof buf, "%d %s %.4f %.4f|", i, c.sound.c_str(), c.volume, c.pitch);
+        out += buf;
+      }
+      g.world->sound_cues().clear();
+    }
+    return out;
+  };
+  const std::string t1 = trace(), t2 = trace();
+  CHECK(!t1.empty() && t1 == t2);
+  CHECK(t1.find("builtin:impact") != std::string::npos && t1.find("builtin:jump") != std::string::npos);
+}
+
+TEST(audio_imported_sounds_in_the_bank) {
+  audio::Mixer mixer;
+  CHECK(mixer.init(44100));
+  game::SoundBank bank(mixer);
+  game::Level l = game::basic_level();
+  game::SoundAsset s;
+  s.id = "snd1";
+  s.name = "Beep";
+  s.src = std::make_shared<const std::string>("data:audio/wav;base64,AAAA");
+  l.sounds.push_back(s);
+  bank.sync_assets(l);
+  CHECK(bank.clip("snd1") == 0);  // requested: the host decodes it
+  CHECK(bank.pending_imports() == std::vector<std::string>{"snd1"});
+  CHECK(bank.source("snd1") && *bank.source("snd1") == *s.src);
+  const std::vector<f32> pcm = sine(22050, 0.5f, 600);
+  CHECK(bank.set_pcm("snd1", pcm.data(), static_cast<u32>(pcm.size()), 1, 22050));
+  CHECK(bank.ready("snd1"));
+  CHECK_NEAR(bank.duration("snd1"), 0.5f, 0.01f);
+  CHECK(bank.pending_imports().empty());
+  // Replacing the asset (new source) drops the clip; removing it forgets it.
+  l.sounds[0].src = std::make_shared<const std::string>("data:audio/wav;base64,BBBB");
+  bank.sync_assets(l);
+  CHECK(!bank.ready("snd1"));
+  CHECK(bank.clip("snd1") == 0);
+  CHECK(bank.pending_imports().size() == 1);
+  bank.set_failed("snd1", "corrupt");
+  CHECK(bank.failed("snd1") && bank.pending_imports().empty());
+  l.sounds.clear();
+  bank.sync_assets(l);
+  CHECK(!bank.failed("snd1"));
+  // Unknown built-ins fail at once, silence references are ignored.
+  bank.request("builtin:nope");
+  CHECK(bank.failed("builtin:nope"));
+  CHECK(bank.clip("") == 0 && bank.clip("none") == 0 && bank.queued() == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Network
+
+namespace {
+Quat qnorm(Quat q) {
+  const f32 l = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+  return {q.x / l, q.y / l, q.z / l, q.w / l};
+}
+struct NetSample {
+  i32 health = 0;
+  bool alive = false;
+  f32 speed = 0, x = 0;
+  Vec3 pos;
+  Quat rot;
+  std::string name;
+  u16 seq = 0;
+  template <class S>
+  bool serialize(S& s) {
+    return net::serialize_int(s, health, -5, 100) && net::serialize_bool(s, alive) && net::serialize_float(s, speed) &&
+           net::serialize_compressed_float(s, x, -512, 512, 0.01f) && net::serialize_compressed_vec3(s, pos, 1000, 0.001f) &&
+           net::serialize_quat(s, rot, 12) && net::serialize_string(s, name, 64) && net::serialize_sequence_relative(s, 100, seq);
+  }
+};
+}  // namespace
+
+TEST(net_serialization) {
+  NetSample a;
+  a.health = 73;
+  a.alive = true;
+  a.speed = 12.25f;
+  a.x = -311.237f;
+  a.pos = {12.3456f, -987.6543f, 0.001f};
+  a.rot = qnorm(Quat{0.3f, -0.5f, 0.1f, 0.8f});
+  a.name = "Hover Car 2";
+  a.seq = 117;
+  std::vector<u8> bytes;
+  CHECK(net::write_message(a, bytes, 256));
+  net::Message m;
+  m.data = bytes;
+  NetSample b;
+  CHECK(net::read(m, b));
+  CHECK(b.health == 73 && b.alive && b.speed == 12.25f && b.name == "Hover Car 2" && b.seq == 117);
+  CHECK_NEAR(b.x, a.x, 0.006f);
+  CHECK_NEAR(b.pos.x, a.pos.x, 0.0006f);
+  CHECK_NEAR(b.pos.y, a.pos.y, 0.0006f);
+  const f32 dq = std::fabs(a.rot.x * b.rot.x + a.rot.y * b.rot.y + a.rot.z * b.rot.z + a.rot.w * b.rot.w);
+  CHECK(dq > 0.99999f);
+  // The measure stream bounds the written size.
+  net::MeasureStream ms;
+  CHECK(a.serialize(ms));
+  CHECK(ms.bytes_processed() >= static_cast<int>(bytes.size()));
+  // Out-of-range values refuse to write; truncated or corrupt data refuses to read.
+  NetSample bad = a;
+  bad.health = 101;
+  CHECK(!net::write_message(bad, bytes, 256));
+  for (std::size_t cut = 0; cut + 1 < m.data.size(); ++cut) {
+    net::Message t;
+    t.data.assign(m.data.begin(), m.data.begin() + static_cast<std::ptrdiff_t>(cut));
+    NetSample c;
+    CHECK(!net::read(t, c));
+  }
+  // Random garbage never crashes (and mostly fails).
+  u32 seed = 12345;
+  int accepted = 0;
+  for (int i = 0; i < 2000; ++i) {
+    net::Message g;
+    g.data.resize(1 + i % 60);
+    for (u8& x : g.data) { seed = seed * 1664525u + 1013904223u; x = static_cast<u8>(seed >> 24); }
+    NetSample c;
+    accepted += net::read(g, c);
+  }
+  CHECK(accepted < 2000);
+  // Bits needed and wrap-around sequences.
+  CHECK(net::bits_required(0, 1) == 1 && net::bits_required(0, 255) == 8 && net::bits_required(0, 256) == 9);
+  CHECK(net::sequence_greater(1, 65535) && net::sequence_less(65535, 1) && !net::sequence_greater(1, 1));
+  CHECK(net::crc32("123456789", 9) == 0xCBF43926u);
+  // Quaternion edge cases (negative w, axis-aligned).
+  for (Quat q : {Quat{0, 0, 0, 1}, Quat{0, 0, 0, -1}, Quat{1, 0, 0, 0}, qnorm(Quat{-0.7f, 0.7f, 0.1f, -0.1f})}) {
+    std::vector<u8> buf(16);
+    net::WriteStream w(buf.data(), 16);
+    CHECK(net::serialize_quat(w, q, 10));
+    w.flush();
+    net::ReadStream r(buf.data(), 16);
+    Quat out;
+    CHECK(net::serialize_quat(r, out, 10));
+    CHECK(std::fabs(q.x * out.x + q.y * out.y + q.z * out.z + q.w * out.w) > 0.9995f);
+  }
+}
+
+namespace {
+/// Two connections joined by a simulated wire.
+struct NetPair {
+  net::Simulator sim{7};
+  net::Connection a, b;
+  f64 time = 0;
+  explicit NetPair(const net::ConnectionConfig& c = {}) : a(c), b(c) {
+    a.transmit = [](void* ctx, const u8* d, int n) { static_cast<NetPair*>(ctx)->sim.send({1}, {2}, d, n, static_cast<NetPair*>(ctx)->time); };
+    a.transmit_ctx = this;
+    b.transmit = [](void* ctx, const u8* d, int n) { static_cast<NetPair*>(ctx)->sim.send({2}, {1}, d, n, static_cast<NetPair*>(ctx)->time); };
+    b.transmit_ctx = this;
+  }
+  void step(f64 dt = 1.0 / 60) {
+    time += dt;
+    a.advance_time(time);
+    b.advance_time(time);
+    a.send_packet();
+    b.send_packet();
+    std::vector<net::Simulator::Packet> due;
+    sim.take_due(time, due);
+    for (auto& p : due) (p.to.id == 1 ? a : b).receive_packet(p.data.data(), static_cast<int>(p.data.size()));
+  }
+};
+}  // namespace
+
+TEST(net_endpoint_acks_and_fragments) {
+  struct Ctx {
+    std::vector<std::vector<u8>> wire;
+    std::vector<std::vector<u8>> got;
+  } ca, cb;
+  net::EndpointConfig cfg;
+  net::Endpoint a(cfg, [](void* c, u16, const u8* d, int n) { static_cast<Ctx*>(c)->wire.emplace_back(d, d + n); },
+                  [](void* c, u16, const u8* d, int n) { static_cast<Ctx*>(c)->got.emplace_back(d, d + n); return true; }, &ca);
+  net::Endpoint b(cfg, [](void* c, u16, const u8* d, int n) { static_cast<Ctx*>(c)->wire.emplace_back(d, d + n); },
+                  [](void* c, u16, const u8* d, int n) { static_cast<Ctx*>(c)->got.emplace_back(d, d + n); return true; }, &cb);
+  // 300 packets from a to b; every third lost; b answers each received one.
+  u32 lost = 0;
+  for (int i = 0; i < 300; ++i) {
+    const u8 payload[3] = {static_cast<u8>(i), static_cast<u8>(i >> 8), 0x5a};
+    a.update(i / 60.0);
+    b.update(i / 60.0);
+    a.send_packet(payload, 3);
+    for (auto& pkt : ca.wire) {
+      if (i % 3 == 2) { ++lost; continue; }
+      b.receive_packet(pkt.data(), static_cast<int>(pkt.size()));
+    }
+    ca.wire.clear();
+    b.send_packet(payload, 1);
+    for (auto& pkt : cb.wire) a.receive_packet(pkt.data(), static_cast<int>(pkt.size()));
+    cb.wire.clear();
+  }
+  CHECK(cb.got.size() == 300 - lost);
+  CHECK(a.stats().packets_acked >= 300 - lost - 1);
+  CHECK(a.stats().packet_loss > 20 && a.stats().packet_loss < 45);
+  // A 9 KB packet goes as fragments and arrives whole; duplicates are ignored.
+  std::vector<u8> big(9000);
+  for (std::size_t i = 0; i < big.size(); ++i) big[i] = static_cast<u8>(i * 7);
+  cb.got.clear();
+  a.send_packet(big.data(), static_cast<int>(big.size()));
+  CHECK(ca.wire.size() == 9);
+  for (int k = 8; k >= 0; --k) b.receive_packet(ca.wire[static_cast<std::size_t>(k)].data(), static_cast<int>(ca.wire[static_cast<std::size_t>(k)].size()));
+  for (auto& pkt : ca.wire) b.receive_packet(pkt.data(), static_cast<int>(pkt.size()));
+  ca.wire.clear();
+  CHECK(cb.got.size() == 1 && cb.got[0] == big);
+  // Garbage is counted, never crashes.
+  u32 seed = 99;
+  for (int i = 0; i < 3000; ++i) {
+    std::vector<u8> g(1 + i % 200);
+    for (u8& x : g) { seed = seed * 1664525u + 1013904223u; x = static_cast<u8>(seed >> 24); }
+    b.receive_packet(g.data(), static_cast<int>(g.size()));
+  }
+  CHECK(b.stats().packets_invalid + b.stats().fragments_invalid + b.stats().packets_stale > 0);
+}
+
+TEST(net_reliable_channel_under_bad_network) {
+  NetPair p;
+  p.sim.settings.latency_ms = 60;
+  p.sim.settings.jitter_ms = 30;
+  p.sim.settings.loss_percent = 25;
+  p.sim.settings.duplicate_percent = 10;
+  // 400 small messages, three 6 KB blocks in between, and unreliable chatter.
+  std::vector<std::vector<u8>> sent;
+  int queued = 0;
+  for (int frame = 0; frame < 2400; ++frame) {
+    for (int k = 0; k < 2 && queued < 403; ++k) {
+      if (!p.a.can_send(0)) break;
+      std::vector<u8> data;
+      if (queued % 130 == 64) { data.resize(6000); for (std::size_t i = 0; i < data.size(); ++i) data[i] = static_cast<u8>(i ^ queued); }
+      else data = {static_cast<u8>(queued), static_cast<u8>(queued >> 8), 1, 2, 3};
+      sent.push_back(data);
+      CHECK(p.a.send(0, static_cast<u16>(queued % 7), data));
+      ++queued;
+    }
+    p.a.send(1, 3, std::vector<u8>{9, 9});
+    p.step();
+  }
+  std::vector<std::vector<u8>> received;
+  while (auto m = p.b.receive(0)) {
+    CHECK(m->type == received.size() % 7);
+    received.push_back(m->data);
+  }
+  CHECK(p.a.error() == net::ConnectionError::none && p.b.error() == net::ConnectionError::none);
+  CHECK(received.size() == sent.size());
+  CHECK(received == sent);
+  int unreliable = 0;
+  while (p.b.receive(1)) ++unreliable;
+  CHECK(unreliable > 1000 && unreliable < 2400);  // some lost, never duplicated beyond the sends
+  CHECK(p.a.stats().rtt_ms > 80 && p.a.stats().rtt_ms < 250);
+  CHECK(p.a.pending(0) == 0);
+  // Typed messages.
+  NetSample s;
+  s.health = 5;
+  s.name = "x";
+  CHECK(p.a.send(0, 42, s));
+  for (int i = 0; i < 120; ++i) p.step();
+  auto m = p.b.receive(0);
+  NetSample back;
+  CHECK(m && m->type == 42 && net::read(*m, back) && back.health == 5 && back.name == "x");
+}
+
+TEST(net_client_server) {
+  net::LoopbackNetwork hub(3);
+  hub.simulator().settings.latency_ms = 40;
+  hub.simulator().settings.jitter_ms = 10;
+  hub.simulator().settings.loss_percent = 10;
+  auto st = hub.create();
+  net::ClientServerConfig cfg;
+  net::Server server(*st, cfg, 1);
+  server.start(2);
+  std::vector<std::unique_ptr<net::Transport>> ts;
+  std::vector<std::unique_ptr<net::Client>> clients;
+  for (int i = 0; i < 3; ++i) {
+    ts.push_back(hub.create());
+    clients.push_back(std::make_unique<net::Client>(*ts.back(), cfg, 100 + i));
+  }
+  f64 t = 0;
+  auto tick = [&](int n) {
+    for (int k = 0; k < n; ++k) {
+      t += 1.0 / 60;
+      hub.advance_time(t);
+      server.advance_time(t);
+      server.receive_packets();
+      for (auto& c : clients) { c->advance_time(t); c->receive_packets(); }
+      server.send_packets();
+      for (auto& c : clients) c->send_packets();
+    }
+  };
+  clients[0]->connect(st->address(), t);
+  clients[1]->connect(st->address(), t);
+  tick(90);
+  CHECK(clients[0]->connected() && clients[1]->connected());
+  CHECK(clients[0]->client_index() != clients[1]->client_index());
+  CHECK(server.connected_clients() == 2);
+  auto events = server.take_events();
+  CHECK(events.size() == 2 && events[0].second && events[1].second);
+  // The server is full: the third client is denied.
+  clients[2]->connect(st->address(), t);
+  tick(90);
+  CHECK(clients[2]->state() == net::ClientState::denied);
+  // Messages both ways.
+  CHECK(clients[0]->send(0, 1, std::vector<u8>{1, 2, 3}));
+  server.broadcast(0, 2, NetSample{});
+  tick(60);
+  const int i0 = clients[0]->client_index();
+  auto m = server.receive(i0, 0);
+  CHECK(m && m->type == 1 && m->data == std::vector<u8>({1, 2, 3}));
+  CHECK(clients[0]->receive(0).has_value() && clients[1]->receive(0).has_value());
+  // A client that disconnects frees its slot; a silent one times out.
+  clients[1]->disconnect();
+  tick(30);
+  CHECK(server.connected_clients() == 1);
+  ts[0].reset();  // client 0 vanishes without a word
+  clients[0].reset();
+  clients.erase(clients.begin());
+  tick(static_cast<int>(cfg.timeout * 60) + 30);
+  CHECK(server.connected_clients() == 0);
+  // Spoofed and garbage datagrams are ignored.
+  auto attacker = hub.create();
+  u32 seed = 5;
+  for (int i = 0; i < 500; ++i) {
+    std::vector<u8> g(20 + i % 1300);
+    for (u8& x : g) { seed = seed * 1664525u + 1013904223u; x = static_cast<u8>(seed >> 24); }
+    attacker->send(st->address(), g.data(), static_cast<int>(g.size()));
+  }
+  tick(30);
+  CHECK(server.connected_clients() == 0);
+  // Reconnect works after all that.
+  clients[1]->connect(st->address(), t);
+  tick(90);
+  CHECK(clients[1]->connected());
+  server.stop();
+  tick(30);
+  CHECK(!clients[1]->connected());
+}
+
+TEST(net_game_server_and_clients) {
+  Renderer renderer;
+  game::NightWindows windows;
+  ShaderExtension* ext[1] = {&windows};
+  RendererOptions o;
+  renderer.init(o, Span<ShaderExtension* const>(ext, 1));
+  game::Level l = game::basic_level();
+  game::Actor ball;
+  ball.name = "Ball";
+  ball.transform.position = {0, 0, 0.6f};
+  ball.mesh = game::MeshComponent{};
+  ball.mesh->shape = game::Shape::sphere;
+  ball.body = game::BodyComponent{};
+  ball.controller = game::ControllerComponent{};
+  ball.controller->mode = game::ControlMode::rolling;
+  ball.controller->jump_speed = 5;
+  ball.body->linear_damping = 1.5f;
+  const game::ActorId ball_id = l.add(ball).id;
+  for (int i = 0; i < 3; ++i) {
+    game::Actor orb;
+    orb.name = "Orb " + std::to_string(i);
+    orb.transform.position = {8.0f + 4 * i, 0, 0.6f};
+    orb.pickup = game::PickupComponent{};
+    game::ColliderComponent c;
+    c.shape = game::ColliderShape::sphere;
+    c.radius = 7.0f;  // wide enough for every pawn's lane
+    c.sensor = true;
+    orb.colliders.push_back(c);
+    l.add(orb);
+  }
+  game::Actor crate;
+  crate.name = "Crate";
+  crate.transform.position = {-5, 3, 3};
+  crate.mesh = game::MeshComponent{};
+  crate.body = game::BodyComponent{};
+  const game::ActorId crate_id = l.add(crate).id;
+  l.world.goal = game::GameGoal::collect_all;
+
+  net::LoopbackNetwork hub(11);
+  hub.simulator().settings.latency_ms = 30;
+  hub.simulator().settings.jitter_ms = 10;
+  hub.simulator().settings.loss_percent = 5;
+  auto ts = hub.create(), t1 = hub.create(), t2 = hub.create();
+  game::GameWorld server_world(renderer, &windows), w1(renderer, &windows), w2(renderer, &windows);
+  game::NetGame server(server_world), c1(w1), c2(w2);
+  CHECK(server.host(l, *ts));
+  CHECK(c1.join(l, *t1, ts->address()));
+  CHECK(c2.join(l, *t2, ts->address()));
+  f64 time = 0;
+  game::PlayInput idle, forward1, host_in;
+  auto frame = [&](const game::PlayInput& a, const game::PlayInput& b) {
+    time += 1.0 / 60;
+    hub.advance_time(time);
+    server.update(time, 1.0f / 60, host_in);
+    c1.update(time, 1.0f / 60, a);
+    c2.update(time, 1.0f / 60, b);
+    server_world.sound_cues().clear();
+    w1.sound_cues().clear();
+    w2.sound_cues().clear();
+  };
+  for (int i = 0; i < 120; ++i) frame(idle, idle);
+  CHECK(c1.playing() && c2.playing());
+  CHECK(server.stats().players == 3);
+  CHECK(server_world.pawns().size() == 3);
+  CHECK(w1.pawns().size() == 3 && w2.pawns().size() == 3);  // everyone sees everyone
+  const game::ActorId p1 = w1.player(), p2 = w2.player();
+  CHECK(p1 != ball_id && p2 != ball_id && p1 != p2);
+  CHECK(w1.pawn_source(p1) == ball_id);
+  // Client 1 rolls forward (+X, its camera looks along the ball's facing).
+  forward1.move_y = 1;
+  Mat4 m0;
+  CHECK(server_world.actor_matrix(p1, m0));
+  for (int i = 0; i < 240; ++i) frame(forward1, idle);
+  Mat4 ms, mr1, mr2;
+  CHECK(server_world.actor_matrix(p1, ms));
+  CHECK(ms.translation().x > m0.translation().x + 3);  // the server moved client 1's pawn
+  for (int i = 0; i < 180; ++i) frame(idle, idle);    // roll out
+  CHECK(server_world.actor_matrix(p1, ms));
+  // Both clients show it close to where the server has it (they render ~100 ms behind).
+  CHECK(w1.actor_matrix(p1, mr1) && w2.actor_matrix(p1, mr2));
+  CHECK(distance(mr1.translation(), ms.translation()) < 2.5f);
+  CHECK(distance(mr2.translation(), ms.translation()) < 2.5f);
+  // The crate fell on the server; the clients show it resting too.
+  Mat4 cs, cr;
+  CHECK(server_world.actor_matrix(crate_id, cs) && w2.actor_matrix(crate_id, cr));
+  CHECK(cs.translation().z < 1 && distance(cs.translation(), cr.translation()) < 0.05f);
+  // Client 1 collected orbs on the way: the server counted them and both clients know.
+  CHECK(server_world.hud().pickups >= 1);
+  for (int i = 0; i < 30; ++i) frame(idle, idle);
+  CHECK(w1.hud().pickups == server_world.hud().pickups && w2.hud().pickups == server_world.hud().pickups);
+  CHECK(w2.dead_actors().size() == server_world.dead_actors().size());
+  CHECK(c1.stats().snapshots_received > 100);
+  CHECK(c1.stats().rtt_ms > 40 && c1.stats().rtt_ms < 200);
+  // Client 2 leaves: its pawn disappears on the server and for client 1.
+  c2.stop();
+  for (int i = 0; i < 60; ++i) frame(idle, idle);
+  CHECK(server_world.pawns().size() == 2);
+  CHECK(w1.pawns().size() == 2);
+  CHECK(!w1.actor_matrix(p2, mr2));
+  // A client with a different level is refused.
+  game::Level other = l;
+  other.world.title = "Something else";
+  auto t3 = hub.create();
+  game::GameWorld w3(renderer, &windows);
+  game::NetGame c3(w3);
+  CHECK(c3.join(other, *t3, ts->address()));
+  for (int i = 0; i < 90; ++i) {
+    time += 1.0 / 60;
+    hub.advance_time(time);
+    server.update(time, 1.0f / 60, host_in);
+    c3.update(time, 1.0f / 60, idle);
+    c1.update(time, 1.0f / 60, idle);
+  }
+  CHECK(!c3.playing());
+  CHECK(c3.status().find("different level") != std::string::npos);
+  c1.stop();
+  c3.stop();
+  server.stop();
+  CHECK(!server_world.running() && !w1.running());
+  renderer.shutdown();
+}
+
 // ---------------------------------------------------------------------------
 // Kern Studio
 
@@ -1538,6 +2541,218 @@ TEST(studio_gizmo_translate_and_undo) {
   f.s->pointer(0, 1, gx + 40, gy, -1, 1, 4, 0);
   f.s->pointer(0, 2, gx + 40, gy, 0, 0, 4, 0);
   CHECK(f.s->level().actors.size() == n + 1);
+}
+
+TEST(studio_left_mouse_selects_and_places_on_surfaces) {
+  StudioFixture f;
+  f.cmd(R"({"cmd":"new","template":"basic"})");
+  f.frames(1);
+  const game::ActorId a = f.s->spawn("cube", Vec3{0, 0, 0});
+  const game::ActorId b = f.s->spawn("cube", Vec3{4, 0, 0});
+  CHECK(a && b);
+  studio::Viewport& v = f.s->viewport(0);
+  v.camera.position = {-8, -8, 7};
+  v.camera.yaw = 45;
+  v.camera.pitch = -32;
+  f.s->set_tool(studio::Tool::select);
+  f.s->snap().grid = false;
+  f.s->deselect();
+  f.frames(2);
+  const studio::ViewCamera cam_before = v.camera;
+  auto center = [&](game::ActorId id) {
+    Mat4 m;
+    f.s->world().actor_matrix(id, m);
+    return m.translation();
+  };
+  const Vec3 a0 = f.s->level().find(a)->transform.position;
+  // A click on an actor selects it and does not move anything (the camera neither).
+  f32 sx, sy;
+  CHECK(f.s->to_screen(v, center(a), sx, sy));
+  f.s->pointer(0, 0, sx, sy, 0, 1, 0, 0);
+  f.s->pointer(0, 1, sx + 1, sy, -1, 1, 0, 0);
+  f.s->pointer(0, 2, sx + 1, sy, 0, 0, 0, 0);
+  CHECK(f.s->selection().size() == 1 && f.s->selection()[0] == a);
+  CHECK_NEAR(f.s->level().find(a)->transform.position.x, a0.x, 1e-5f);
+  CHECK_NEAR(v.camera.position.x, cam_before.position.x, 1e-5f);
+  CHECK_NEAR(v.camera.yaw, cam_before.yaw, 1e-5f);
+  const std::size_t steps = f.s->history().size();
+  // Dragging the actor onto the other cube stacks it on top.
+  f32 tx, ty;
+  Aabb bb;
+  CHECK(f.s->world().actor_bounds(b, bb));
+  CHECK(f.s->to_screen(v, Vec3{center(b).x, center(b).y, bb.max.z}, tx, ty));
+  for (int k = 1; k <= 10; ++k) {
+    if (k == 1) f.s->pointer(0, 0, sx, sy, 0, 1, 0, 0);
+    f.s->pointer(0, 1, sx + (tx - sx) * k / 10, sy + (ty - sy) * k / 10, -1, 1, 0, 0);
+  }
+  f.s->pointer(0, 2, tx, ty, 0, 0, 0, 0);
+  f.frames(1);
+  Aabb ab;
+  CHECK(f.s->world().actor_bounds(a, ab));
+  CHECK_NEAR(ab.min.z, bb.max.z, 0.05f);
+  CHECK(std::fabs(center(a).x - center(b).x) < 0.8f);
+  CHECK(f.s->history().size() == steps + 1);
+  CHECK_NEAR(v.camera.position.x, cam_before.position.x, 1e-5f);
+  // Back onto the ground: the bottom rests on it.
+  f32 gx, gy;
+  CHECK(f.s->to_screen(v, center(a), sx, sy));
+  CHECK(f.s->to_screen(v, Vec3{1, -3, 0}, gx, gy));
+  f.s->pointer(0, 0, sx, sy, 0, 1, 0, 0);
+  for (int k = 1; k <= 10; ++k) f.s->pointer(0, 1, sx + (gx - sx) * k / 10, sy + (gy - sy) * k / 10, -1, 1, 0, 0);
+  f.s->pointer(0, 2, gx, gy, 0, 0, 0, 0);
+  f.frames(1);
+  CHECK(f.s->world().actor_bounds(a, ab));
+  CHECK_NEAR(ab.min.z, 0.0f, 0.05f);
+  // Undo twice returns to the start.
+  f.s->key("z", "KeyZ", true, 2, false);
+  f.s->key("z", "KeyZ", true, 2, false);
+  CHECK_NEAR(f.s->level().find(a)->transform.position.x, a0.x, 1e-4f);
+  CHECK_NEAR(f.s->level().find(a)->transform.position.z, a0.z, 1e-4f);
+  // Escape cancels a drag in progress.
+  f.frames(1);
+  CHECK(f.s->to_screen(v, center(a), sx, sy));
+  f.s->pointer(0, 0, sx, sy, 0, 1, 0, 0);
+  f.s->pointer(0, 1, sx + 80, sy + 30, -1, 1, 0, 0);
+  CHECK(std::fabs(f.s->level().find(a)->transform.position.x - a0.x) > 0.1f || std::fabs(f.s->level().find(a)->transform.position.y - a0.y) > 0.1f);
+  f.s->key("Escape", "Escape", true, 0, false);
+  f.s->pointer(0, 2, sx + 80, sy + 30, 0, 0, 0, 0);
+  CHECK_NEAR(f.s->level().find(a)->transform.position.x, a0.x, 1e-4f);
+  // Dragging empty space draws a marquee and selects what is inside.
+  f.s->deselect();
+  f.s->pointer(0, 0, 2, 2, 0, 1, 0, 0);
+  CHECK(v.drag == studio::Drag::marquee);
+  f.s->pointer(0, 1, v.css_width * 0.5f, v.css_height * 0.5f, -1, 1, 0, 0);
+  f.s->pointer(0, 1, v.css_width - 2, v.css_height - 2, -1, 1, 0, 0);
+  f.s->pointer(0, 2, v.css_width - 2, v.css_height - 2, 0, 0, 0, 0);
+  bool has_a = false, has_b = false;
+  for (game::ActorId id : f.s->selection()) { has_a |= id == a; has_b |= id == b; }
+  CHECK(has_a && has_b);
+  CHECK_NEAR(v.camera.position.x, cam_before.position.x, 1e-5f);
+  // A click into empty space deselects.
+  f.s->pointer(0, 0, 2, 2, 0, 1, 0, 0);
+  f.s->pointer(0, 2, 2, 2, 0, 0, 0, 0);
+  CHECK(f.s->selection().empty());
+}
+
+TEST(studio_audio_integration) {
+  StudioFixture f;
+  CHECK(!f.s->audio_ready());
+  std::vector<f32> buf(1024 * 2, 1.0f);
+  f.s->audio_render(buf.data(), 1024);
+  CHECK(buf[0] == 0 && buf[2047] == 0);  // silent before init
+  CHECK(f.s->audio_init(48000));
+  CHECK(f.s->audio_ready());
+  f.cmd(R"({"cmd":"new","template":"basic"})");
+  // The details panel offers the Audio Source component and sound fields.
+  const game::ActorId id = f.s->spawn("audio_source", Vec3{0, 0, 0});
+  CHECK(id != 0 && f.s->level().find(id)->audio);
+  json::Value st = f.s->state();
+  bool section = false, sound_field = false;
+  for (const json::Value& sec : st["details"]["sections"].items()) {
+    if (sec["id"].as_string() != "audio") continue;
+    section = true;
+    for (const json::Value& fd : sec["fields"].items()) sound_field |= fd["type"].as_string() == "sound" && fd["value"].as_string() == "builtin:hum";
+  }
+  CHECK(section && sound_field);
+  CHECK(st["sounds"]["builtin"].size() >= 25);
+  CHECK(st["sounds"]["ready"].as_bool());
+  // Editing sound properties is undoable like any other edit.
+  CHECK(f.s->set_property("components.audio.sound", json::Value("builtin:wind")));
+  CHECK(f.s->level().find(id)->audio->sound == "builtin:wind");
+  CHECK(f.s->set_property("components.audio.bus", json::Value("ambience")));
+  CHECK(!f.s->set_property("components.audio.bus", json::Value("master")));
+  f.s->undo();
+  CHECK(f.s->level().find(id)->audio->bus == audio::Bus::sfx);
+  CHECK(f.cmd(R"({"cmd":"setWorld","path":"world.music","value":"builtin:music_drive"})")["ok"].as_bool());
+  // Preview plays on the UI bus once the clip is ready.
+  f.cmd(R"({"cmd":"previewSound","sound":"builtin:quack"})");
+  for (int i = 0; i < 120 && !(f.s->mixer().stats().voices > 0); ++i) { f.frames(1); f.s->audio_render(buf.data(), 800); }
+  CHECK(f.s->mixer().stats().voices > 0);
+  CHECK(f.s->state()["sounds"]["previewing"].as_bool());
+  f.cmd(R"({"cmd":"stopSound"})");
+  for (int i = 0; i < 4; ++i) f.s->audio_render(buf.data(), 1024);
+  CHECK(f.s->mixer().stats().voices == 0);
+  // Importing a sound: an undo step, the host is asked for PCM, the clip plays.
+  const json::Value imp = f.cmd(R"({"cmd":"importSound","name":"Blip","src":"data:audio/wav;base64,UklGRg==","duration":0.25})");
+  CHECK(imp["ok"].as_bool());
+  const std::string sid = imp["id"].as_string();
+  CHECK(f.s->level().sound(sid));
+  CHECK(f.s->set_property("components.audio.sound", json::Value(sid)));
+  f.frames(2);
+  const std::vector<std::string> pending = f.s->pending_sounds();
+  CHECK(std::find(pending.begin(), pending.end(), sid) != pending.end());
+  CHECK(f.s->sound_source(sid).rfind("data:audio/wav", 0) == 0);
+  const std::vector<f32> pcm = sine(44100, 0.25f, 880);
+  CHECK(f.s->sound_pcm(sid, pcm.data(), static_cast<u32>(pcm.size()), 1, 44100));
+  CHECK(f.s->pending_sounds().empty());
+  // Simulate: the audio source starts, the world's music too.
+  for (int i = 0; i < 400 && f.s->sound_bank().queued(); ++i) f.frames(1);
+  CHECK(f.s->play(game::SimMode::simulate));
+  for (int i = 0; i < 30; ++i) { f.frames(1); f.s->audio_render(buf.data(), 800); }
+  CHECK(f.s->game_audio().active());
+  CHECK(f.s->mixer().stats().voices >= 2);
+  json::Value status = f.s->status();
+  CHECK(status["audio"]["voices"].as_number() >= 2);
+  // Mute is a master switch.
+  f.cmd(R"({"cmd":"mute","muted":true})");
+  CHECK(f.s->muted());
+  for (int i = 0; i < 4; ++i) f.s->audio_render(buf.data(), 1024);
+  f32 peak = 0;
+  for (f32 x : buf) peak = std::max(peak, std::fabs(x));
+  CHECK(peak < 1e-4f);
+  f.cmd(R"({"cmd":"mute","muted":false})");
+  f.s->stop();
+  f.frames(2);
+  CHECK(!f.s->game_audio().active());
+  // Removing the sound is undoable too; references then warn.
+  CHECK(f.cmd(("{\"cmd\":\"removeSound\",\"id\":\"" + sid + "\"}").c_str())["ok"].as_bool());
+  CHECK(!f.s->level().sound(sid));
+  bool warned = false;
+  for (const game::Issue& i : game::validate(f.s->level())) warned |= i.text.find(sid) != std::string::npos;
+  CHECK(warned);
+  f.s->undo();
+  CHECK(f.s->level().sound(sid));
+  // The level saves and loads its sounds.
+  const std::string text = f.s->level_text();
+  CHECK(text.find("\"sounds\"") != std::string::npos && text.find("Blip") != std::string::npos);
+}
+
+TEST(studio_multiplayer_play) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"netPlayers","players":3})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"netSimulate","latency":40,"jitter":5,"loss":2})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  CHECK(f.s->play_state() == studio::PlayState::playing);
+  CHECK(f.s->prefs().layout == studio::Layout::quad);
+  for (u32 i = 0; i < 4; ++i) f.s->set_viewport_rect(i, {static_cast<i32>(i % 2) * 480, static_cast<i32>(i / 2) * 270, 480, 270}, 480, 270, 1, true);
+  f.frames(150);
+  json::Value st = f.s->status();
+  CHECK(st["net"]["role"].as_string() == "server");
+  CHECK(st["net"]["players"].as_number() == 3);
+  CHECK(st["net"]["clients"].size() == 2);
+  CHECK(st["net"]["clients"][0]["hud"]["status"].as_string() == "playing");
+  CHECK(f.s->world().pawns().size() == 3);
+  CHECK(f.s->world_of(1).pawns().size() == 3 && f.s->world_of(2).pawns().size() == 3);
+  // The active viewport's player drives: viewport 2 = client 2.
+  f.cmd(R"({"cmd":"activeViewport","viewport":2})");
+  const game::ActorId pawn = f.s->world_of(2).player();
+  Mat4 a, b;
+  CHECK(f.s->world().actor_matrix(pawn, a));
+  f.s->key("w", "KeyW", true, 0, false);
+  f.frames(120);
+  f.s->key("w", "KeyW", false, 0, false);
+  CHECK(f.s->world().actor_matrix(pawn, b));
+  CHECK(distance(a.translation(), b.translation()) > 2);
+  f.cmd(R"({"cmd":"stop"})");
+  CHECK(f.s->play_state() == studio::PlayState::editing);
+  CHECK(!f.s->status().find("net"));
+  f.frames(2);
+  // Back to one player: plain Play.
+  f.cmd(R"({"cmd":"netPlayers","players":1})");
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  f.frames(5);
+  CHECK(!f.s->status().find("net"));
+  f.cmd(R"({"cmd":"stop"})");
 }
 
 TEST(studio_shortcuts_and_commands) {
