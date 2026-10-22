@@ -2,6 +2,8 @@
 
 Kern ist eine 3D-Engine in **C++20**, die mit wasi-sdk nach **WebAssembly** kompiliert und im Browser über **WebGL2** zeichnet – mit **Box3D**-Physik und dem **Kern Editor**, der Editor3D-Oberfläche als vollständig bedienbarer Game Engine. Kein three.js, kein Emscripten, keine Engine-Logik in JavaScript.
 
+**Live:** https://christianhohlfeld.github.io/kern/ – Editor, Beispielspiel und C++-Beispiele im Browser.
+
 | | |
 |---|---|
 | Engine, Renderer, Geometrie, App-Laufzeit | [`kern/README.md`](kern/README.md) |
@@ -34,6 +36,6 @@ node kern/tests/e2e/editor_e2e.mjs http://127.0.0.1:8771
 
 Kern ist in [SpawnCity](https://spawncity.de) entstanden, das über Kern rendert. Dieses Repository enthält die Engine mit ihrer Commit-Historie aus SpawnCity, auf die Engine-Dateien beschränkt. Wo `kern/README.md` SpawnCity-Dateien nennt (`games/spawncity`, `sim/kern_*.mjs`, `tools/build_kern_wasm.sh`, `tests/kern_*_test.mjs`), liegen diese im SpawnCity-Repository.
 
-## CI
+## CI und Pages
 
-`.github/workflows/ci.yml` baut alle Module, führt die nativen Tests und den Browser-Test aus und hängt `editor3d.html` sowie die Screenshots als Artefakt an.
+`.github/workflows/ci.yml` baut alle Module, führt die nativen Tests und den Browser-Test aus und hängt `editor3d.html` sowie die Screenshots als Artefakt an. `.github/workflows/pages.yml` baut bei jedem Push auf `main` Editor und Beispiele und veröffentlicht sie mit der Startseite `site/index.html` auf GitHub Pages.

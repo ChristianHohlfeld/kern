@@ -1,0 +1,66 @@
+name: Pages
+
+# Builds the engine modules and publishes the live site to GitHub Pages:
+#   /                         landing page (site/index.html)
+#   /editor/                  Kern Editor (single file)
+#   /kern/web/editor/player.html   Roll & Collect in the player
+#   /kern/examples/*/         hello, orbrun, scenegame
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install wasi-sdk 25
+        run: |
+          curl -sSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-linux.tar.gz | tar xz -C /tmp
+          echo "WASI_SDK=/tmp/wasi-sdk-25.0-x86_64-linux" >> "$GITHUB_ENV"
+      - name: Build editor and example games
+        run: |
+          set -euo pipefail
+          tools/build_editor.sh
+          kern/build.sh --app kern/examples/hello/hello.wasm kern/examples/hello/hello.cpp
+          kern/build.sh --app kern/examples/orbrun/orbrun.wasm kern/examples/orbrun/orbrun.cpp
+          kern/build.sh --app --world kern/examples/scenegame/scenegame.wasm kern/examples/scenegame/scenegame.cpp
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p _site/editor _site/generated _site/kern/web/editor _site/kern/examples
+          cp site/index.html _site/
+          cp generated/editor3d.html _site/editor/index.html
+          cp generated/kern_editor.wasm _site/generated/
+          cp kern/web/kern.mjs kern/web/app.mjs _site/kern/web/
+          cp kern/web/editor/*.mjs kern/web/editor/*.html kern/web/editor/*.css _site/kern/web/editor/
+          for g in hello orbrun scenegame; do
+            mkdir -p _site/kern/examples/$g
+            cp kern/examples/$g/index.html kern/examples/$g/$g.wasm _site/kern/examples/$g/
+          done
+          cp kern/examples/scenegame/roll-and-collect.e3d _site/kern/examples/scenegame/
+          touch _site/.nojekyll
+          du -sh _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
