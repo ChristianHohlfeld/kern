@@ -21,16 +21,38 @@ struct Item {
 };
 
 constexpr Item kItems[] = {
-    {"cube", "Cube", "Basic", "cube", "1 m box with collision"},
-    {"sphere", "Sphere", "Basic", "sphere", "1 m sphere"},
-    {"cylinder", "Cylinder", "Basic", "cylinder", "Upright cylinder"},
-    {"cone", "Cone", "Basic", "cone", "Upright cone"},
-    {"capsule", "Capsule", "Basic", "capsule", "Capsule along Z"},
-    {"plane", "Plane", "Basic", "plane", "10 x 10 m floor"},
-    {"torus", "Torus", "Basic", "torus", "Ring"},
-    {"ramp", "Ramp", "Basic", "ramp", "Wedge to drive or roll up"},
-    {"empty", "Empty Actor", "Basic", "empty", "Transform only: a parent or pivot"},
-    {"point_light", "Point Light", "Lights", "light", "Coloured light with a radius"},
+    // Players: drop one into the world and press Play - it becomes the player you control.
+    {"soldier", "Soldier", "Players", "soldier", "First-person shooter: rifle, health, respawn. Mouse, gamepad, touch; online ready"},
+    {"character", "Character", "Players", "person", "Third-person runner: walks, sprints, jumps, climbs steps"},
+    {"hover_car", "Hover Car", "Players", "car", "Fast Box3D hover car with boost"},
+    {"rolling_ball", "Rolling Ball", "Players", "ball", "Physics ball you roll and jump"},
+    {"drone", "Drone", "Players", "drone", "Flyer: Space / E up, Q / Ctrl down"},
+    // Gameplay building blocks (work without any logic graph).
+    {"orb", "Orb", "Gameplay", "orb", "Glowing pickup worth 1 point"},
+    {"star", "Star", "Gameplay", "star", "Spinning pickup worth 10 points"},
+    {"health_pack", "Health Pack", "Gameplay", "health", "Heals 50; stays while you are at full health; returns after 15 s"},
+    {"ammo_box", "Ammo Box", "Gameplay", "ammo", "60 rounds for soldiers; returns after 20 s"},
+    {"goal", "Goal", "Gameplay", "goal", "Trigger that wins the game"},
+    {"hazard", "Hazard", "Gameplay", "hazard", "Trigger that loses the game"},
+    {"damage_zone", "Damage Zone", "Gameplay", "hazard", "Hurts whoever walks in (25 per entry)"},
+    {"checkpoint", "Checkpoint", "Gameplay", "flag", "Respawn point"},
+    {"jump_pad", "Jump Pad", "Gameplay", "jumppad", "Launches players up and forward"},
+    {"teleporter", "Teleporter", "Gameplay", "teleport", "Two linked pads: step on A, arrive at B"},
+    {"message", "Message Trigger", "Gameplay", "message", "Shows a text when touched"},
+    {"moving_platform", "Moving Platform", "Gameplay", "platform", "Kinematic platform on a mover"},
+    {"spinner", "Spinner", "Gameplay", "spinner", "Rotating kinematic bar"},
+    {"target_dummy", "Target Dummy", "Gameplay", "target", "Shootable target with health and a head; respawns"},
+    {"explosive_barrel", "Explosive Barrel", "Gameplay", "barrel", "Blows up when shot: pushes and hurts what is near"},
+    // Shapes and physics.
+    {"cube", "Cube", "Shapes", "cube", "1 m box with collision"},
+    {"sphere", "Sphere", "Shapes", "sphere", "1 m sphere"},
+    {"cylinder", "Cylinder", "Shapes", "cylinder", "Upright cylinder"},
+    {"cone", "Cone", "Shapes", "cone", "Upright cone"},
+    {"capsule", "Capsule", "Shapes", "capsule", "Capsule along Z"},
+    {"plane", "Plane", "Shapes", "plane", "10 x 10 m floor"},
+    {"torus", "Torus", "Shapes", "torus", "Ring"},
+    {"ramp", "Ramp", "Shapes", "ramp", "Wedge to drive or roll up"},
+    {"empty", "Empty Actor", "Shapes", "empty", "Transform only: a parent or pivot"},
     {"physics_cube", "Physics Cube", "Physics", "cube", "Dynamic Box3D box"},
     {"physics_sphere", "Physics Sphere", "Physics", "sphere", "Dynamic ball"},
     {"physics_barrel", "Physics Barrel", "Physics", "cylinder", "Dynamic cylinder (convex hull)"},
@@ -39,25 +61,12 @@ constexpr Item kItems[] = {
     {"hinged_door", "Hinged Door", "Physics", "door", "Door on a sprung hinge with limits"},
     {"chain", "Chain", "Physics", "chain", "8 links on ball joints"},
     {"see_saw", "See-Saw", "Physics", "seesaw", "Plank on a hinge"},
-    {"hover_car", "Hover Car", "Gameplay", "car", "Playable hover car (Box3D)"},
-    {"rolling_ball", "Rolling Ball", "Gameplay", "ball", "Playable ball with jump"},
-    {"character", "Character", "Gameplay", "person", "Playable capsule character"},
-    {"soldier", "Soldier", "Gameplay", "soldier", "First-person shooter player: rifle, health, respawn (replicated)"},
-    {"target_dummy", "Target Dummy", "Gameplay", "target", "Shootable target with health and a head; respawns"},
-    {"drone", "Drone", "Gameplay", "drone", "Playable flyer"},
-    {"orb", "Orb", "Gameplay", "orb", "Glowing pickup worth 1 point"},
-    {"star", "Star", "Gameplay", "star", "Spinning pickup worth 10 points"},
-    {"goal", "Goal", "Gameplay", "goal", "Trigger that wins the game"},
-    {"hazard", "Hazard", "Gameplay", "hazard", "Trigger that loses the game"},
-    {"checkpoint", "Checkpoint", "Gameplay", "flag", "Respawn point"},
-    {"message", "Message Trigger", "Gameplay", "message", "Shows a text when touched"},
-    {"moving_platform", "Moving Platform", "Gameplay", "platform", "Kinematic platform on a mover"},
-    {"spinner", "Spinner", "Gameplay", "spinner", "Rotating kinematic bar"},
-    {"city", "Procedural City", "Procedural", "city", "Blocks, streets, trees and traffic"},
+    {"point_light", "Point Light", "Lights", "light", "Coloured light with a radius"},
     {"audio_source", "Audio Source", "Audio", "speaker", "3D sound emitter (machine hum)"},
     {"ambient_wind", "Ambient Wind", "Audio", "speaker", "Looping wind, heard everywhere"},
     {"city_ambience", "City Ambience", "Audio", "speaker", "Looping city murmur with falloff"},
     {"radio", "Radio", "Audio", "speaker", "Music box: plays the calm loop in 3D"},
+    {"city", "Procedural City", "World", "city", "Blocks, streets, trees and traffic"},
 };
 
 game::Actor shape_actor(const char* name, game::Shape shape, Vec3 color) {
@@ -79,7 +88,7 @@ game::Actor dynamic(game::Actor a, f32 mass = 0) {
 
 json::Value Studio::catalog_json() const {
   json::Value groups = json::Value::array();
-  const char* order[] = {"Basic", "Lights", "Physics", "Gameplay", "Audio", "Procedural"};
+  const char* order[] = {"Players", "Gameplay", "Shapes", "Physics", "Lights", "Audio", "World"};
   for (const char* g : order) {
     json::Value group = json::Value::object();
     group.set("label", g);
@@ -407,6 +416,117 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
     s.sensor = true;
     c.colliders.push_back(s);
     add(c, {0, 0, 0.05f});
+  } else if (item == "health_pack" || item == "ammo_box") {
+    const bool health = item == "health_pack";
+    game::Actor p = shape_actor(health ? "Health Pack" : "Ammo Box", game::Shape::box, health ? Vec3{0.92f, 0.95f, 0.92f} : Vec3{0.32f, 0.38f, 0.22f});
+    p.mesh->size = health ? Vec3{0.6f, 0.6f, 0.35f} : Vec3{0.7f, 0.4f, 0.35f};
+    p.mesh->collision = false;
+    p.mesh->material.emissive = health ? Vec3{0.2f, 1.0f, 0.4f} : Vec3{1.0f, 0.75f, 0.2f};
+    p.mesh->material.emissive_strength = 0.35f;
+    game::PickupComponent k;
+    k.points = 0;
+    k.heal = health ? 50 : 0;
+    k.ammo = health ? 0 : 60;
+    k.respawn = health ? 15 : 20;
+    k.burst_color = health ? Vec3{0.4f, 1.0f, 0.5f} : Vec3{1.0f, 0.8f, 0.3f};
+    k.sound = health ? "builtin:powerup" : "builtin:reload";
+    p.pickup = k;
+    p.rotator = game::RotatorComponent{{0, 0, 60}};
+    game::ColliderComponent sensor;
+    sensor.shape = game::ColliderShape::sphere;
+    sensor.radius = 1.0f;
+    sensor.sensor = true;
+    p.colliders.push_back(sensor);
+    const i32 root = add(p, {0, 0, 0.6f});
+    if (health) {  // a red cross on top
+      game::Actor bar = shape_actor("Cross", game::Shape::box, {0.85f, 0.1f, 0.1f});
+      bar.mesh->size = {0.4f, 0.12f, 0.02f};
+      bar.mesh->collision = false;
+      add(bar, {0, 0, 0.18f}, root);
+      game::Actor bar2 = bar;
+      bar2.mesh->size = {0.12f, 0.4f, 0.02f};
+      add(bar2, {0, 0, 0.18f}, root);
+    }
+  } else if (item == "damage_zone") {
+    game::Actor h = shape_actor("Damage Zone", game::Shape::box, {0.95f, 0.45f, 0.1f});
+    h.mesh->size = {3, 3, 0.1f};
+    h.mesh->collision = false;
+    h.mesh->material.emissive = {1, 0.4f, 0.05f};
+    h.mesh->material.emissive_strength = 0.6f;
+    game::TriggerComponent t;
+    t.action = game::TriggerAction::damage;
+    t.strength = 25;
+    t.once = false;
+    t.sound = "builtin:hazard";
+    h.trigger = t;
+    game::ColliderComponent s;
+    s.shape = game::ColliderShape::box;
+    s.size = {3, 3, 2};
+    s.center = {0, 0, 1};
+    s.sensor = true;
+    h.colliders.push_back(s);
+    add(h, {0, 0, 0.05f});
+  } else if (item == "jump_pad") {
+    game::Actor j = shape_actor("Jump Pad", game::Shape::cylinder, {0.2f, 0.85f, 0.4f});
+    j.mesh->radius = 1.0f;
+    j.mesh->height = 0.15f;
+    j.mesh->material.emissive = {0.2f, 1.0f, 0.45f};
+    j.mesh->material.emissive_strength = 1.0f;
+    game::TriggerComponent t;
+    t.action = game::TriggerAction::launch;
+    t.strength = 11;
+    t.once = false;
+    j.trigger = t;
+    game::ColliderComponent s;
+    s.shape = game::ColliderShape::box;
+    s.size = {1.8f, 1.8f, 0.8f};
+    s.center = {0, 0, 0.4f};
+    s.sensor = true;
+    j.colliders.push_back(s);
+    add(j, {0, 0, 0.08f});
+  } else if (item == "teleporter") {
+    auto pad = [&](const char* name, Vec3 color) {
+      game::Actor p = shape_actor(name, game::Shape::cylinder, color);
+      p.mesh->radius = 0.9f;
+      p.mesh->height = 0.1f;
+      p.mesh->material.emissive = color;
+      p.mesh->material.emissive_strength = 1.2f;
+      p.light = game::LightComponent{color, 4, 5};
+      game::ColliderComponent s;
+      s.shape = game::ColliderShape::box;
+      s.size = {1.4f, 1.4f, 1.6f};
+      s.center = {0, 0, 0.8f};
+      s.sensor = true;
+      p.colliders.push_back(s);
+      return p;
+    };
+    game::Actor a = pad("Teleporter A", {0.3f, 0.6f, 1.0f});
+    game::Actor b = pad("Teleporter B", {0.8f, 0.4f, 1.0f});
+    game::TriggerComponent t;
+    t.action = game::TriggerAction::teleport;
+    t.once = false;
+    t.target = 2;  // index + 1 of B
+    a.trigger = t;
+    t.target = 1;  // B leads back to A
+    b.trigger = t;
+    add(a, {0, 0, 0.05f});
+    add(b, {8, 0, 0.05f});
+  } else if (item == "explosive_barrel") {
+    game::Actor a = dynamic(shape_actor("Explosive Barrel", game::Shape::cylinder, {0.85f, 0.18f, 0.12f}), 30);
+    a.mesh->radius = 0.35f;
+    a.mesh->height = 1.0f;
+    game::HealthComponent h;
+    h.max_health = 30;
+    h.regen_delay = 0;
+    h.respawn = false;
+    h.points = 5;
+    h.explode_radius = 6;
+    h.explode_damage = 90;
+    h.hit_sound = "builtin:impact_light";
+    h.death_sound = "builtin:explosion";
+    a.health = h;
+    a.tags.push_back("explosive");
+    add(a, {0, 0, 0.5f});
   } else if (item == "message") {
     game::Actor m;
     m.name = "Message Trigger";
@@ -489,6 +609,8 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
     for (std::size_t i = 0; i < actors.size(); ++i) {
       game::Actor a = actors[i];
       a.id = ids[i];
+      if (i > 0 && !a.parent) a.transform.position = a.transform.position + pos;  // more top-level parts (teleporter B)
+      if (a.trigger && a.trigger->target) a.trigger->target = ids[a.trigger->target - 1];
       if (i == 0) {
         a.transform.position = a.transform.position + pos;
         // Spawned names are unique.
@@ -502,9 +624,13 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
       l.add(std::move(a));
     }
     root = ids[0];
+    // A player dropped into the world becomes the one Play controls.
+    if (actors[0].controller) l.world.player = root;
     select({root});
     return true;
   });
+  if (root && actors[0].controller)
+    report(actors[0].name + " is the player now - press Play (Alt+P) to control it", "info");
   return root;
 }
 

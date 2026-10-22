@@ -827,7 +827,7 @@ bool Studio::play(game::SimMode mode) {
   if (mode == game::SimMode::play) {
     bool player = false;
     for (const game::Actor& a : level_.actors) player |= a.controller.has_value();
-    if (!player) { report("No actor has a Player Controller - simulating instead", "warn"); mode = game::SimMode::simulate; }
+    if (!player) { report("Nothing to control yet: drop a player from Content > Players (Soldier, Hover Car...) - simulating instead", "warn"); mode = game::SimMode::simulate; }
   }
   const bool networked = mode == game::SimMode::play && (net_remote_ || net_play_.players > 1);
   if (networked) {

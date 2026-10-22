@@ -3224,6 +3224,156 @@ TEST(studio_soldier_input_and_hud) {
   f.cmd(R"({"cmd":"stop"})");
 }
 
+TEST(studio_player_presets_and_gameplay_blocks) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
+  // Every catalog item spawns.
+  const json::Value groups = f.cmd(R"({"cmd":"catalog"})")["groups"];
+  CHECK(groups[0]["label"].as_string() == "Players");
+  int items = 0;
+  for (const json::Value& g : groups.items())
+    for (const json::Value& it : g["items"].items()) {
+      if (it["id"].as_string() == "city") continue;
+      json::Value c = json::Value::object();
+      c.set("cmd", "spawn");
+      c.set("item", it["id"].as_string());
+      CHECK(f.s->command(c)["ok"].as_bool());
+      ++items;
+    }
+  CHECK(items > 35);
+  CHECK(f.cmd(R"({"cmd":"undo"})")["ok"].as_bool());
+  // Fresh level: the last dropped player is the one Play controls.
+  CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
+  f.cmd(R"({"cmd":"spawn","item":"soldier","x":0,"y":0})");
+  const game::ActorId soldier = f.s->level().world.player;
+  CHECK(soldier != 0 && f.s->level().find(soldier)->name == "Soldier");
+  f.cmd(R"({"cmd":"spawn","item":"hover_car"})");
+  const game::ActorId car = f.s->level().world.player;
+  CHECK(car != soldier);
+  json::Value rows = f.s->state()["outliner"]["rows"];
+  bool badge = false;
+  for (const json::Value& r : rows.items()) if (r["player"].as_bool()) badge = r["id"].as_number() == car;
+  CHECK(badge);
+  // Make the soldier the player again from the context menu command.
+  json::Value c = json::Value::object();
+  c.set("cmd", "setPlayer");
+  c.set("id", soldier);
+  CHECK(f.s->command(c)["ok"].as_bool());
+  CHECK(f.s->level().world.player == soldier);
+  CHECK(f.cmd(R"({"cmd":"undo"})")["ok"].as_bool());
+  CHECK(f.s->level().world.player == car);
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  f.frames(5);
+  CHECK(f.s->world().player() == car);
+  f.cmd(R"({"cmd":"stop"})");
+}
+
+TEST(game_gameplay_blocks) {
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId me = add_soldier(l, {0, 0, 0.8f});
+  auto sensor_box = [&](game::Actor& a, Vec3 size) {
+    game::ColliderComponent s;
+    s.shape = game::ColliderShape::box;
+    s.size = size;
+    s.center = {0, 0, size.z * 0.5f};
+    s.sensor = true;
+    a.colliders.push_back(s);
+  };
+  game::Actor pad;
+  pad.name = "Jump Pad";
+  pad.transform.position = {4, 0, 0.05f};
+  pad.trigger = game::TriggerComponent{};
+  pad.trigger->action = game::TriggerAction::launch;
+  pad.trigger->strength = 11;
+  pad.trigger->once = false;
+  sensor_box(pad, {1.8f, 1.8f, 0.8f});
+  l.add(pad);
+  game::Actor tp;
+  tp.name = "Teleporter A";
+  tp.transform.position = {-4, 0, 0.05f};
+  tp.trigger = game::TriggerComponent{};
+  tp.trigger->action = game::TriggerAction::teleport;
+  tp.trigger->once = false;
+  sensor_box(tp, {1.4f, 1.4f, 1.6f});
+  game::Actor exit;
+  exit.name = "Exit";
+  exit.transform.position = {-4, 15, 0.05f};
+  const game::ActorId exit_id = l.add(exit).id;
+  tp.trigger->target = exit_id;
+  l.add(tp);
+  game::Actor med;
+  med.name = "Health Pack";
+  med.transform.position = {0, 4, 0.6f};
+  med.pickup = game::PickupComponent{};
+  med.pickup->points = 0;
+  med.pickup->heal = 50;
+  med.pickup->respawn = 15;
+  sensor_box(med, {1, 1, 1});
+  const game::ActorId med_id = l.add(med).id;
+  game::Actor barrel;
+  barrel.name = "Explosive Barrel";
+  barrel.transform.position = {10, -6, 0.5f};
+  barrel.mesh = game::MeshComponent{};
+  barrel.mesh->shape = game::Shape::cylinder;
+  barrel.mesh->radius = 0.35f;
+  barrel.body = game::BodyComponent{};
+  barrel.body->mass = 30;
+  barrel.health = game::HealthComponent{};
+  barrel.health->max_health = 30;
+  barrel.health->respawn = false;
+  barrel.health->explode_radius = 6;
+  barrel.health->explode_damage = 90;
+  const game::ActorId barrel_id = l.add(barrel).id;
+  const game::ActorId dummy = add_dummy(l, {12, -6, 0.725f});
+  CHECK(f.world->start(l, game::SimMode::play));
+  Camera cam;
+  game::PlayInput in;
+  auto tick = [&](int n) { for (int i = 0; i < n; ++i) { f.world->step(1.0f / 60, in); f.world->update_camera(cam, 1.0f / 60, in); } };
+  auto feet = [&] { return f.world->physics().pose(f.world->actor_body(me)).position; };
+  tick(20);
+  // Health pack: ignored at full health, taken when hurt.
+  f.world->damage(me, 40, 0, false, {0, 0, 0});
+  f.world->teleport(me, {0, 4, 0.8f});
+  tick(10);
+  CHECK(!f.world->actor_alive(med_id));
+  CHECK(f.world->health_of(me) > 99);
+  // Jump pad: walk onto it.
+  f.world->teleport(me, {4, 0, 0.8f});
+  f32 top = 0;
+  for (int i = 0; i < 60; ++i) { tick(1); top = std::max(top, feet().z); }
+  CHECK(top > 4);
+  tick(120);
+  // Teleporter: step on it, arrive at the exit.
+  f.world->teleport(me, {-4, 0, 0.8f});
+  tick(10);
+  CHECK(distance(feet() * Vec3{1, 1, 0}, Vec3{-4, 15, 0}) < 1.5f);
+  // Explosive barrel: destroying it hurts the dummy next to it and pushes things.
+  f.world->damage(barrel_id, 100, me, false, {0, 0, 0});
+  CHECK(!f.world->actor_alive(barrel_id));
+  CHECK(f.world->health_of(dummy) < 70);
+}
+
+TEST(studio_shortcuts_follow_the_keyboard_layout) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
+  const std::size_t n = f.s->level().actors.size();
+  f.cmd(R"({"cmd":"spawn","item":"cube"})");
+  CHECK(f.s->level().actors.size() == n + 1);
+  // German QWERTZ: the key labelled Z sits where US keyboards have Y (code KeyY).
+  f.s->key("z", "KeyY", true, 2, false);
+  f.s->key("z", "KeyY", false, 2, false);
+  CHECK(f.s->level().actors.size() == n);
+  f.s->key("y", "KeyZ", true, 2, false);   // Ctrl+Y (redo) on QWERTZ
+  f.s->key("y", "KeyZ", false, 2, false);
+  CHECK(f.s->level().actors.size() == n + 1);
+  // AZERTY: the tool keys follow the printed letters too (E = rotate).
+  f.s->key("e", "KeyE", true, 0, false);
+  f.s->key("e", "KeyE", false, 0, false);
+  CHECK(f.s->state()["tool"].as_string() == "rotate");
+}
+
 TEST(studio_multiplayer_play) {
   StudioFixture f;
   CHECK(f.cmd(R"({"cmd":"netPlayers","players":3})")["ok"].as_bool());

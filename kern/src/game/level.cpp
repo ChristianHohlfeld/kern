@@ -27,7 +27,7 @@ constexpr const char* kJointNames[] = {"hinge", "slider", "ball", "fixed", "dist
 constexpr const char* kControlNames[] = {"hovercar", "rolling", "character", "flyer", "vehicle", "soldier"};
 constexpr const char* kWeaponNames[] = {"rifle", "pistol", "shotgun", "sniper"};
 constexpr const char* kCameraNames[] = {"chase", "firstPerson", "topDown"};
-constexpr const char* kTriggerNames[] = {"goal", "hazard", "checkpoint", "message"};
+constexpr const char* kTriggerNames[] = {"goal", "hazard", "checkpoint", "message", "launch", "teleport", "damage", "event"};
 constexpr const char* kMoverNames[] = {"sine", "pingPong", "loop"};
 constexpr const char* kGoalNames[] = {"none", "collectAll", "reachGoal", "survive", "score"};
 
@@ -510,6 +510,8 @@ json::Value actor_to_json(const Actor& a) {
     x.set("points", num(k.points));
     x.set("hitSound", k.hit_sound);
     x.set("deathSound", k.death_sound);
+    x.set("explodeRadius", num(k.explode_radius));
+    x.set("explodeDamage", num(k.explode_damage));
     c.set("health", std::move(x));
   }
   if (a.pickup) {
@@ -518,6 +520,8 @@ json::Value actor_to_json(const Actor& a) {
     x.set("burstColor", hex_color(a.pickup->burst_color));
     x.set("respawn", num(a.pickup->respawn));
     x.set("sound", a.pickup->sound);
+    x.set("heal", num(a.pickup->heal));
+    x.set("ammo", a.pickup->ammo);
     c.set("pickup", std::move(x));
   }
   if (a.trigger) {
@@ -526,6 +530,8 @@ json::Value actor_to_json(const Actor& a) {
     x.set("message", a.trigger->message);
     x.set("once", a.trigger->once);
     x.set("sound", a.trigger->sound);
+    x.set("strength", num(a.trigger->strength));
+    x.set("target", a.trigger->target);
     c.set("trigger", std::move(x));
   }
   if (a.rotator) {
@@ -746,6 +752,8 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       hr.number("points", k.points, -1e6, 1e6);
       hr.string("hitSound", k.hit_sound);
       hr.string("deathSound", k.death_sound);
+      hr.number("explodeRadius", k.explode_radius, 0, 1000);
+      hr.number("explodeDamage", k.explode_damage, 0, 1e6);
       if (!hr.ok) return false;
       a.health = k;
     }
@@ -756,6 +764,8 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       pr.color("burstColor", p.burst_color);
       pr.number("respawn", p.respawn, 0, 1e5);
       pr.string("sound", p.sound);
+      pr.number("heal", p.heal, 0, 1e6);
+      pr.integer("ammo", p.ammo, 0, 100000);
       if (!pr.ok) return false;
       a.pickup = p;
     }
@@ -766,6 +776,8 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       tr.string("message", t.message);
       tr.boolean("once", t.once);
       tr.string("sound", t.sound);
+      tr.number("strength", t.strength, 0, 1e5);
+      tr.uinteger("target", t.target);
       if (!tr.ok) return false;
       a.trigger = t;
     }
@@ -848,6 +860,7 @@ json::Value world_to_json(const WorldSettings& w) {
   o.set("goal", game_goal_name(w.goal));
   o.set("timeLimit", num(w.time_limit));
   o.set("scoreTarget", num(w.score_target));
+  o.set("player", w.player);
   o.set("masterVolume", num(w.master_volume));
   o.set("music", w.music);
   o.set("musicVolume", num(w.music_volume));
@@ -877,6 +890,7 @@ bool world_from_json(const json::Value& v, WorldSettings& w, std::string* error)
   r.enumeration("goal", kGoalNames, w.goal);
   r.number("timeLimit", w.time_limit, 0, 1e6);
   r.number("scoreTarget", w.score_target, 0, 1e9);
+  r.uinteger("player", w.player);
   r.number("masterVolume", w.master_volume, 0, 4);
   r.string("music", w.music);
   r.number("musicVolume", w.music_volume, 0, 4);
@@ -926,6 +940,13 @@ json::Value to_json(const Level& level) {
   o.set("sounds", std::move(snd));
   if (!level.logic.empty()) o.set("logic", logic::graph_to_json(level.logic));
   return o;
+}
+
+u32 default_player(const Level& level) {
+  if (const Actor* a = level.find(level.world.player); a && a->controller) return a->id;
+  for (const Actor& a : level.actors)
+    if (a.controller) return a.id;
+  return 0;
 }
 
 std::string to_text(const Level& level, i32 indent) { return json::stringify(to_json(level), indent); }

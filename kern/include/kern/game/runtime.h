@@ -436,6 +436,7 @@ class GameWorld {
     bool seen_valid = false;
     f32 client_next_fire = 0;                    // replicas: predicted fire timing (camera kick)
     PlayInput prev_input;                        // input actions: edges for logic events
+    f32 teleport_until = 0;                      // teleporters: no instant return trip
   };
   struct HealthState {
     f32 hp = 100, armor = 0, last_damage = -1e9f;

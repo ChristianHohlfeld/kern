@@ -191,6 +191,8 @@ struct HealthComponent {
   f32 points = 10;              // score for the player who brings it down
   std::string hit_sound = "builtin:hit";
   std::string death_sound = "builtin:down";
+  f32 explode_radius = 0;       // > 0: blows up when destroyed (impulse and damage around it)
+  f32 explode_damage = 80;      // damage at the centre, falling off to 0 at the radius
 };
 
 struct PickupComponent {
@@ -198,9 +200,11 @@ struct PickupComponent {
   Vec3 burst_color{0.55f, 1.0f, 0.92f};
   f32 respawn = 0;              // seconds, 0 = gone for this run
   std::string sound = "builtin:pickup";
+  f32 heal = 0;                 // health given to the collector
+  i32 ammo = 0;                 // rounds added to the collector's reserve
 };
 
-enum class TriggerAction : u8 { goal, hazard, checkpoint, message };
+enum class TriggerAction : u8 { goal, hazard, checkpoint, message, launch, teleport, damage, event };
 const char* trigger_action_name(TriggerAction a);
 
 struct TriggerComponent {
@@ -208,6 +212,8 @@ struct TriggerComponent {
   std::string message;
   bool once = true;
   std::string sound = "auto";   // "auto" = the action's default sound, "" = silent
+  f32 strength = 12;            // launch: m/s upwards (plus forward along the trigger's X); damage: hit points
+  u32 target = 0;               // teleport: the actor to arrive at
 };
 
 /// A sound emitter: a looping ambience, a machine hum, a radio, a one-shot.
@@ -298,6 +304,7 @@ struct WorldSettings {
   GameGoal goal = GameGoal::none;
   f32 time_limit = 0;           // seconds, 0 = none
   f32 score_target = 0;         // GameGoal::score
+  u32 player = 0;               // the actor the player controls (0 = the first with a Player Controller)
   // audio
   f32 master_volume = 1;
   std::string music;            // looping 2D track on the music bus ("" = none)
@@ -325,6 +332,10 @@ struct EditorCamera {
   Vec3 position{-24, -30, 18};
   f32 yaw = 51, pitch = -24;    // degrees
 };
+
+/// The actor Play possesses: world.player when it has a Player Controller, else the first that has one.
+struct Level;
+u32 default_player(const Level& level);
 
 struct Level {
   std::string name = "Untitled";

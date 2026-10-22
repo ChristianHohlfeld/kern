@@ -243,6 +243,30 @@ void GameWorld::damage(ActorId target, f32 amount, ActorId attacker, bool head, 
     set_actor_alive(target, false);
     h.respawn_at = hc.respawn ? sim_time_ + max_of(0.1f, hc.respawn_delay) : -1;
   }
+  if (hc.explode_radius > 0) {
+    // Explosive: Box3D radial impulse, damage falling off with distance, flash, sound, shake.
+    const f32 r = hc.explode_radius;
+    const Vec3 c = at + Vec3{0, 0, 0.4f};
+    physics_.explode(c, r, r * 0.5f, 6.0f);
+    burst(c, {3.0f, 1.2f, 0.3f});
+    burst(c + Vec3{0, 0, 0.6f}, {1.2f, 1.2f, 1.2f});
+    cue("builtin:explosion", c, 1, 1, true, audio::Bus::sfx, target);
+    flash_until_ = now_ms_ + 120;
+    flash_at_ = c;
+    if (local_) {
+      Mat4 m;
+      if (actor_matrix(local_->actor, m)) shake_energy_ = min_of(1.35f, shake_energy_ + clamp(1.4f - distance(m.translation(), c) / (r * 3), 0.0f, 1.2f));
+    }
+    std::vector<std::pair<ActorId, f32>> hurt;
+    for (const auto& [other, oh] : health_) {
+      if (other == target || oh.dead) continue;
+      Mat4 m;
+      if (!actor_matrix(other, m)) continue;
+      const f32 d = distance(m.translation(), c);
+      if (d < r) hurt.push_back({other, hc.explode_damage * (1 - d / r)});
+    }
+    for (const auto& [other, amount] : hurt) damage(other, amount, attacker, false, c);
+  }
 }
 
 void GameWorld::update_health(f32 dt) {

@@ -326,3 +326,5 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
   .snap:not(:last-child), #spaceBtn, .cmdline, #simStats { display: none; }
   #toolbar { overflow-x: auto; }
 }
+
+.badge.player{margin-left:6px;padding:0 5px;border-radius:3px;background:#2f7de1;color:#fff;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;line-height:15px;flex:none}

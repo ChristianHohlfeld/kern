@@ -1237,9 +1237,15 @@ bool GameWorld::start(const Level& level, SimMode mode) {
 
   // The possessed player.
   player_ = 0;
-  if (mode == SimMode::play)
-    for (const Actor& a : level_.actors)
-      if (a.controller && a.body && a.body->motion == Motion::dynamic && body_of_actor_.count(a.id) && body_of_actor_[a.id]->body.valid()) { player_ = a.id; break; }
+  if (mode == SimMode::play) {
+    auto possessable = [&](const Actor& a) {
+      return a.controller && a.body && a.body->motion == Motion::dynamic && body_of_actor_.count(a.id) && body_of_actor_[a.id]->body.valid();
+    };
+    if (const Actor* chosen = level_.find(default_player(level_)); chosen && possessable(*chosen)) player_ = chosen->id;
+    else
+      for (const Actor& a : level_.actors)
+        if (possessable(a)) { player_ = a.id; break; }
+  }
   pawns_.clear();
   logic_.reset();
   logic_host_.reset();
@@ -1335,8 +1341,13 @@ bool GameWorld::set_mode(SimMode mode) {
   if (!running() || mode == SimMode::none) return false;
   if (mode == mode_) return true;
   if (mode == SimMode::play) {
-    for (const Actor& a : level_.actors)
-      if (a.controller && body_of_actor_.count(a.id) && body_of_actor_[a.id]->body.valid() && physics_.body_type(body_of_actor_[a.id]->body) != physics::BodyType::fixed) { player_ = a.id; break; }
+    auto possessable = [&](const Actor& a) {
+      return a.controller && body_of_actor_.count(a.id) && body_of_actor_[a.id]->body.valid() && physics_.body_type(body_of_actor_[a.id]->body) != physics::BodyType::fixed;
+    };
+    if (const Actor* chosen = level_.find(default_player(level_)); chosen && possessable(*chosen)) player_ = chosen->id;
+    else
+      for (const Actor& a : level_.actors)
+        if (possessable(a)) { player_ = a.id; break; }
     if (!player_) return fail("no actor with a player controller to possess");
     hud_.status = GameStatus::playing;
     camera_reset_ = true;
@@ -1908,6 +1919,14 @@ void GameWorld::burst(Vec3 at, Vec3 color) {
 void GameWorld::collect(ActorId id) {
   const Actor* a = level_.find(id);
   if (!a || !a->pickup || !alive_[id] || hud_.status != GameStatus::playing) return;
+  // A health pack stays where it is while the collector is at full health.
+  if (a->pickup->heal > 0 && a->pickup->ammo <= 0 && a->pickup->points == 0) {
+    const auto h = health_.find(pw_->actor);
+    const Actor* who = level_.find(pw_->actor);
+    if (h == health_.end() || h->second.dead || (who && who->health && h->second.hp >= who->health->max_health)) return;
+  }
+  if (a->pickup->heal > 0) heal(pw_->actor, a->pickup->heal);
+  if (a->pickup->ammo > 0) give_ammo(pw_->actor, a->pickup->ammo);
   const Vec3 at = world_[id].translation();
   set_actor_alive(id, false);
   hud_.score += a->pickup->points;
@@ -1956,6 +1975,39 @@ void GameWorld::trigger(ActorId id) {
     case TriggerAction::message:
       sound("builtin:confirm");
       say(t.message);
+      break;
+    case TriggerAction::launch: {
+      // Up with `strength`, and forward along the pad's X axis with half of it.
+      Vec3 fwd = matrix_rotation(world_[id]).rotate({1, 0, 0});
+      fwd.z = 0;
+      const Vec3 v = normalize(fwd, {0, 0, 0}) * (t.strength * 0.5f) + Vec3{0, 0, t.strength};
+      if (pw_->use_mover) { pw_->mover.set_velocity(Vec3{v.x, v.y, 0} + Vec3{0, 0, 0}); pw_->mover.jump(v.z); }
+      else if (const physics::Body b = actor_body(pw_->actor); b.valid()) physics_.set_linear_velocity(b, physics_.linear_velocity(b) * Vec3{1, 1, 0} + v);
+      sound("builtin:boost");
+      if (!t.message.empty()) say(t.message);
+      break;
+    }
+    case TriggerAction::teleport: {
+      if (sim_time_ < pw_->teleport_until) return;
+      Mat4 to;
+      if (!t.target || !actor_matrix(t.target, to)) { say("The teleporter has no target"); return; }
+      pw_->teleport_until = sim_time_ + 1.0f;
+      const Vec3 arrive = to.translation() + Vec3{0, 0, pw_->use_mover ? pw_->mover_lift + 0.1f : 1.0f};
+      Vec3 rot = matrix_transform(to).rotation;
+      teleport(pw_->actor, arrive, &rot);
+      if (pw_ == local_) camera_yaw_ = rot.z;
+      set_actor_velocity(pw_->actor, {});
+      sound("builtin:powerup");
+      burst(arrive, {0.4f, 0.8f, 1.6f});
+      if (!t.message.empty()) say(t.message);
+      return;  // teleporters stay usable
+    }
+    case TriggerAction::damage:
+      damage(pw_->actor, t.strength, 0, false, at);
+      if (!t.message.empty()) say(t.message);
+      break;
+    case TriggerAction::event:
+      if (!t.message.empty()) say(t.message);
       break;
   }
   if (t.once && t.action != TriggerAction::goal && t.action != TriggerAction::hazard) set_actor_alive(id, false);
@@ -2052,9 +2104,7 @@ void GameWorld::set_local_pawn(ActorId pawn) {
 ActorId GameWorld::add_pawn(ActorId source, ActorId id) {
   if (!running()) return 0;
   if (id && pawn_of(id)) return id;  // known already (a network client hears about pawns more than once)
-  if (!source)
-    for (const Actor& a : edit_level_.actors)
-      if (a.controller) { source = a.id; break; }
+  if (!source) source = player_ && edit_level_.find(player_) ? player_ : default_player(edit_level_);
   const Actor* src = edit_level_.find(source);
   if (!src || !src->controller) { fail("no player actor to copy"); return 0; }
   // The source's subtree in document order (root first), from the unmodified level.

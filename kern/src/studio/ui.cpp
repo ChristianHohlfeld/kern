@@ -2,6 +2,7 @@
 // JSON the page renders panels from (outliner, menus, dialogs, viewports,
 // per-frame status).
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -117,9 +118,16 @@ game::Level template_level(const std::string& name) {
 json::Value Studio::key(std::string_view key, std::string_view code, bool down, u32 mods, bool repeat) {
   json::Value result = json::Value::object();
   modifiers_ = mods;
-  const std::string c(code);
-  if (down) keys_.insert(c);
-  else keys_.erase(c);
+  // Held keys use the physical position (WASD stays WASD on AZERTY / QWERTZ), shortcuts the
+  // printed letter: Ctrl+Z is the key labelled Z on a German keyboard, as in every editor.
+  if (down) keys_.insert(std::string(code));
+  else keys_.erase(std::string(code));
+  std::string c(code);
+  if (key.size() == 1 && std::isalpha(static_cast<unsigned char>(key[0])) && c.rfind("Key", 0) == 0) {
+    const bool driving = (play_ == PlayState::playing && !ejected_) ||
+                         std::any_of(views_.begin(), views_.end(), [](const Viewport& v) { return v.drag == Drag::fly || v.drag == Drag::pedestal; });
+    if ((mods & ctrl) || !driving) c = std::string("Key") + static_cast<char>(std::toupper(static_cast<unsigned char>(key[0])));
+  }
   bool handled = false;
   auto done = [&]() {
     result.set("handled", handled);
@@ -294,6 +302,7 @@ void Studio::blur() {
 json::Value Studio::outliner_json() const {
   json::Value rows = json::Value::array();
   const std::string filter = lower(outliner_filter_);
+  const ActorId the_player = game::default_player(level_);
   auto row = [&](const game::Actor& a, u32 depth) {
     json::Value r = json::Value::object();
     const char* type = "";
@@ -308,6 +317,7 @@ json::Value Studio::outliner_json() const {
     if (a.locked) r.set("locked", true);
     if (selected(a.id)) r.set("selected", true);
     if (a.id == primary()) r.set("primary", true);
+    if (a.id == the_player) r.set("player", true);
     return r;
   };
   if (!filter.empty()) {
@@ -505,6 +515,11 @@ json::Value Studio::menu_json(std::string_view name) const {
       m.push(entry("Paste", cmd("paste"), "Ctrl+V", !clipboard_.empty()));
       m.push(entry("Duplicate", cmd("duplicate"), "Ctrl+D"));
       m.push(entry("Delete", cmd("delete"), "Delete"));
+      const game::Actor* p0 = level_.find(primary());
+      if (p0 && p0->controller) {
+        const bool is = game::default_player(level_) == p0->id;
+        m.push(entry(is ? "Is the Player" : "Make Player (control it in Play)", cmd("setPlayer", "id", p0->id), "", !is));
+      }
       m.push(separator());
       m.push(entry("Snap to Floor", cmd("snapToFloor"), "End"));
       m.push(entry("Group", cmd("group"), "Ctrl+G"));
@@ -1351,7 +1366,19 @@ json::Value Studio::run(const json::Value& c) {
   if (name == "netJoin") return ok(net_join(static_cast<u64>(num("server"))));
   if (name == "netStop") { net_stop(); return ok(); }
   if (name == "stop") { stop(); return ok(); }
-  if (name == "pause") { toggle_pause(); return ok(); }
+  if (name == "setPlayer") {
+    const ActorId id = static_cast<ActorId>(num("id"));
+    const game::Actor* a = level_.find(id);
+    if (!a || !a->controller) { report("Only an actor with a Player Controller can be the player", "warn"); return ok(false); }
+    edit("Make Player", [&](game::Level& l) { l.world.player = id; return true; });
+    report(a->name + " is the player now", "info");
+    return ok();
+  }
+  if (name == "pause") {
+    if (c["value"].is_bool()) { if (c["value"].as_bool() != paused_) toggle_pause(); }
+    else toggle_pause();
+    return ok();
+  }
   if (name == "stepFrame") { if (play_ != PlayState::editing) world_->step_once(play_input()); return ok(); }
   if (name == "eject") { eject(); return ok(); }
   if (name == "restart") { if (play_ != PlayState::editing) { world_->restart(); report("Restarted"); } return ok(); }

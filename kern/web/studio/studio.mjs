@@ -7,7 +7,7 @@
 // downloads, the clipboard, pointer lock, decoding images, local storage and
 // packaging standalone games.
 import {loadKern} from "../kern.mjs";
-import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE, GamepadInput, buildGameHtml, startAudio, KernNet, openNetwork} from "./game.mjs";
+import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE, GamepadInput, backgroundTicker, buildGameHtml, startAudio, KernNet, openNetwork} from "./game.mjs";
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = escHtml;
@@ -96,6 +96,14 @@ const ICONS = {
   door: '<path d="M5 3h3v18H5z"/><path d="M8 4l10 2v13l-10 2"/><circle cx="15" cy="12.5" r=".7"/>',
   chain: '<rect x="4" y="9" width="8" height="6" rx="3"/><rect x="12" y="9" width="8" height="6" rx="3"/>',
   seesaw: '<path d="M3 9l18 4M12 11l-3 8h6z"/>',
+  soldier: '<circle cx="9" cy="5.5" r="2.5"/><path d="M9 8v6l-2 6M9 14l2 6M6 10.5h9l4-1.5"/>',
+  target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  health: '<path d="M4 6h16v13H4z"/><path d="M12 9v7M8.5 12.5h7"/>',
+  ammo: '<path d="M6 20V9l2-4 2 4v11zM14 20V9l2-4 2 4v11z"/>',
+  jumppad: '<ellipse cx="12" cy="18" rx="8" ry="2.5"/><path d="M12 15V4M8 8l4-4 4 4"/>',
+  teleport: '<ellipse cx="7" cy="18" rx="4" ry="1.5"/><ellipse cx="17" cy="18" rx="4" ry="1.5"/><path d="M7 15c0-6 10-6 10 0M15 13l2 2 2-2"/>',
+  barrel: '<ellipse cx="12" cy="5.5" rx="6" ry="2"/><path d="M6 5.5v13c0 1.1 2.7 2 6 2s6-.9 6-2v-13M6 10h12M6 15h12"/>',
+  logic: '<rect x="3" y="4" width="7" height="6" rx="1.5"/><rect x="14" y="14" width="7" height="6" rx="1.5"/><path d="M10 7h3a2 2 0 012 2v5"/>',
   speaker: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/>',
   speakerOff: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/>',
   note: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
@@ -186,6 +194,14 @@ class StudioPage {
     this.renderCatalog();
     this.offerRestore();
     requestAnimationFrame(t => this.frame(t));
+    // Hosting or playing online in a background tab: keep the simulation and the network going.
+    backgroundTicker(time => {
+      if (!this.net.active) return;
+      this.engine.frame(time);
+      this.audio?.pump();
+      this.net.flush();
+      this.flushUi();
+    });
     setTimeout(() => $("#app").classList.remove("booting"), 60);
   }
 
@@ -296,7 +312,7 @@ class StudioPage {
         }
         break;
       case "releasePointer":
-        if (document.pointerLockElement) document.exitPointerLock();
+        if (document.pointerLockElement) { this.releasingLock = true; document.exitPointerLock(); }
         break;
       case "clipboard":
         navigator.clipboard?.writeText(a.text).catch(() => {});
@@ -841,7 +857,7 @@ class StudioPage {
       const cls = ["row", r.selected && "sel", r.primary && "primary", r.hidden && "hidden-actor"].filter(Boolean).join(" ");
       return `<div class="${cls}" data-id="${r.id}" data-key="a:${r.id}" draggable="true">` +
         `<button class="eye" tabindex="-1" title="Show / hide (H)">${icon(r.hidden ? "eyeOff" : "eye")}</button>` +
-        `<span class="name" style="padding-left:${pad}px">${tw}<span class="ico">${icon(r.icon)}</span><span class="label">${esc(r.name)}</span>${r.locked ? `<span class="lock" title="Locked">${icon("lock")}</span>` : ""}</span>` +
+        `<span class="name" style="padding-left:${pad}px">${tw}<span class="ico">${icon(r.icon)}</span><span class="label">${esc(r.name)}</span>${r.player ? `<span class="badge player" title="Play controls this actor">Player</span>` : ""}${r.locked ? `<span class="lock" title="Locked">${icon("lock")}</span>` : ""}</span>` +
         `<span class="type">${esc(r.type)}</span></div>`;
     }).join("");
     host.innerHTML = html || `<div class="empty dim" style="padding:16px">${o.filter ? "No actor matches" : "The level is empty - add actors from the toolbar or the content drawer"}</div>`;
@@ -1592,12 +1608,34 @@ class StudioPage {
       if (entries.length) this.openMenu(entries, e.clientX, e.clientY);
     });
     // Pointer lock while playing: mouse movement looks around.
+    // The browser takes the first Escape to end pointer lock (the page never sees that key).
+    // Losing the lock while this tab keeps the focus therefore *is* that Escape: stop playing
+    // right away, so one press is enough (switching windows only frees the mouse).
     document.addEventListener("pointerlockchange", () => {
       const locked = document.pointerLockElement === this.canvas;
-      if (this.locked && !locked) this.engine.command({cmd: "pointerCaptured", value: false});
+      if (this.locked && !locked) {
+        this.engine.command({cmd: "pointerCaptured", value: false});
+        const play = this.state?.play?.state;
+        if (!this.releasingLock && document.hasFocus() && (play === "playing" || play === "simulating")) this.engine.command({cmd: "stop"});
+      }
+      this.releasingLock = false;
       this.locked = locked;
     });
     document.addEventListener("mousemove", e => { if (this.locked) this.engine.look(e.movementX, e.movementY); });
+    // While the mouse is locked the browser sends every click to the locked canvas, not to the
+    // viewport under the (hidden) cursor: route the buttons to the active viewport (fire, aim...).
+    const lockedButton = (type, e) => {
+      if (document.pointerLockElement !== this.canvas) return;
+      const vp = this.state?.viewports?.findIndex?.(v => v.active) ?? 0;
+      const v = this.views[Math.max(0, vp)];
+      const r = v.el.getBoundingClientRect();
+      this.engine.pointer(v.index, type, r.width / 2, r.height / 2, {button: e.button, buttons: e.buttons, mods: modifiers(e)});
+      this.flushUi();
+      e.preventDefault();
+    };
+    this.canvas.addEventListener("pointerdown", e => lockedButton(POINTER.down, e));
+    this.canvas.addEventListener("pointerup", e => lockedButton(POINTER.up, e));
+    this.canvas.addEventListener("mousedown", e => { if (document.pointerLockElement === this.canvas) e.preventDefault(); });
   }
 
   initSplitters() {

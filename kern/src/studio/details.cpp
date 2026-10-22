@@ -34,7 +34,8 @@ constexpr const char* kJoints[] = {"hinge", "Hinge (revolute)", "slider", "Slide
 constexpr const char* kModes[] = {"hovercar", "Hover car", "rolling", "Rolling ball", "character", "Character", "flyer", "Flyer", "vehicle", "Vehicle", "soldier", "Soldier (first person shooter)", nullptr};
 constexpr const char* kWeaponKinds[] = {"rifle", "Rifle", "pistol", "Pistol", "shotgun", "Shotgun", "sniper", "Sniper rifle", nullptr};
 constexpr const char* kCameras[] = {"chase", "Chase", "firstPerson", "First person", "topDown", "Top down", nullptr};
-constexpr const char* kTriggers[] = {"goal", "Goal (win)", "hazard", "Hazard (lose)", "checkpoint", "Checkpoint (respawn here)", "message", "Message", nullptr};
+constexpr const char* kTriggers[] = {"goal", "Goal (win)", "hazard", "Hazard (lose)", "checkpoint", "Checkpoint (respawn here)", "message", "Message",
+                                       "launch", "Jump pad (launch)", "teleport", "Teleport", "damage", "Damage zone", "event", "Logic event only", nullptr};
 constexpr const char* kMovers[] = {"sine", "Sine", "pingPong", "Ping-pong", "loop", "Loop", nullptr};
 constexpr const char* kGoals[] = {"none", "None (sandbox)", "collectAll", "Collect all pickups", "reachGoal", "Reach a goal trigger", "survive", "Survive the time limit",
                                   "score", "Reach a target score", nullptr};
@@ -165,17 +166,23 @@ constexpr FieldDef kHealth[] = {
     {"points", "Points for a kill", F::number, -1e6, 1e6, 1},
     {"hitSound", "Hit", F::sound, 0, 0, 0, "", nullptr, "Sound"},
     {"deathSound", "Down", F::sound},
+    {"explodeRadius", "Explosion radius (0 = none)", F::number, 0, 1000, 0.5, "m", nullptr, "Explosion"},
+    {"explodeDamage", "Explosion damage", F::number, 0, 1e6, 5},
 };
 constexpr FieldDef kPickup[] = {
     {"points", "Points", F::number, -1e6, 1e6, 1},
     {"burstColor", "Burst color", F::color},
     {"respawn", "Respawn after (0 = never)", F::number, 0, 1e5, 0.5, "s"},
     {"sound", "Sound", F::sound},
+    {"heal", "Heals", F::number, 0, 1e6, 5},
+    {"ammo", "Ammo", F::integer, 0, 100000, 10},
 };
 constexpr FieldDef kTrigger[] = {
     {"action", "Action", F::choice, 0, 0, 0, "", kTriggers},
     {"message", "Message", F::text},
     {"once", "Only once", F::boolean},
+    {"strength", "Strength (launch m/s, damage)", F::number, 0, 1e5, 0.5},
+    {"target", "Teleport target", F::actor},
     {"sound", "Sound", F::sound_auto},
 };
 constexpr const char* kBuses[] = {"sfx", "Effects", "ambience", "Ambience", "music", "Music", "ui", "Interface", "voice", "Voice", nullptr};
@@ -216,6 +223,7 @@ constexpr FieldDef kCity[] = {
 };
 constexpr FieldDef kWorld[] = {
     {"title", "Game title", F::text, 0, 0, 0, "", nullptr, "Game"},
+    {"player", "Player (controlled in Play)", F::actor},
     {"goal", "Win condition", F::choice, 0, 0, 0, "", kGoals},
     {"timeLimit", "Time limit (0 = none)", F::number, 0, 1e6, 1, "s"},
     {"scoreTarget", "Target score", F::number, 0, 1e9, 1},

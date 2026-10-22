@@ -475,6 +475,22 @@ export class GamepadInput {
   }
 }
 
+/**
+ * Keeps a networked game running while its tab is in the background: browsers
+ * pause requestAnimationFrame there (and throttle timers), which would freeze
+ * a host and time out its players. A worker's timer keeps ticking; `tick` runs
+ * only while the page is hidden.
+ */
+export function backgroundTicker(tick, ms = 16) {
+  let worker = null;
+  try {
+    const src = `setInterval(() => postMessage(0), ${ms});`;
+    worker = new Worker(URL.createObjectURL(new Blob([src], {type: "text/javascript"})));
+    worker.onmessage = () => { if (document.hidden) tick(performance.now()); };
+  } catch { /* workers unavailable: background tabs pause */ }
+  return worker;
+}
+
 /** "83.4" -> "1:23.4" */
 export function formatTime(seconds) {
   if (!(seconds >= 0)) return "-";
@@ -560,6 +576,7 @@ export const HUD_STYLE = `.k-hud{position:absolute;inset:0;pointer-events:none;c
 .k-hud-banner div{font-size:32px;font-weight:800;letter-spacing:-.01em}
 .k-hud-banner.k-won div{color:#7ef0c4}
 .k-hud-banner.k-lost div{color:#ff9a7a}
+.k-hud-banner.k-paused{pointer-events:none}
 .k-hud-banner small{display:block;margin:6px 0 14px;font-size:14px;opacity:.85}
 .k-hud-banner button{font:600 14px system-ui,sans-serif;padding:8px 20px;border:0;border-radius:6px;background:#2f7de1;color:#fff;cursor:pointer}
 .k-hud-banner em{display:block;margin-top:8px;font-size:11px;font-style:normal;opacity:.55}
@@ -705,6 +722,15 @@ export async function startGame({levelText = null, template = null, bytes = null
   canvas.addEventListener("wheel", e => { e.preventDefault(); send(POINTER.wheel, e); }, {passive: false});
   canvas.addEventListener("contextmenu", e => e.preventDefault());
   document.addEventListener("mousemove", e => { if (document.pointerLockElement === canvas) engine.look(e.movementX, e.movementY); });
+  // The browser's Escape ends pointer lock without telling the page: pause right away (one press),
+  // and the next click into the game resumes and captures the mouse again.
+  let wasLocked = false;
+  document.addEventListener("pointerlockchange", () => {
+    const locked = document.pointerLockElement === canvas;
+    if (wasLocked && !locked && document.hasFocus() && engine.status()?.hud?.status === "playing") engine.command({cmd: "pause", value: true});
+    if (locked) engine.command({cmd: "pause", value: false});
+    wasLocked = locked;
+  });
 
   const key = (e, down) => {
     const r = engine.key(e.key, e.code, down, modifiers(e), e.repeat);
@@ -777,7 +803,7 @@ export async function startGame({levelText = null, template = null, bytes = null
     if (time - lastTextures > 250) { lastTextures = time; engine.pollTextures(); engine.pollSounds(audio); }
     gamepad.poll();
     const st = engine.status();
-    const html = hudHtml(st?.hud);
+    const html = hudHtml(st?.hud) + (st?.paused ? `<div class="k-hud-banner k-paused"><div>Paused</div><small>Click to continue</small></div>` : "");
     if (html !== hudKey) { hudKey = html; hud.innerHTML = html; }
     const soldier = coarse && !!st?.hud?.soldier;
     if (soldier !== soldierShown) {
@@ -788,6 +814,7 @@ export async function startGame({levelText = null, template = null, bytes = null
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+  if (net) backgroundTicker(time => { engine.frame(time); engine.takeUi(); audio?.pump(); net.flush(); });
   canvas.focus();
   const api = {engine, audio, net, get status() { return engine.status(); }, command: c => engine.command(c)};
   window.KernGame = api;
