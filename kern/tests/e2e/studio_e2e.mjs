@@ -322,7 +322,7 @@ const vpCenter = async (page, i = 0) => {
   // New level from a template via the dialog.
   await page.click('.mb[data-menu="file"]');
   await page.locator(".menu .mi", {hasText: "New Level"}).click();
-  check(await until(async () => (await page.locator(".dialog .tpl").count()) === 5), "New Level shows five templates");
+  check(await until(async () => (await page.locator(".dialog .tpl").count()) === 6), "New Level shows six templates (with Micro Duck)");
   await page.locator(".tpl", {hasText: "Physics Lab"}).click();
   await page.locator(".dialog .btn.primary").click();
   check(await until(async () => (await state(page)).level.name === "Physics Lab"), "Physics Lab opens");
