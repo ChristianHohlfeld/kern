@@ -20,7 +20,7 @@ werden wie dort als Gewicht × Term × dt summiert.
 | 1. Headless-Simulation: Ente ohne GPU, extern gesteuert, Episoden, Sprung-Aufgabe | fertig |
 | 2. MLP mit Backprop und Adam | fertig |
 | 3. PPO (Rezept wie rsl_rl: GAE, Clip, adaptive Lernrate, asymmetrischer Critic) | fertig |
-| 4. ONNX-Export im Format von Pollens Netzen | offen |
+| 4. ONNX-Export im Format von Pollens Netzen | fertig |
 | 5. Variation (Domain Randomization), Training parallel auf allen Kernen | offen |
 | 6. Training im Browser (Web Worker, Desktop und Handy) | offen |
 | 7. Das Sprung-Netz trainieren und als Fertigkeit einbinden | offen |
@@ -115,3 +115,18 @@ PPO folgt rsl_rls Implementierung, mit der Pollen seine Netze trainiert:
   der Reihe nach; dort teilen Web Worker die Arbeit auf (Schritt 6).
 - **Test `train_ppo_learns_to_reach`:** Ein Punkt lernt, zu einem Ziel zu fahren. Die Rückgabe
   verbessert sich von −5,7 auf −0,8 in 60 Iterationen (9 s im Sanitizer-Build).
+
+## 4. Export (`src/train/onnx_export.cpp`)
+
+- **Format:** Der trainierte Actor wird als ONNX geschrieben, aufgebaut wie Pollens exportierte
+  Netze:
+  - Eingang `obs` [1, 61], Ausgang `actions` [1, 14], Opset 17.
+  - Sub(Mittelwert), Div(σ + 0,01), dann (Gemm mit transB, Elu)* und Gemm.
+- **Metadaten:** dieselben Schlüssel wie bei Pollen (Gelenknamen, Grundstellung, Layout der
+  Beobachtung, `action_scale`). Dazu kommen `task` und `trainer`.
+- **Ohne Abhängigkeit:** Der Protobuf-Schreiber ist ein kleines Stück C++.
+- **Prüfung:**
+  - `train_exports_onnx_like_pollens_networks`: Kern liest die Datei (`parse_onnx_policy`), und sie
+    rechnet bis 1e-4 genau dasselbe wie der Actor im Trainer.
+  - Eine exportierte Datei lädt und rechnet auch mit ONNX Runtime, der Laufzeit des Roboters (lokal
+    geprüft).

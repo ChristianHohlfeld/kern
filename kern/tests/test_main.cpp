@@ -19,6 +19,7 @@
 #include "kern/train/env.h"
 #include "kern/train/nn.h"
 #include "kern/train/ppo.h"
+#include "kern/train/onnx_export.h"
 #include "kern/studio/studio.h"
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
@@ -4384,6 +4385,39 @@ TEST(train_ppo_learns_to_reach) {
   f32 obs[4] = {-0.5f, 0.2f, 0.6f, -0.4f}, a[2];
   ppo.act(obs, a);
   CHECK(a[0] > 0.3f && a[1] < -0.3f);
+}
+
+TEST(train_exports_onnx_like_pollens_networks) {
+  train::Rng rng(21);
+  train::Mlp actor;
+  actor.init({61, 64, 32, 14}, rng);
+  train::Normalizer norm;
+  norm.init(61);
+  std::vector<f32> data(61 * 40);
+  for (f32& v : data) v = rng.normal() * 2 + 0.5f;
+  norm.update(data.data(), 40);
+  const std::vector<u8> bytes = train::export_onnx(actor, norm, train::micro_duck_metadata("jump"));
+  if (const char* path = std::getenv("KERN_ONNX_OUT")) {
+    if (FILE* f = std::fopen(path, "wb")) { std::fwrite(bytes.data(), 1, bytes.size(), f); std::fclose(f); }
+  }
+  game::WalkerPolicy p;
+  std::string err;
+  CHECK(game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), p, &err));
+  CHECK(err.empty());
+  CHECK(p.dims == std::vector<i32>({61, 64, 32, 14}));
+  CHECK(p.meta("task") == "jump");
+  CHECK(p.meta("joint_names").rfind("left_hip_yaw,", 0) == 0);
+  // The file computes what the trainer's actor computes.
+  f32 worst = 0;
+  for (int trial = 0; trial < 5; ++trial) {
+    f32 obs[61], x[61], a[14], b[14];
+    for (f32& v : obs) v = rng.normal();
+    norm.apply(obs, 1, x);
+    actor.forward(x, 1, a);
+    p.run(obs, b);
+    for (int j = 0; j < 14; ++j) worst = max_of(worst, std::fabs(a[j] - b[j]));
+  }
+  CHECK(worst < 1e-4f);
 }
 
 TEST(micro_duck_observation_between_ticks_is_what_its_controller_sees) {
