@@ -569,6 +569,13 @@ const vpCenter = async (page, i = 0) => {
   check(!(await stored()), "restore: Dismiss deletes the stored copy");
   await reload();
   check(!(await offer()), "restore: after Dismiss a reload offers nothing");
+  // The Studio starts where you worked last time: the level opened last comes back after a reload.
+  await cmd(page, {cmd: "new", template: "physicsLab"});
+  const lastName = () => page.evaluate(() => { try { return JSON.parse(localStorage.getItem("kern-studio.last.v1") || "null")?.name; } catch { return null; } });
+  check(await until(async () => (await lastName()) === "Physics Lab", 30000), "reopen: the level worked on is remembered");
+  await reload();
+  check(await until(async () => (await state(page)).level.name === "Physics Lab", 30000), "reopen: a reload starts with the level worked on last");
+  check(!(await offer()), "reopen: a clean level comes back without asking");
   check(errors.length === 0, "no page errors around restoring" + (errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""));
   await ctx.close();
 }

@@ -12,7 +12,7 @@ import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE,
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = escHtml;
-const AUTOSAVE_KEY = "kern-studio.autosave.v1", LAYOUT_KEY = "kern-studio.layout.v1";
+const AUTOSAVE_KEY = "kern-studio.autosave.v1", LAYOUT_KEY = "kern-studio.layout.v1", LAST_KEY = "kern-studio.last.v1";
 // User settings (docs/studio.md, "Einstellungen"): only the user's own choices, as the engine reports
 // them (settings.cpp). A setting never changed is not stored and follows the defaults of the build.
 const SETTINGS_KEY = "kern-studio.settings.v1", SETTINGS_VERSION = 1;
@@ -223,6 +223,7 @@ class StudioPage {
     this.initSplitters();
     this.catalog = this.engine.command({cmd: "catalog"}).groups;
     this.renderCatalog();
+    this.reopenLast();
     this.offerRestore();
     requestAnimationFrame(t => this.frame(t));
     // Hosting or playing online in a background tab: keep the simulation and the network going.
@@ -264,11 +265,41 @@ class StudioPage {
   offerRestore() {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(AUTOSAVE_KEY) || "null"); } catch { /* storage unavailable */ }
-    if (!saved?.text) return;
+    if (!saved?.text) {
+      if (this.reopened) this.toast(`Reopened "${this.reopened}", where you worked last time`, [
+        {label: "Start fresh", run: () => { this.engine.command({cmd: "new", template: "orbRun"}); this.fileHandle = null; }},
+      ], 6000);
+      return;
+    }
     this.toast(`Restore "${saved.name}" from your last session?`, [
       {label: "Restore", primary: true, run: () => { this.engine.command({cmd: "restore", text: saved.text, name: saved.name}); this.fileHandle = null; }},
       {label: "Dismiss", run: () => this.dropAutosave()},
     ], 15000);
+  }
+
+  // The Studio starts where you worked last time: the level of the last session opens again (as it
+  // was saved or opened; unsaved changes on top are offered by offerRestore). The copy is kept for a
+  // clean document whenever it changed - a new level, an opened file, a save.
+  reopenLast() {
+    let last = null;
+    try { last = JSON.parse(localStorage.getItem(LAST_KEY) || "null"); } catch { /* storage unavailable */ }
+    if (!last?.text) return;
+    const r = this.engine.command({cmd: "open", text: last.text, name: last.name || "level"});
+    if (!r?.ok) { try { localStorage.removeItem(LAST_KEY); } catch { /* storage unavailable */ } return; }
+    this.lastStored = last.text;
+    this.reopened = last.name || "level";
+  }
+
+  rememberLast(time) {
+    const st = this.state;
+    if (!st?.level || st.level.dirty || st.play?.state !== "editing") return;
+    if (this.revision === this.lastRememberedRevision || time - (this.lastRemembered || 0) < 3000) return;
+    this.lastRemembered = time;
+    this.lastRememberedRevision = this.revision;
+    const r = this.engine.command({cmd: "save"});
+    if (!r?.ok || r.text === this.lastStored) return;
+    this.lastStored = r.text;
+    try { localStorage.setItem(LAST_KEY, JSON.stringify({name: st.level.name || "level", text: r.text, time: Date.now()})); } catch { /* full or unavailable */ }
   }
 
   dropAutosave() {
@@ -299,7 +330,7 @@ class StudioPage {
       else if (this.netSeen) { this.netSeen = false; if (this.net.active) this.net.close(); }
       this.renderStatus(this.status);
       if (time - this.lastTexturePoll > 200) { this.lastTexturePoll = time; this.engine.pollTextures(MAX_TEXTURE_SIDE); this.engine.pollSounds(this.audio); this.engine.loadPolicies().catch(() => {}); }
-      if (time - this.lastSavePoll > 500) { this.lastSavePoll = time; this.autosave(time); this.saveSettings(); }
+      if (time - this.lastSavePoll > 500) { this.lastSavePoll = time; this.autosave(time); this.saveSettings(); this.rememberLast(time); }
     } catch (error) {
       console.error(error);
       $("#engineNotice").style.display = "block";
@@ -882,7 +913,7 @@ class StudioPage {
     });
     // Leaving the page: write a pending autosave now (or drop a stale one). pagehide also fires
     // where beforeunload does not (mobile browsers, the tab is discarded, bfcache).
-    addEventListener("pagehide", () => this.autosave(Infinity));
+    addEventListener("pagehide", () => { this.autosave(Infinity); this.rememberLast(Infinity); });
     addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") this.autosave(Infinity); });
     addEventListener("beforeunload", e => {
       this.autosave(Infinity);
