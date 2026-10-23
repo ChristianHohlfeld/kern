@@ -395,3 +395,11 @@ apirrone/microduck_sounds portiert. Es gibt keine Samples und kein Netz.
   vorführt.
 - **Servos:** Der Roboter und sein Training modellieren keine Servogeräusche, es gibt also keine
   Referenz. Kern spielt deshalb nur leise den eingebauten Servo-Loop des Controllers.
+- **Berührungen:** Die Gehäuse und Servo-Housings klingen bei jeder Berührung nach Kunststoff
+  (`builtin:plastic`), mit dem Boden wie miteinander. Die Sohlen klingen als leiser, kleiner
+  Schritt (`builtin:plastic_step`, als Impact Sound ihrer Collider).
+  - Schon ab 0,12 m/s Annäherung gibt es einen Ton (`kDuckImpactThreshold`), weil die Ente klein
+    und leicht ist.
+  - Beim Gehen sind es etwa zwei bis drei Schritte pro Sekunde. Ein Tappen kommt erst, wenn sie
+    fällt, rollt oder sich selbst berührt.
+  - Gemessen im Test `micro_duck_steps_and_taps_sound`.

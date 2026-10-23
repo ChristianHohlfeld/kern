@@ -493,6 +493,7 @@ class GameWorld {
   PlayInput last_input_;
   // sound state
   std::unordered_map<ActorId, f32> last_impact_;
+  std::unordered_map<u64, std::string> shape_sound_;  // impact sound of each shape that has one
   /// One player's controller state (the local one and every remote one).
   struct Pawn {
     ActorId actor = 0, source = 0;

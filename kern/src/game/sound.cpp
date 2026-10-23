@@ -80,6 +80,10 @@ void SoundBank::request_level(const Level& level) {
       request(a.body->impact_sound);
       if (a.body->impact_sound == "builtin:impact") request("builtin:impact_light");
     }
+    for (const ColliderComponent& c : a.colliders) {
+      request(c.impact_sound);
+      if (c.impact_sound == "builtin:impact") request("builtin:impact_light");
+    }
     for (const JointComponent& j : a.joints) request(j.break_sound);
     if (a.controller) {
       request(engine_sound_for(*a.controller));

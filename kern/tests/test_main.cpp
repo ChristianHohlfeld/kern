@@ -2278,6 +2278,58 @@ TEST(audio_level_fields_round_trip) {
   CHECK(filtered.sounds.empty());
 }
 
+// Colliders may sound different from their body (a sole steps, a shell taps), and impact sounds may
+// ask for touches far softer than a "hit" (2 m/s) - without logic hits or camera shake for them.
+TEST(audio_collider_impact_sounds) {
+  GameFixture f;
+  game::Level l = game::basic_level();
+  auto toy = [&](const char* name, f32 x, const char* body_sound, f32 threshold, const char* collider_sound) {
+    game::Actor a;
+    a.name = name;
+    a.transform.position = {x, 0, 0.2f};  // falls 0.15 m: about 1.7 m/s, softer than a hit
+    a.mesh = game::MeshComponent{};
+    a.mesh->size = {0.1f, 0.1f, 0.1f};
+    a.mesh->collision = false;
+    a.body = game::BodyComponent{};
+    a.body->motion = game::Motion::dynamic;
+    a.body->impact_sound = body_sound;
+    a.body->impact_threshold = threshold;
+    game::ColliderComponent c;
+    c.shape = game::ColliderShape::box;
+    c.size = {0.1f, 0.1f, 0.1f};
+    c.impact_sound = collider_sound;
+    a.colliders.push_back(c);
+    return l.add(a).id;
+  };
+  const game::ActorId sole = toy("Sole", 0, "builtin:plastic", 0.1f, "builtin:plastic_step");
+  const game::ActorId shell = toy("Shell", 1, "builtin:plastic", 0.1f, "auto");
+  const game::ActorId crate = toy("Crate", 2, "builtin:impact", 2.5f, "auto");     // the defaults: too soft to sound
+  const game::ActorId quiet = toy("Quiet", 3, "builtin:plastic", 0.1f, "none");    // a silent collider
+  // The collider's sound is part of the level file ("auto" is not written).
+  game::Level back;
+  std::string err;
+  CHECK(game::from_text(game::to_text(l), back, &err));
+  CHECK(back.find(sole)->colliders[0].impact_sound == "builtin:plastic_step");
+  CHECK(back.find(shell)->colliders[0].impact_sound == "auto");
+  CHECK(game::to_text(l).find("\"impactSound\": \"auto\"") == std::string::npos);
+  for (const game::Issue& i : game::validate(l)) CHECK(i.text.find("impact sound") == std::string::npos);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  std::vector<game::SoundCue> cues;
+  for (int i = 0; i < 90; ++i) {
+    f.world->step(1.0f / 60, {});
+    for (const game::SoundCue& c : f.world->sound_cues()) cues.push_back(c);
+    f.world->sound_cues().clear();
+  }
+  auto heard = [&](game::ActorId id, const char* sound) {
+    return std::count_if(cues.begin(), cues.end(), [&](const game::SoundCue& c) { return c.actor == id && c.sound == sound; });
+  };
+  CHECK(heard(sole, "builtin:plastic_step") >= 1);
+  CHECK(heard(sole, "builtin:plastic") == 0);
+  CHECK(heard(shell, "builtin:plastic") >= 1);
+  CHECK(std::none_of(cues.begin(), cues.end(), [&](const game::SoundCue& c) { return c.actor == crate || c.actor == quiet; }));
+  for (const game::SoundCue& c : cues) CHECK(c.volume > 0 && c.volume <= 1);
+}
+
 TEST(audio_game_world_cues) {
   GameFixture f;
   audio::Mixer mixer;
@@ -3998,6 +4050,40 @@ TEST(micro_duck_runs_every_move_of_its_set) {
     CHECK(f.world->walker_driving(duck) == "walk");
     CHECK(m.m[10] > 0.5f);  // on its feet (a hard kick can leave it leaning a while)
   }
+}
+
+TEST(micro_duck_steps_and_taps_sound) {
+  // Its soles step (a soft, small footstep) and its plastic taps when shells touch - quietly, a few
+  // per second, not a chatter.
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0});
+  int soles = 0;
+  for (const game::Actor& a : l.actors)
+    for (const game::ColliderComponent& c : a.colliders) soles += c.impact_sound == "builtin:plastic_step";
+  CHECK(soles == 2);
+  CHECK(l.find(duck)->body->impact_sound == "builtin:plastic");
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::play));
+  game::PlayInput fwd;
+  fwd.move_y = 1;
+  int steps = 0, taps = 0, other = 0;
+  f32 loudest = 0;
+  const int seconds = 8;
+  for (int i = 0; i < 60 * seconds; ++i) {
+    f.world->step(1.0f / 60, i < 60 ? game::PlayInput{} : fwd);
+    for (const game::SoundCue& c : f.world->sound_cues()) {
+      if (c.sound == "builtin:plastic_step") ++steps, loudest = max_of(loudest, c.volume);
+      else if (c.sound == "builtin:plastic") ++taps;
+      else if (c.bus == audio::Bus::sfx) ++other;
+    }
+    f.world->sound_cues().clear();
+  }
+  if (std::getenv("KERN_DUCK_PRINT")) std::printf("    %d steps, %d taps, %d other in %d s, loudest step %.2f\n", steps, taps, other, seconds, loudest);
+  CHECK(steps >= 6);                        // it walks: footsteps
+  CHECK(steps + taps < 20 * seconds);       // a few per second, no chatter
+  CHECK(other == 0);                        // no heavy "impact" from a small plastic robot
 }
 
 TEST(micro_duck_joints_stay_in_their_ranges) {

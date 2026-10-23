@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <initializer_list>
 #include <string>
 
 namespace kern::audio {
@@ -298,6 +299,35 @@ Buffer bell(u32 rate, f32 note, f32 release) {
   return synthesize(p, rate);
 }
 
+// A small rigid object struck: a few exponentially decaying partials (modal synthesis) and a short
+// noise transient for the contact itself, scaled to `peak`. Each mode: frequency (Hz), decay time
+// constant (s), amplitude. `click_lowpass` shapes the transient (soft materials sound duller).
+struct Partial { f32 hz, tau, amp; };
+Buffer struck(u32 rate, std::initializer_list<Partial> modes, f32 click, f32 click_ms, f32 click_lowpass, f32 seconds, f32 peak, u32 seed) {
+  const std::size_t n = static_cast<std::size_t>(seconds * rate);
+  Buffer out(n, 0.0f);
+  const f64 two_pi = 6.283185307179586;
+  for (const Partial& m : modes) {
+    const f64 w = two_pi * m.hz / rate, k = std::exp(-1.0 / (m.tau * rate));
+    f64 env = m.amp;
+    for (std::size_t i = 0; i < n && env > 1e-5; ++i, env *= k) out[i] += static_cast<f32>(env * std::sin(w * static_cast<f64>(i)));
+  }
+  // The contact: white noise under a fast decay, one-pole low-passed.
+  u32 x = seed * 2654435761u + 1;
+  const f64 kc = std::exp(-1.0 / (click_ms * 0.001 * rate)), lp = 1 - std::exp(-two_pi * click_lowpass / rate);
+  f64 env = click, y = 0;
+  for (std::size_t i = 0; i < n && env > 1e-5; ++i, env *= kc) {
+    x = x * 1664525u + 1013904223u;
+    const f64 white = static_cast<f64>(x >> 8) / 8388608.0 - 1.0;
+    y += lp * (white - y);
+    out[i] += static_cast<f32>(env * y);
+  }
+  f32 top = 0;
+  for (f32 v : out) top = std::max(top, std::abs(v));
+  if (top > 0) for (f32& v : out) v *= peak / top;
+  return out;
+}
+
 // Songs are scores: each bar enqueues its notes, BuiltinJob renders the queue a
 // few notes at a time (time budget per step) and memoises repeated notes.
 struct Score {
@@ -401,6 +431,8 @@ const std::vector<BuiltinSound>& builtin_sounds() {
       {"impact_light", "Light impact", "Physics", false},
       {"break", "Joint break", "Physics", false},
       {"step", "Footstep", "Physics", false},
+      {"plastic", "Plastic tap", "Physics", false},
+      {"plastic_step", "Small footstep", "Physics", false},
       {"engine", "Engine", "Vehicle", true},
       {"hover", "Hover drive", "Vehicle", true},
       {"boost", "Boost", "Vehicle", false},
@@ -765,6 +797,13 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
     SynthPatch s = patch(Wave::square, 1100, 0.0005f, 0.01f, 0.08f, 0.3f);
     s.slide = -6;
     add(out, synthesize(s, rate));
+  } else if (name == "plastic") {
+    // A printed plastic shell or servo housing tapping the floor or another part: hard, bright,
+    // short (a small robot - the partials sit high and die within a few tens of milliseconds).
+    out = struck(rate, {{1180, 0.020f, 0.55f}, {2710, 0.013f, 0.38f}, {4230, 0.008f, 0.26f}, {6950, 0.004f, 0.14f}}, 0.5f, 1.4f, 7000, 0.12f, 0.34f, 71);
+  } else if (name == "plastic_step") {
+    // A small sole set down: a soft, dull tap - low partials, a muffled contact, quiet.
+    out = struck(rate, {{330, 0.026f, 0.5f}, {870, 0.011f, 0.32f}, {2050, 0.005f, 0.12f}}, 0.45f, 6, 1600, 0.1f, 0.26f, 73);
   } else if (name == "step") {
     SynthPatch n = patch(Wave::noise, 2400, 0.001f, 0.004f, 0.055f, 0.45f);
     n.lowpass = 900;
