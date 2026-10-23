@@ -2,7 +2,7 @@
 # Builds a Kern WebAssembly module: the engine plus the optional components and
 # game sources given.
 #
-#   kern/build.sh [--app] [--physics] [--game] [--studio] <out.wasm> [compiler flags / game sources...]
+#   kern/build.sh [--app] [--physics] [--game] [--studio] [--train] <out.wasm> [compiler flags / game sources...]
 #
 # Components (the core renderer, geometry and JSON are always linked):
 #   --app      application runtime (kern/src/app) for games written entirely in
@@ -13,6 +13,8 @@
 #              procedural city (kern/src/game); implies --physics.
 #   --studio   Kern Studio, the engine editor (kern/src/studio) and its C ABI;
 #              implies --game.
+#   --train    the headless trainer (kern/src/train: environments, PPO, ONNX
+#              export) and its C ABI for the browser's Web Workers; implies --game.
 #
 # Toolchain: wasi-sdk (clang + wasm-ld + wasi-libc + libc++). Set WASI_SDK to
 # its install directory; the CI workflow downloads release 25 from GitHub.
@@ -27,13 +29,14 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-with_app=0 with_physics=0 with_game=0 with_studio=0
+with_app=0 with_physics=0 with_game=0 with_studio=0 with_train=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --app) with_app=1 ;;
     --physics) with_physics=1 ;;
     --game) with_game=1; with_physics=1 ;;
     --studio) with_studio=1; with_game=1; with_physics=1 ;;
+    --train) with_train=1; with_game=1; with_physics=1 ;;
     *) break ;;
   esac
   shift
@@ -54,7 +57,7 @@ cache_root="${KERN_OBJ_CACHE:-${TMPDIR:-/tmp}/kern-obj}"
 features=(-mcpu=mvp -msign-ext -mbulk-memory -mnontrapping-fptoint -mmutable-globals)
 target=(--target=wasm32-wasip1 --sysroot="$WASI_SDK/share/wasi-sysroot")
 
-component_dirs=(app physics game studio)
+component_dirs=(app physics game studio train)
 sources=()
 exclude=()
 for dir in "${component_dirs[@]}"; do exclude+=(-not -path "$here/src/$dir/*"); done
@@ -64,6 +67,7 @@ add_component() { while IFS= read -r f; do sources+=("$f"); done < <(find "$here
 [ "$with_physics" = 1 ] && add_component physics
 [ "$with_game" = 1 ] && add_component game
 [ "$with_studio" = 1 ] && add_component studio
+[ "$with_train" = 1 ] && add_component train
 
 objects=()
 if [ "$with_physics" = 1 ]; then

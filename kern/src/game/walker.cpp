@@ -700,14 +700,17 @@ bool GameWorld::walker_probe(ActorId id, WalkerProbe& out) const {
     return false;
   };
   std::vector<std::pair<physics::Body, f32>> touch;
-  out.self_contact = false;
+  const i32 feet[2] = {5, 14};  // the ankle links carry the soles (left, right)
+  out.self_contact = out.body_contact = false;
   for (i32 i = 0; i < WalkerBrain::kBodies; ++i) {
     if (!w->bodies[i].valid()) continue;
     touch.clear();
     physics_.touching(w->bodies[i], touch);
-    for (const auto& [other, impulse] : touch) if (own(other)) out.self_contact = true;
+    for (const auto& [other, impulse] : touch) {
+      if (own(other)) out.self_contact = true;
+      else if (i != feet[0] && i != feet[1]) out.body_contact = true;
+    }
   }
-  const i32 feet[2] = {5, 14};  // the ankle links carry the soles (left, right)
   for (int f = 0; f < 2; ++f) {
     out.foot_contact[f] = false;
     const physics::Body b = w->bodies[feet[f]];

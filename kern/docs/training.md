@@ -22,7 +22,7 @@ werden wie dort als Gewicht × Term × dt summiert.
 | 3. PPO (Rezept wie rsl_rl: GAE, Clip, adaptive Lernrate, asymmetrischer Critic) | fertig |
 | 4. ONNX-Export im Format von Pollens Netzen | fertig |
 | 5. Variation (Domain Randomization), Training parallel auf allen Kernen | fertig (Abstimmung läuft) |
-| 6. Training im Browser (Web Worker, Desktop und Handy) | offen |
+| 6. Training im Browser (Web Worker, Desktop und Handy) | fertig |
 | 7. Das Sprung-Netz trainieren und als Fertigkeit einbinden | offen |
 
 ## 1. Die Umgebung (`src/train`)
@@ -67,7 +67,7 @@ werden wie dort als Gewicht × Term × dt summiert.
 
 | Term | Gewicht | Was |
 |---|---|---|
-| airborne | 5 | beide Sohlen in der Luft |
+| airborne | 5 | in der Luft: weder Sohlen noch ein anderes Teil berühren den Boden |
 | height | 10 | in der Luft: Rumpf über Standhöhe (0,115 m), je 5 cm 1, höchstens 2 |
 | lift | 4 | Steiggeschwindigkeit des Rumpfs (0–1 m/s) |
 | upright | 2 | aufrecht (exp(−g_xy²/0,05), Pollens Rezept) |
@@ -75,6 +75,7 @@ werden wie dort als Gewicht × Term × dt summiert.
 | action_rate | −0,1 | Änderung der Aktion |
 | body_ang_vel | −0,05 | Drehrate des Rumpfs um x und y |
 | self_collisions | −1 | eigene Teile berühren sich |
+| body_contact | −2 | ein anderes Teil als die Sohlen berührt den Boden |
 | fall | −4 (einmalig) | über 60° gekippt oder Rumpf unter 5 cm: Episode endet |
 
 Die Gewichte sind ein erster Entwurf. Sie werden mit dem Training abgestimmt (Schritt 7).
@@ -171,3 +172,33 @@ kern/build/kern_train --eval jump.onnx --task jump   # sauberer Roboter: Höhe, 
   Werte der alten Policy mit den aktuellen Normalisierern neu berechnet. rsl_rl verlässt sich darauf,
   dass bei 4096 Umgebungen die Normalisierer im Rollout kaum wandern; bei einigen Dutzend
   Umgebungen verfälscht das sonst KL und Ratio.
+
+## 6. Training im Browser (`kern/web/train/`, Seite `/train/`)
+
+### Aufbau
+
+- **Build:** `kern/build.sh --train` baut den Trainer als WebAssembly-Modul (`kern_train.wasm`):
+  Engine, Box3D, Spiel-Laufzeit, `src/train` und die C-Schnittstelle (`src/train/train_api.cpp`).
+- **Sammler:** Jeder Web Worker lädt das Modul einmal. Er führt seine eigenen Enten mit der Policy,
+  die er bekommt, und gibt den Rollout als Bytes zurück.
+- **Lerner:** ein eigener Worker. Er sammelt die Rollouts aller Sammler ein, macht das PPO-Update und
+  gibt die nächste Policy aus (`Collector` / `Ppo::learn`).
+- **Seite:**
+  - Einstellungen: Bewegung, Zahl der Worker (Standard: Kerne − 1), Enten je Worker, Iterationen.
+  - Start/Pause, Kennzahlen und Verlauf als Diagramm.
+  - Alle 25 Iterationen ein ONNX-Export zum Herunterladen.
+  - Eine Wake-Lock-Sperre hält Handys wach.
+- **Geschwindigkeit:** WebAssembly schafft etwa 250 Regeltakte/s je Worker; nativ sind es etwa 750
+  je Kern.
+
+### Test
+
+- **CI:** `kern/tests/train_wasm_test.mjs` führt eine PPO-Iteration durch die C-Schnittstelle der
+  Worker aus und prüft den ONNX-Export.
+- **Lokal (Playwright):** 2 Worker, 3 Iterationen; die heruntergeladene Datei lädt in ONNX Runtime.
+
+### Hinweis
+
+Die Rollouts fertigt der Sammler mit festen Normalisierern an; der Lerner aktualisiert sie aus allen
+Beobachtungen vor dem Update (rsl_rl tut es Schritt für Schritt). Mit der Neubewertung der alten
+Policy (Schritt 5) ist das gleichwertig.

@@ -1,0 +1,184 @@
+// Kern Trainer page: collectors in Web Workers, one learner worker, a chart (docs/training.md).
+const $ = id => document.getElementById(id);
+const here = new URL(".", import.meta.url);
+const wasmUrl = new URL("../../../generated/kern_train.wasm", here);
+const workerUrl = new URL("./worker.mjs", here);
+
+const cores = Math.max(1, (navigator.hardwareConcurrency || 2) - 1);
+$("workers").value = Math.min(cores, 8);
+
+let module = null;
+let running = false, paused = false;
+let learner = null, collectors = [];
+let policy = null, iteration = 0, history = [], onnx = null, wakeLock = null;
+
+function status(text, error = false) {
+  $("status").textContent = text;
+  $("status").classList.toggle("err", error);
+}
+
+function call(worker, message, expect, transfer = []) {
+  return new Promise((resolve, reject) => {
+    worker.onmessage = ({ data }) => {
+      if (data.type === "error") reject(Error(data.message));
+      else if (data.type === expect) resolve(data);
+    };
+    worker.onerror = e => reject(Error(e.message || "worker failed"));
+    worker.postMessage(message, transfer);
+  });
+}
+
+async function spawn() {
+  const w = new Worker(workerUrl, { type: "module" });
+  await call(w, { type: "load", module }, "loaded");
+  return w;
+}
+
+async function start() {
+  if (running) return;
+  const task = $("task").value;
+  const workers = Math.max(1, Math.min(64, Number($("workers").value) || 1));
+  const envs = Math.max(1, Math.min(256, Number($("envs").value) || 8));
+  running = true;
+  paused = false;
+  iteration = 0;
+  history = [];
+  onnx = null;
+  $("start").disabled = true;
+  $("pause").disabled = false;
+  $("download").disabled = true;
+  status(`Starting ${workers} workers with ${envs} ducks each...`);
+  try {
+    wakeLock = await navigator.wakeLock?.request("screen").catch(() => null);
+    const seed = (Math.random() * 1e9) >>> 0;
+    learner = await spawn();
+    collectors = await Promise.all(Array.from({ length: workers }, () => spawn()));
+    await Promise.all(collectors.map((w, i) => call(w, { type: "collector", task, envs, seed: seed + 101 * (i + 1) }, "ready")));
+    policy = (await call(learner, { type: "learner", task, seed, config: { steps: 24 } }, "policy")).policy;
+    loop(task).catch(error => { status(error.message, true); stop(); });
+  } catch (error) {
+    status(error.message, true);
+    stop();
+  }
+}
+
+async function loop(task) {
+  const total = Math.max(1, Number($("iterations").value) || 1);
+  const steps = 24;
+  while (running && iteration < total) {
+    if (paused) { await new Promise(r => setTimeout(r, 200)); continue; }
+    const t0 = performance.now();
+    // Pollen's push curriculum: shoves come in once the move has formed.
+    const push = iteration < 500 ? 0 : iteration < 1000 ? 0.27 : 1;
+    const rollouts = await Promise.all(collectors.map(w =>
+      call(w, { type: "collect", policy: policy.slice(0), iteration: iteration + 1, push, steps }, "rollout").then(d => d.rollout)));
+    const learned = await call(learner, { type: "learn", rollouts }, "learned", rollouts);
+    policy = learned.policy;
+    iteration = learned.stats.iteration;
+    const seconds = (performance.now() - t0) / 1000;
+    show(learned.stats, seconds, collectors.length * Number($("envs").value) * steps);
+    if (iteration % 25 === 0 || iteration === total) await exportOnnx(task);
+  }
+  if (running) {
+    status(`Done: ${iteration} iterations. Download the network and load it in Kern Studio.`);
+    await exportOnnx(task);
+    stop(true);
+  }
+}
+
+async function exportOnnx(task) {
+  const d = await call(learner, { type: "export" }, "onnx");
+  onnx = new Blob([d.onnx], { type: "application/octet-stream" });
+  onnx.task = task;
+  $("download").disabled = false;
+}
+
+function show(s, seconds, steps) {
+  $("s-it").textContent = s.iteration;
+  $("s-steps").textContent = Math.round(s.steps).toLocaleString();
+  $("s-sps").textContent = Math.round(steps / seconds).toLocaleString();
+  if (s.episodes) {
+    $("s-ret").textContent = s.meanReturn.toFixed(2);
+    $("s-len").textContent = (s.meanLength * 0.02).toFixed(2);
+    history.push({ it: s.iteration, ret: s.meanReturn, len: s.meanLength * 0.02 });
+  }
+  $("s-std").textContent = s.meanStd.toFixed(3);
+  status(`Training: iteration ${s.iteration}, collecting ${s.collectSeconds.toFixed(2)} s, learning ${s.learnSeconds.toFixed(2)} s`);
+  draw();
+}
+
+function draw() {
+  const c = $("chart"), dpr = devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr;
+  c.height = h * dpr;
+  const g = c.getContext("2d");
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+  if (history.length < 2) return;
+  const pad = 28;
+  const css = getComputedStyle(document.documentElement);
+  const line = (key, color) => {
+    const v = history.map(p => p[key]);
+    const lo = Math.min(...v), hi = Math.max(...v), span = hi - lo || 1;
+    g.strokeStyle = color;
+    g.lineWidth = 2;
+    g.beginPath();
+    history.forEach((p, i) => {
+      const x = pad + (w - 2 * pad) * (i / (history.length - 1));
+      const y = h - pad - (h - 2 * pad) * ((p[key] - lo) / span);
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    });
+    g.stroke();
+    return [lo, hi];
+  };
+  g.strokeStyle = css.getPropertyValue("--line2");
+  g.lineWidth = 1;
+  g.strokeRect(pad, pad, w - 2 * pad, h - 2 * pad);
+  const [lo, hi] = line("ret", css.getPropertyValue("--play").trim());
+  line("len", css.getPropertyValue("--accent").trim());
+  g.fillStyle = css.getPropertyValue("--dim").trim();
+  g.font = "11px system-ui";
+  g.fillText(hi.toFixed(1), 4, pad + 4);
+  g.fillText(lo.toFixed(1), 4, h - pad);
+  g.fillText(`iteration ${history[history.length - 1].it}`, w - pad - 80, h - 8);
+}
+
+function stop(done = false) {
+  running = false;
+  for (const w of [learner, ...collectors]) w?.terminate();
+  learner = null;
+  collectors = [];
+  wakeLock?.release?.().catch(() => {});
+  wakeLock = null;
+  $("start").disabled = false;
+  $("pause").disabled = true;
+  $("pause").textContent = "Pause";
+  if (!done && !$("status").classList.contains("err")) status("Stopped.");
+}
+
+$("start").onclick = start;
+$("pause").onclick = () => {
+  paused = !paused;
+  $("pause").textContent = paused ? "Resume" : "Pause";
+  status(paused ? "Paused." : "Training...");
+};
+$("download").onclick = () => {
+  if (!onnx) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(onnx);
+  a.download = `${onnx.task || "kern"}_kern.onnx`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+addEventListener("resize", draw);
+
+(async () => {
+  try {
+    module = await WebAssembly.compileStreaming(fetch(wasmUrl)).catch(async () => WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer()));
+    status(`Ready. ${navigator.hardwareConcurrency || "?"} cores on this device.`);
+  } catch (error) {
+    status(`The trainer could not load: ${error.message}`, true);
+    $("start").disabled = true;
+  }
+})();

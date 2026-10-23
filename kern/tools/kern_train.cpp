@@ -64,28 +64,30 @@ int evaluate(const Options& o) {
   }
   DuckEnv env(make_task(o.task), o.seed);
   env.task().randomize = false;
-  f64 ret = 0, height = 0, air = 0;
+  f64 ret = 0, height = 0, air = 0, body = 0;
   i32 falls = 0;
   for (i32 e = 0; e < o.episodes; ++e) {
     env.reset();
-    f32 best = 0, airborne = 0;
+    f32 best = 0, airborne = 0, touching = 0;
     for (;;) {
       f32 a[kActions];
       p.run(env.observation(), a);
       const Env::Step s = env.step(a);
       const auto& pr = env.probe();
       best = std::max(best, pr.position.z - 0.115f);
-      if (!pr.foot_contact[0] && !pr.foot_contact[1]) airborne += kControlDt;
+      if (!pr.foot_contact[0] && !pr.foot_contact[1] && !pr.body_contact) airborne += kControlDt;
+      if (pr.body_contact) touching += kControlDt;
       if (s.terminal) ++falls;
       if (s.terminal || s.timeout) break;
     }
     ret += env.episode_return();
     height += best;
     air += airborne;
+    body += touching;
   }
   const f64 n = o.episodes;
-  std::printf("%s on %s: return %.2f, highest trunk +%.1f mm, both feet in the air %.2f s, fell %d of %d\n",
-              o.eval.c_str(), o.task.c_str(), ret / n, height / n * 1000, air / n, falls, o.episodes);
+  std::printf("%s on %s: return %.2f, highest trunk +%.1f mm, in the air %.2f s, something other than the soles on the floor %.2f s, fell %d of %d\n",
+              o.eval.c_str(), o.task.c_str(), ret / n, height / n * 1000, air / n, body / n, falls, o.episodes);
   return 0;
 }
 

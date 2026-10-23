@@ -400,6 +400,7 @@ class GameWorld {
     bool foot_contact[2] = {};      // left, right sole on something that is not the duck
     f32 foot_height[2] = {};        // left, right ankle link origin above the floor, real metres
     bool self_contact = false;      // two of its own parts touch
+    bool body_contact = false;      // a part other than the soles touches something not the duck
     f32 joint[14] = {}, joint_speed[14] = {};  // relative to home (rad), real rad/s
     f32 action[14] = {};            // the last action
   };

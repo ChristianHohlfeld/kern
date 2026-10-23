@@ -103,7 +103,8 @@ class JumpTask : public Task {
   f32 reward(const Tick& t, bool& terminal) override {
     Terms r(*this);
     const auto& p = t.probe;
-    const bool airborne = !p.foot_contact[0] && !p.foot_contact[1];
+    // In the air: nothing of it touches the floor (a duck on its tail with its feet up is not).
+    const bool airborne = !p.foot_contact[0] && !p.foot_contact[1] && !p.body_contact;
     // The jump: both soles off the ground, the trunk high, a push upwards to get there.
     r.add("airborne", 5, airborne ? 1.0f : 0.0f);
     r.add("height", 10, airborne ? clamp((p.position.z - kStandZ) / 0.05f, 0.0f, 2.0f) : 0.0f);
@@ -116,6 +117,7 @@ class JumpTask : public Task {
     r.add("action_rate", action_rate_weight_, action_rate(t));
     r.add("body_ang_vel", -0.05f, p.spin.x * p.spin.x + p.spin.y * p.spin.y);
     r.add("self_collisions", -1, p.self_contact ? 1.0f : 0.0f);
+    r.add("body_contact", -2, p.body_contact ? 1.0f : 0.0f);  // only the soles meet the floor
     terminal = fell(p);
     if (terminal) r.add("fall", -4, 1, false);
     return r.sum();
