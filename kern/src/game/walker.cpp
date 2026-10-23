@@ -907,6 +907,21 @@ void GameWorld::walker_say(WalkerBrain& w, const char* tag) {
   w.said = tag;
 }
 
+void GameWorld::warm_walker_voices() {
+  // The duck's calls are synthesised on first use otherwise - tens of milliseconds each on a phone,
+  // long enough to starve the audio output (a click) and stall the frame. Most used first.
+  static constexpr const char* kTags[] = {"chirp", "greet", "inquire", "peck", "coo", "alarm", "wheee"};
+  for (auto& w : walkers_) {
+    for (;;) {
+      u32 index = w->warm_index, tag = 0;
+      while (tag < std::size(kTags) && index >= audio::duck_variant_count(kTags[tag])) index -= audio::duck_variant_count(kTags[tag++]);
+      if (tag >= std::size(kTags)) break;  // this duck's voice is complete
+      ++w->warm_index;
+      if (audio::duck_voice_warm(kTags[tag], w->voice_seed, index)) return;  // one synthesis per frame
+    }
+  }
+}
+
 void GameWorld::voice_cue(WalkerBrain& w, const std::string& sound, bool silence) {
   SoundCue c;
   c.sound = sound;

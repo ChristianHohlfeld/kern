@@ -151,6 +151,8 @@ class Renderer {
   const PointLights& point_lights() const { return point_lights_; }
   bool set_shadows(const ShadowOptions* options);  // nullptr disables
   void set_ambient_occlusion(const AoOptions& options) { ao_.configure(options); }
+  /// The scene's occlusion radius in world units (0 = none); keeps the device's quality settings.
+  void set_ambient_occlusion_radius(f32 radius) { ao_.set_radius(radius); }
   const AmbientOcclusionPass& ambient_occlusion() const { return ao_; }
   const SunShadowMap* shadow() const { return shadow_ ? &*shadow_ : nullptr; }
   /// Marks the scene changed; `shadows` also invalidates the cached shadow map.

@@ -225,7 +225,7 @@ bool AmbientOcclusionPass::resize(i32 w, i32 h) {
 }
 
 bool AmbientOcclusionPass::compute(u32 depth, i32 width, i32 height, const Mat4& projection, f64 now) {
-  if (!options_.enabled || !supported_ || !depth || width < 4 || height < 4) return false;
+  if (!options_.enabled || !(options_.radius > 0) || !supported_ || !depth || width < 4 || height < 4) return false;
   if (!initialised_ && !init_programs()) return false;
 
   // Frame-time guard: on a device that cannot hold ~37 fps step the cost down (quality, then resolution).

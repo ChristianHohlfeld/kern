@@ -20,9 +20,16 @@
 //  - Not ported: stream.rs (the robot's live audio stream), chorale/ and the
 //    CLI (main.rs) - the recipes do not depend on them.
 #include "kern/audio/duck_voice.h"
+#include "kern/core/dmath.h"
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
+#if !defined(__wasi__)
+#include <mutex>
+#endif
+#include <string>
+#include <unordered_map>
 #include <cstddef>
 #include <cstring>
 
@@ -92,10 +99,10 @@ struct Rng {
     }
     const f64 r = 1.0 - random();
     const f64 theta = kTau * random();
-    const f64 mag = std::sqrt(-2.0 * std::log(r));
-    spare = static_cast<f32>(mag * std::sin(theta));
+    const f64 mag = std::sqrt(-2.0 * kern::dm::log(r));
+    spare = static_cast<f32>(mag * kern::dm::sin(theta));
     has_spare = true;
-    return static_cast<f32>(mag * std::cos(theta));
+    return static_cast<f32>(mag * kern::dm::cos(theta));
   }
 };
 
@@ -125,8 +132,8 @@ constexpr size_t kHarmonics = 7;
 void harmonics(const DuckPersonality& p, f64 (&weights)[kHarmonics]) {
   for (size_t n = 1; n <= kHarmonics; ++n) {
     const f64 nf = static_cast<f64>(n);
-    const f64 base = 1.0 / std::pow(nf, p.tilt);
-    const f64 high_lift = p.brightness * std::pow(nf / static_cast<f64>(kHarmonics), 1.5);
+    const f64 base = 1.0 / kern::dm::pow(nf, p.tilt);
+    const f64 high_lift = p.brightness * kern::dm::pow(nf / static_cast<f64>(kHarmonics), 1.5);
     const f64 nasal = p.nasal * ((n == 2 || n == 3) ? 0.6 : 0.0);
     const f64 skew = p.harmonic_skew >= 0.0 ? p.harmonic_skew * (n % 2 == 0 ? 0.4 : -0.2)
                                             : -p.harmonic_skew * (n % 2 == 0 ? -0.3 : 0.4);
@@ -183,7 +190,7 @@ Buf expdecay(const Buf& t, f64 attack_s, f64 decay_s) {
   for (size_t i = 0; i < t.size(); ++i) {
     const f32 x = t[i];
     const f32 a = std::clamp(x / attack, 0.0f, 1.0f);
-    const f32 d = std::exp(-std::max(x - attack, 0.0f) / decay);
+    const f32 d = kern::dm::exp(-std::max(x - attack, 0.0f) / decay);
     out[i] = a * d;
   }
   return out;
@@ -221,7 +228,7 @@ Buf harmonic_osc(const Buf& phase, const f64 (&weights)[kHarmonics]) {
     if (weights[k] == 0.0) continue;
     const f32 n = static_cast<f32>(k + 1);
     const f32 w = static_cast<f32>(weights[k]);
-    for (size_t i = 0; i < phase.size(); ++i) out[i] += w * std::sin(n * phase[i]);
+    for (size_t i = 0; i < phase.size(); ++i) out[i] += w * kern::dm::sin(n * phase[i]);
   }
   return out;
 }
@@ -230,8 +237,8 @@ Buf vibrato(const Buf& t, f64 rate_hz, f64 depth_semitones, f64 phase) {
   if (rate_hz <= 0.0 || depth_semitones <= 0.0) return Buf(t.size(), 1.0f);
   Buf out(t.size());
   for (size_t i = 0; i < t.size(); ++i) {
-    const f64 lfo = std::sin(kTau * rate_hz * static_cast<f64>(t[i]) + phase);
-    out[i] = static_cast<f32>(std::pow(2.0, depth_semitones * lfo / 12.0));
+    const f64 lfo = kern::dm::sin(kTau * rate_hz * static_cast<f64>(t[i]) + phase);
+    out[i] = static_cast<f32>(kern::dm::pow(2.0, depth_semitones * lfo / 12.0));
   }
   return out;
 }
@@ -264,7 +271,7 @@ Buf jitter(const Buf& t, f64 depth_semitones, Rng& rng) {
   const Buf smoothed = moving_average_same(raw, window);
   Buf out(t.size());
   for (size_t i = 0; i < smoothed.size(); ++i)
-    out[i] = static_cast<f32>(std::pow(2.0, depth_semitones * static_cast<f64>(smoothed[i]) / 12.0));
+    out[i] = static_cast<f32>(kern::dm::pow(2.0, depth_semitones * static_cast<f64>(smoothed[i]) / 12.0));
   return out;
 }
 
@@ -275,7 +282,7 @@ f32 peak_abs(const Buf& x) {
 }
 
 Buf pink_noise(size_t n, Rng& rng) {
-  const f32 a = static_cast<f32>(std::pow(0.985, kTunedSr / static_cast<f64>(kSr)));
+  const f32 a = static_cast<f32>(kern::dm::pow(0.985, kTunedSr / static_cast<f64>(kSr)));
   f32 leak = 0.0f;
   Buf pink(n);
   for (f32& v : pink) {
@@ -299,7 +306,7 @@ Buf click(size_t n, Rng& rng, size_t length) {
 
 void normalise(Buf& x, f64 peak_dbfs) {
   const f32 peak = peak_abs(x) + 1e-9f;
-  const f32 target = static_cast<f32>(std::pow(10.0, peak_dbfs / 20.0));
+  const f32 target = static_cast<f32>(kern::dm::pow(10.0, peak_dbfs / 20.0));
   const f32 gain = target / peak;
   for (f32& v : x) v *= gain;
 }
@@ -331,7 +338,7 @@ Buf voice(const DuckPersonality& p, const Buf& t, const Buf& freq, Rng& rng, f64
   const f64 am_d = p.am_depth * am_scale * p.quackiness;
   if (am_d > 0.01) {
     for (size_t i = 0; i < body.size() && i < t.size(); ++i) {
-      const f64 am = 1.0 - am_d * (0.5 + 0.5 * std::sin(kTau * p.am_rate_hz * static_cast<f64>(t[i])));
+      const f64 am = 1.0 - am_d * (0.5 + 0.5 * kern::dm::sin(kTau * p.am_rate_hz * static_cast<f64>(t[i])));
       body[i] *= static_cast<f32>(am);
     }
   }
@@ -513,8 +520,8 @@ void wheee_segments(const DuckPersonality& p, u32 variant, Buf& start, Buf& loop
   const Buf swell = lerp(t, {{0.0, 0.15}, {t1, 1.0}, {total, 1.0}});
   Buf freq(t.size());
   for (size_t i = 0; i < t.size(); ++i) {
-    const f64 wob = std::sin(kTau * wob_hz * static_cast<f64>(t[i]));
-    freq[i] = base[i] * static_cast<f32>(std::pow(2.0, 0.5 * static_cast<f64>(swell[i]) * wob / 12.0));
+    const f64 wob = kern::dm::sin(kTau * wob_hz * static_cast<f64>(t[i]));
+    freq[i] = base[i] * static_cast<f32>(kern::dm::pow(2.0, 0.5 * static_cast<f64>(swell[i]) * wob / 12.0));
   }
 
   const Buf env = lerp(t, {{0.0, 0.0}, {std::min(0.06, 0.5 * d_start), 1.0}, {t2 + 0.40 * d_end, 1.0}, {total, 0.0}});
@@ -638,7 +645,7 @@ DuckPersonality duck_personality(u32 seed) {
   const f64 reg = rng.choice(kRegisters, 4);
   p.register_shift = reg + rng.uniform(-0.4, 0.4);
   const f64 base = rng.uniform(160.0, 380.0);
-  p.pitch_center_hz = std::clamp(base * std::pow(2.0, p.register_shift * 0.45), 110.0, 620.0);
+  p.pitch_center_hz = std::clamp(base * kern::dm::pow(2.0, p.register_shift * 0.45), 110.0, 620.0);
   p.pitch_spread = rng.uniform(0.4, 1.2);
   p.glide_bias = rng.uniform(-1.0, 1.0);
 
@@ -676,11 +683,83 @@ u32 duck_variant_count(std::string_view tag) {
   return 10;
 }
 
-bool render_duck_voice(std::string_view tag, u32 seed, u32 variant, u32 rate, std::vector<f32>& out) {
+// ---------------------------------------------------------------------------
+// Each call is synthesised once per process: the speaker (sound bank) and the beak's lip sync use the
+// same samples, and a call spoken again costs nothing. Thread-safe (the Lehrer's workers).
+
+namespace {
+
+struct Rendered {
+  bool ok = false;
+  std::vector<f32> pcm, start, loop, end;  // at kDuckVoiceRate; wheee in its three segments
+};
+
+// WebAssembly runs single-threaded (wasi-sdk has no std::mutex there); natively the Lehrer's workers share it.
+#if defined(__wasi__)
+struct NoLock {};
+NoLock& cache_mutex() {
+  static NoLock m;
+  return m;
+}
+struct Guard {
+  explicit Guard(NoLock&) {}
+};
+#else
+std::mutex& cache_mutex() {
+  static std::mutex m;
+  return m;
+}
+using Guard = std::lock_guard<std::mutex>;
+#endif
+std::unordered_map<std::string, std::shared_ptr<const Rendered>>& cache() {
+  static std::unordered_map<std::string, std::shared_ptr<const Rendered>> c;
+  return c;
+}
+std::string cache_key(std::string_view tag, u32 seed, u32 variant) {
+  return std::string(tag) + ":" + std::to_string(seed) + ":" + std::to_string(variant);
+}
+
+std::shared_ptr<const Rendered> rendered(std::string_view tag, u32 seed, u32 variant, bool* made = nullptr) {
+  const std::string key = cache_key(tag, seed, variant);
+  {
+    Guard lock(cache_mutex());
+    if (auto it = cache().find(key); it != cache().end()) return it->second;
+  }
+  auto r = std::make_shared<Rendered>();
   const DuckPersonality p = duck_personality(seed);
-  if (!render_native(tag, p, variant, out)) {
+  if (tag == "wheee") {
+    wheee_segments(p, variant, r->start, r->loop, r->end);
+    r->ok = true;
+  } else {
+    r->ok = render_native(tag, p, variant, r->pcm);
+  }
+  if (made) *made = true;
+  Guard lock(cache_mutex());
+  if (cache().size() >= 1024) cache().clear();  // a bound for long sessions with many ducks
+  return cache().emplace(key, std::move(r)).first->second;
+}
+
+}  // namespace
+
+bool duck_voice_warm(std::string_view tag, u32 seed, u32 variant) {
+  bool made = false;
+  rendered(tag, seed, variant, &made);
+  return made;
+}
+
+bool render_duck_voice(std::string_view tag, u32 seed, u32 variant, u32 rate, std::vector<f32>& out) {
+  const std::shared_ptr<const Rendered> r = rendered(tag, seed, variant);
+  if (!r->ok) {
     out.clear();
     return fail("duck voice: unknown tag '%.*s'", static_cast<int>(tag.size()), tag.data());
+  }
+  if (tag == "wheee") {  // the robot's render: start + loop + loop + end
+    out = r->start;
+    out.insert(out.end(), r->loop.begin(), r->loop.end());
+    out.insert(out.end(), r->loop.begin(), r->loop.end());
+    out.insert(out.end(), r->end.begin(), r->end.end());
+  } else {
+    out = r->pcm;
   }
   resample(out, rate);
   return true;
@@ -688,7 +767,10 @@ bool render_duck_voice(std::string_view tag, u32 seed, u32 variant, u32 rate, st
 
 bool render_duck_wheee(u32 seed, u32 variant, u32 rate, std::vector<f32>& start, std::vector<f32>& loop,
                        std::vector<f32>& end) {
-  wheee_segments(duck_personality(seed), variant, start, loop, end);
+  const std::shared_ptr<const Rendered> r = rendered("wheee", seed, variant);
+  start = r->start;
+  loop = r->loop;
+  end = r->end;
   resample(start, rate);
   resample(loop, rate);
   resample(end, rate);

@@ -2,6 +2,7 @@
 // the HDR bloom composite.
 #pragma once
 
+#include <cmath>
 #include <vector>
 
 #include "kern/gfx/mesh.h"
@@ -170,6 +171,8 @@ struct AoOptions {
 class AmbientOcclusionPass {
  public:
   void configure(const AoOptions& options);
+  /// World units; 0 = no ambient occlusion (a per-scene setting, unlike the device-dependent quality).
+  void set_radius(f32 radius) { options_.radius = std::isfinite(radius) && radius > 0 ? radius : 0; }
   const AoOptions& options() const { return options_; }
   /// Computes the AO target from `depth` (full size width x height). projection = GL perspective matrix.
   /// Leaves no framebuffer bound. False = no AO this frame.

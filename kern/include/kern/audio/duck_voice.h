@@ -70,6 +70,10 @@ u32 duck_seed_from_id(std::string_view id);
 /// How many variants a tag has: greet / chirp 12, wheee 6, every other 10.
 u32 duck_variant_count(std::string_view tag);
 
+/// Synthesises one call ahead of time (every render below is cached per process, so the first time a
+/// duck says something costs no synthesis then). True when it had to be made now.
+bool duck_voice_warm(std::string_view tag, u32 seed, u32 variant);
+
 /// Renders one tag/variant (mono) at `rate`. False for an unknown tag.
 /// `variant` is not wrapped: any value renders (the robot uses 0..count-1).
 bool render_duck_voice(std::string_view tag, u32 seed, u32 variant, u32 rate, std::vector<f32>& out);

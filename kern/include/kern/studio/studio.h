@@ -484,6 +484,14 @@ class Studio {
     f32 spread = 0;          // pinch: the distance between the fingers
     f32 mx = 0, my = 0;      // pinch: the midpoint between the fingers
     Vec3 pivot;              // orbit / pinch: the point the camera turns about and zooms to
+    // After a pinch its point stays the orbit centre for the next one-finger orbit, as long as nothing
+    // else moved the camera or changed the selection in between.
+    bool kept = false;
+    Vec3 kept_pivot;
+    u32 kept_view = 0;
+    Vec3 kept_position;
+    f32 kept_yaw = 0, kept_pitch = 0;
+    std::vector<game::ActorId> kept_selection;
     i32 gizmo = -1;          // the finger dragging a gizmo handle (it takes the mouse path)
     f64 last_tap = -1e9;     // a second tap soon after frames the selection
     f32 tap_x = 0, tap_y = 0;

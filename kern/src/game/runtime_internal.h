@@ -1,6 +1,7 @@
 // Internal types of the game runtime shared by runtime.cpp and soldier.cpp.
 #pragma once
 
+#include <unordered_map>
 #include <cmath>
 #include "kern/core/dmath.h"
 #include <memory>
@@ -92,6 +93,7 @@ struct GameWorld::WalkerBrain {
   f32 wheee_left = 0, beak_trigger = 0;
   bool greeted = false, pad_was = false, chirp_held = false;
   std::string said;
+  u32 warm_index = 0;              // warm_walker_voices: the next call to synthesise ahead
   WalkerSensors sensors;
   f64 next_tof = 0;                // simulation time of the next ToF frame
   f32 tilted_for = 0;              // real seconds the trunk has been tipped past the fall limit

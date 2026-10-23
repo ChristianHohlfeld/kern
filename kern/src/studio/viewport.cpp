@@ -416,7 +416,13 @@ bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
       if (play_ == PlayState::simulating && persp && grab_at(v, active_view_, x, y)) { t.mode = Mode::grab; t.actor = v.press_actor; }
       else if (!persp) t.mode = Mode::pan;
       else if (observing_ && ejected_) t.mode = Mode::look;
-      else { t.mode = Mode::orbit; t.pivot = orbit_pivot(v); }
+      else {
+        t.mode = Mode::orbit;
+        const ViewCamera& c = v.camera;
+        const bool kept = t.kept && t.kept_view == active_view_ && t.kept_selection == selection_ &&
+                          distance(c.position, t.kept_position) < 1e-4f && c.yaw == t.kept_yaw && c.pitch == t.kept_pitch;
+        t.pivot = kept ? t.kept_pivot : orbit_pivot(v);
+      }
     } else {
       t.moved = true;
       t.spread = max_of(1.0f, spread());
@@ -458,10 +464,15 @@ bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
       c.yaw -= dx * sens;
       c.pitch = clamp(c.pitch - dy * sens * inv, -89.9f, 89.9f);
     } else if (t.mode == Mode::orbit && t.count == 1) {
-      const f32 dist = max_of(0.3f, distance(c.position, t.pivot));
+      // Turn about the pivot where it is on screen: the camera keeps the pivot's place in its own frame,
+      // so the point under the finger (or the pinch point) stays put instead of jumping to the centre.
+      const Vec3 off = c.position - t.pivot;
+      const Vec3 r0 = c.right(), f0 = c.forward(), u0 = cross(r0, f0);
+      const f32 lr = dot(off, r0), lf = dot(off, f0), lu = dot(off, u0);
       c.yaw -= dx * sens;
       c.pitch = clamp(c.pitch - dy * sens * inv, -89.5f, 89.5f);
-      c.position = t.pivot - c.forward() * dist;
+      const Vec3 r1 = c.right(), f1 = c.forward(), u1 = cross(r1, f1);
+      c.position = t.pivot + r1 * lr + f1 * lf + u1 * lu;
     } else if (t.mode == Mode::pan && t.count == 1) {
       Vec3 dir, up;
       ortho_basis(v.type, dir, up);
@@ -505,6 +516,11 @@ bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
     return true;
   }
   // up / cancel
+  if (t.mode == Mode::pinch && persp) {
+    // The pinch ends: what lies under the fingers now is where it zoomed to - the next orbit turns about it.
+    Vec3 hit;
+    if (pick(active_view_, t.mx, t.my, &hit)) t.pivot = hit;
+  }
   const bool still = type == 2 && t.count == 1 && !t.moved;
   const f64 held = time_ms - f->t0;
   f->id = -1;
@@ -530,8 +546,20 @@ bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
     a.set("y", y);
     push_ui(std::move(a));
   }
-  if (t.count == 0) t.mode = Mode::none;
-  else if (t.f[0].id < 0) { t.f[0] = t.f[1]; t.f[1] = {}; }  // the remaining finger leads
+  if (t.count == 0) {
+    // The point the camera last turned about or zoomed to stays its centre for the next orbit,
+    // unless something else moves the camera or changes the selection first.
+    if (persp && (t.mode == Mode::orbit || t.mode == Mode::pinch) && t.moved) {
+      t.kept = true;
+      t.kept_pivot = t.pivot;
+      t.kept_view = active_view_;
+      t.kept_position = v.camera.position;
+      t.kept_yaw = v.camera.yaw;
+      t.kept_pitch = v.camera.pitch;
+      t.kept_selection = selection_;
+    }
+    t.mode = Mode::none;
+  } else if (t.f[0].id < 0) { t.f[0] = t.f[1]; t.f[1] = {}; }  // the remaining finger leads
   if (t.mode == Mode::pinch && t.count == 1) {
     // One finger left: it carries on from here without a jump.
     v.x = t.f[0].x;

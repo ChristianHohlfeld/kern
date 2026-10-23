@@ -249,8 +249,11 @@ export class StudioEngine {
 // ---------------------------------------------------------------------------
 // Audio output: the engine's C++ mixer renders PCM, this moves it to the speakers.
 
-/** AudioWorklet processor: plays queued chunks, reports what it consumed (frames). */
+/** AudioWorklet processor: plays queued chunks, reports what it consumed (frames). When the queue runs
+ *  dry (the main thread stalled) it never jumps to silence: the last sample glides to zero, and when
+ *  data comes back it fades in - a gap without a click. */
 const WORKLET_SOURCE = `
+const RAMP = 96;  // samples (2 ms): a glide no one hears as a click
 class KernOutput extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -259,6 +262,10 @@ class KernOutput extends AudioWorkletProcessor {
     this.consumed = 0;
     this.underruns = 0;
     this.blocks = 0;
+    this.lastL = 0;
+    this.lastR = 0;
+    this.gain = 1;     // fade-in after a gap
+    this.dry = false;
     this.port.onmessage = e => { if (e.data === "flush") { this.queue.length = 0; this.offset = 0; } else this.queue.push(e.data); };
   }
   process(inputs, outputs) {
@@ -267,12 +274,29 @@ class KernOutput extends AudioWorkletProcessor {
     while (i < n && this.queue.length) {
       const chunk = this.queue[0], frames = chunk.length >> 1;
       const take = Math.min(n - i, frames - this.offset);
-      for (let k = 0; k < take; k++) { l[i + k] = chunk[(this.offset + k) * 2]; r[i + k] = chunk[(this.offset + k) * 2 + 1]; }
+      for (let k = 0; k < take; k++) {
+        const g = this.gain;
+        if (g < 1) this.gain = Math.min(1, g + 1 / RAMP);
+        l[i + k] = chunk[(this.offset + k) * 2] * g;
+        r[i + k] = chunk[(this.offset + k) * 2 + 1] * g;
+      }
       i += take;
       this.offset += take;
       if (this.offset >= frames) { this.queue.shift(); this.offset = 0; }
     }
-    if (i < n) { this.underruns++; for (; i < n; i++) { l[i] = 0; r[i] = 0; } }
+    if (i > 0) { this.lastL = l[i - 1]; this.lastR = r[i - 1]; this.dry = false; }
+    if (i < n) {
+      if (!this.dry) { this.underruns++; this.dry = true; }
+      for (; i < n; i++) {
+        this.lastL *= 1 - 1 / RAMP * 4;
+        this.lastR *= 1 - 1 / RAMP * 4;
+        if (Math.abs(this.lastL) < 1e-5) this.lastL = 0;
+        if (Math.abs(this.lastR) < 1e-5) this.lastR = 0;
+        l[i] = this.lastL;
+        r[i] = this.lastR;
+      }
+      this.gain = 0;  // what comes next fades in
+    }
     this.consumed += n;
     if (++this.blocks % 4 === 0) this.port.postMessage([this.consumed, this.underruns]);
     return true;
@@ -289,9 +313,13 @@ registerProcessor("kern-output", KernOutput);
  * session is set to "playback" so the ring switch does not mute games).
  */
 export class KernAudio {
-  constructor(render, {latency = 0.07} = {}) {
+  constructor(render, {latency = 0.07, maxLatency = 0.2} = {}) {
     this.render = render;        // frames -> Float32Array (interleaved stereo)
-    this.latency = latency;      // seconds kept queued ahead of the device
+    this.latency = latency;      // seconds kept queued ahead of the device (grows after a gap)
+    this.baseLatency = latency;
+    this.maxLatency = maxLatency;
+    this.lastUnderruns = 0;
+    this.calmSince = 0;
     this.context = null;
     this.node = null;
     this.mode = "none";
@@ -357,6 +385,17 @@ export class KernAudio {
   /** Keeps the worklet's queue `latency` seconds ahead; call every frame (and from a timer). */
   pump() {
     if (this.mode !== "worklet" || !this.running) return;
+    // Adaptive lead: a gap (the main thread stalled longer than the queue) adds 30 ms, up to
+    // maxLatency; after 15 s without one it eases back towards the base, 5 ms at a time.
+    const now = this.context.currentTime;
+    if (this.underruns > this.lastUnderruns) {
+      this.latency = Math.min(this.maxLatency, this.latency + 0.03);
+      this.lastUnderruns = this.underruns;
+      this.calmSince = now;
+    } else if (this.latency > this.baseLatency && now - this.calmSince > 15) {
+      this.latency = Math.max(this.baseLatency, this.latency - 0.005);
+      this.calmSince = now;
+    }
     const rate = this.rate, target = Math.ceil(this.latency * rate / 128) * 128;
     let queued = this.written - this.consumed;
     if (queued < -rate) { this.written = this.consumed; queued = 0; }  // after a long stall: start over

@@ -448,6 +448,8 @@ class GameWorld {
   struct PolicyStatus { bool ground_pick = false, sit_stand = false, kick_left = false; };
   PolicyStatus walker_abilities(const WalkerBrain& w) const;  // which of its moves are loaded
   void run_controller(WalkerBrain& w, f32 obs[61]);  // robotd's controller: network, scale, low-pass
+  /// Synthesises the ducks' calls ahead of time, one per frame, so speaking never stalls a frame.
+  void warm_walker_voices();
   void walker_say(WalkerBrain& w, const char* tag);   // the duck's voice (one call, cutting the last)
   void walker_wheee(WalkerBrain& w, bool held);
   void voice_cue(WalkerBrain& w, const std::string& sound, bool silence = false);

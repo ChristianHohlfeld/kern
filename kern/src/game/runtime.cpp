@@ -824,6 +824,7 @@ f32 GameWorld::apply_lighting(Vec3 eye) {
     l.env_ground = mix3(bounce, {0.105f, 0.127f, 0.084f}, night);
   }
   l.exposure = w.exposure * (1.0f + 0.35f * night);
+  r_.set_ambient_occlusion_radius(w.ao_radius);
   r_.sky.sun = sun;
   r_.sky.moon = moon;
   r_.sky.night = night;
@@ -1485,6 +1486,7 @@ void GameWorld::step(f32 dt, const PlayInput& input) {
     ++steps;
   }
   if (accumulator_ >= h) accumulator_ = std::fmod(accumulator_, h);  // behind: drop whole steps, keep the phase
+  warm_walker_voices();
   if (level_.world.day_length > 0) {
     time_of_day_ += dt / level_.world.day_length;
     time_of_day_ -= std::floor(time_of_day_);

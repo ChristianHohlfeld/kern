@@ -3924,6 +3924,20 @@ TEST(studio_touch_navigates_the_editor_viewport) {
   f.s->touch_pointer(2, 5, x + 160, y + 40, t += 16);
   auto [ex, ey] = screen(cube);
   CHECK(std::fabs(ex - (cx + 60)) < 12 && std::fabs(ey - (cy + 40)) < 12);
+  // After the pinch one finger elsewhere orbits about the pinch point (the cube): the cube stays where
+  // it is on screen and at its distance - no jump back to an earlier orbit centre or to the screen centre.
+  {
+    const f32 dist = distance(cam.position, Vec3{0, 0, 0.5f});
+    const f32 yaw = cam.yaw;
+    const f32 fx = ex + 150, fy = ey - 120;
+    f.s->touch_pointer(0, 9, fx, fy, t += 1000);
+    for (int i = 1; i <= 3; ++i) f.s->touch_pointer(1, 9, fx + 12.0f * static_cast<f32>(i), fy, t += 16);
+    f.s->touch_pointer(2, 9, fx + 36, fy, t += 16);
+    auto [ox, oy] = screen(cube);
+    CHECK(std::fabs(cam.yaw - yaw) > 5);
+    CHECK(std::fabs(ox - ex) < 15 && std::fabs(oy - ey) < 15);
+    CHECK(std::fabs(distance(cam.position, Vec3{0, 0, 0.5f}) - dist) < 0.3f);
+  }
   // Holding still opens the context menu.
   f.s->take_ui();
   std::tie(x, y) = screen(cube);
