@@ -801,8 +801,13 @@ class StudioPage {
       const f = e.target.files[0];
       e.target.value = "";
       if (!f) return;
-      const r = this.engine.command({cmd: "open", text: await f.text(), name: f.name});
-      if (r?.ok) this.fileHandle = null;
+      try {
+        const r = this.engine.command({cmd: "open", text: await f.text(), name: f.name});
+        if (r?.ok) this.fileHandle = null;
+        else this.toast(`"${f.name}" is not a Kern level`);
+      } catch (error) {
+        this.toast("Opening failed: " + error.message);
+      }
     };
     $("#fileTexture").onchange = async e => {
       const f = e.target.files[0];
@@ -1693,7 +1698,14 @@ class StudioPage {
       } catch (error) {
         if (error?.name !== "AbortError") this.toast("Opening failed: " + error.message);
       }
-    } else $("#fileOpen").click();
+    } else {
+      // Android's file picker knows no ".klevel": with that filter it greys out every saved level
+      // and only Back leads out. There (and wherever a picker cannot filter by extension) any file
+      // may be picked; opening checks that it is a level.
+      const input = $("#fileOpen");
+      if (/Android/i.test(navigator.userAgent)) input.removeAttribute("accept");
+      input.click();
+    }
   }
 
   async importTexture(file) {
