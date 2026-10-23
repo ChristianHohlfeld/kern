@@ -4080,6 +4080,18 @@ TEST(micro_duck_runs_every_move_of_its_set) {
     f.world->sync(l);
     CHECK(f.world->start(l, game::SimMode::simulate));
     for (int i = 0; i < 100; ++i) f.world->step(1.0f / 100, {});
+    if (print) {
+      Mat4 t0;
+      f.world->actor_matrix(duck, t0);
+      for (const game::Actor& a : l.actors)
+        if (a.name == "Ball") {
+          Mat4 bm;
+          f.world->actor_matrix(a.id, bm);
+          const Vec3 d = bm.translation() - t0.translation();
+          const f32 h = std::atan2(t0.m[1], t0.m[0]);
+          std::printf("  ball %.3f ahead, %.3f left (real m)\n", (d.x * std::cos(h) + d.y * std::sin(h)) / 4, (-d.x * std::sin(h) + d.y * std::cos(h)) / 4);
+        }
+    }
     const std::string why = f.world->walker_skill(duck, c.move);
     CHECK(why.empty());
     bool saw = false;
@@ -4319,6 +4331,59 @@ TEST(micro_duck_picks_up_a_sock) {
   CHECK(lifted >= 2);                          // it does pick socks up
   CHECK(lifted < static_cast<int>(sizeof xs / sizeof xs[0]));  // not wherever they lie
   CHECK(agree == static_cast<int>(sizeof xs / sizeof xs[0]));  // and knows when it has one
+}
+
+TEST(micro_duck_plays_with_a_ball_on_its_own) {
+  if (!std::getenv("KERN_DUCK_BALL")) return;  // the behaviour is switched off (walker_brain.cpp kPlayBall)
+  // Autonomous: a ball 30 cm (real) away, a little to the side. The duck sees it with its head
+  // camera, walks up until the ball lies in front of its left foot and kicks it.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+  game::Actor ball;
+  ball.name = "Ball";
+  ball.transform.position = {1.2f, 0.3f, 0.14f};
+  ball.mesh = game::MeshComponent{};
+  ball.mesh->shape = game::Shape::sphere;
+  ball.mesh->radius = 0.14f;
+  ball.body = game::BodyComponent{};
+  ball.body->mass = 0.015f * 64;
+  const game::ActorId bid = l.add(ball).id;
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  bool kicked = false, fell = false;
+  std::string last;
+  for (int i = 0; i < 100 * 90 && !kicked; ++i) {
+    f.world->step(1.0f / 100, {});
+    const std::string st = f.world->walker_state(duck);
+    kicked = f.world->walker_driving(duck) == "kick_left";
+    fell = fell || st == "GetUp";
+    if (print && (st != last || i % 500 == 0)) {
+      Mat4 t, bm;
+      f.world->actor_matrix(duck, t);
+      f.world->actor_matrix(bid, bm);
+      std::printf("  %6.2f s %-10s trunk %.3f %.3f ball %.3f %.3f\n", i / 100.0, st.c_str(), t.translation().x, t.translation().y, bm.translation().x, bm.translation().y);
+    }
+    last = st;
+  }
+  Mat4 bm0, t0;
+  f.world->actor_matrix(bid, bm0);
+  f.world->actor_matrix(duck, t0);
+  {
+    const Vec3 d = bm0.translation() - t0.translation();
+    const f32 h = std::atan2(t0.m[1], t0.m[0]);
+    if (print) std::printf("  at the kick the ball is %.3f ahead, %.3f left (real m)\n", (d.x * std::cos(h) + d.y * std::sin(h)) / 4, (-d.x * std::sin(h) + d.y * std::cos(h)) / 4);
+  }
+  for (int i = 0; i < 300; ++i) f.world->step(1.0f / 100, {});
+  Mat4 bm1;
+  f.world->actor_matrix(bid, bm1);
+  if (print) std::printf("  ball moved %.3f after the kick\n", length(bm1.translation() - bm0.translation()));
+  CHECK(kicked);
+  CHECK(!fell);
+  CHECK(length(bm1.translation() - bm0.translation()) > 0.2f);  // and the ball rolls
 }
 
 TEST(micro_duck_fetches_a_sock_on_its_own) {

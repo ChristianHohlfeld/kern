@@ -46,6 +46,13 @@ constexpr f32 kSockCooldown = 40.0f;       // s: a sock dropped or missed four t
 // Fetching on its own is still being tuned (the approach does not yet stop where the beak bites):
 // off until tests/test_main.cpp micro_duck_fetches_a_sock_on_its_own passes. The pick itself works.
 constexpr bool kFetchSocks = false;
+// Playing with a ball (Kern): it walks up until the ball lies where ball_kick_left's training puts it
+// (microduck_ball_kick_env_cfg.py: 9 cm ahead, 4.2 cm to the kicking foot's side, +-1.5 cm) and
+// kicks. Always the left kick: the right one tips the duck over in Kern (docs/walker.md section 12).
+// Off: the approach arrives (ball 9.3 cm ahead, 4.6 cm left) but the kick from there misses in the
+// test, still open; and Pollen's own autonomy (autonomous.rs) is on its way to replace this.
+constexpr bool kPlayBall = false;
+constexpr f32 kKickAhead = 0.09f, kKickLeft = 0.042f, kKickTolerance = 0.008f;  // m
 
 enum class S : u8 { chill, look_around, wander, turn, back_off, zoomies, get_up, fetch, pick, carry };
 const char* state_name(S s) {
@@ -84,7 +91,9 @@ struct GameWorld::WalkerBrain::Brain {
   Vec3 sock_at{};
   f32 sock_seen = 99, settle = 0, carry_for = 0;
   i32 tries = 0;
-  bool picked = false;
+  bool picked = false, ball = false;
+  bool has_foot = false;
+  f32 foot_home[2] = {};  // the left foot (ankle) in the heading frame as it stood at the start, real m      // the target is a ball (kick) rather than a sock (pick)
   std::unordered_map<ActorId, f32> sock_rest;
   f32 rand01() {
     rng ^= rng << 13;
@@ -148,16 +157,30 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt) {
     if (b.upright_for > 1.0f) b.enter(S::chill, b.range(2, 4));
   }
 
+  // ---- where the left foot is (the kick is blind: trained with the feet in the home stance, the
+  // ball placed relative to the trunk) - its offset from the stance it started in ------------------
+  f32 foot_shift[2] = {0, 0};
+  {
+    const physics::Pose ap = physics_.pose(w.bodies[5]);  // the left ankle (links: trunk, left leg 1..5)
+    const f32 fx = (ap.position.x - tp.position.x) / S_, fy = (ap.position.y - tp.position.y) / S_;
+    const f32 a = fx * fwd.x + fy * fwd.y, l = -fx * fwd.y + fy * fwd.x;
+    if (!b.has_foot && b.time > 1.0f && !s.fallen) { b.foot_home[0] = a; b.foot_home[1] = l; b.has_foot = true; }
+    if (b.has_foot) { foot_shift[0] = a - b.foot_home[0]; foot_shift[1] = l - b.foot_home[1]; }
+  }
   // ---- socks: what the head camera sees (a detector on the picture: the sock is in its view and
   // nothing hides it), remembered in odometry -------------------------------------------------------
   for (auto it = b.sock_rest.begin(); it != b.sock_rest.end();) it = (it->second -= dt) <= 0 ? b.sock_rest.erase(it) : std::next(it);
   b.sock_seen += dt;
-  if (kFetchSocks && !w.rollers && w.mouth) {
+  const bool socks = kFetchSocks && !w.rollers && w.mouth, balls = kPlayBall && !w.rollers;
+  if (socks || balls) {
     f32 best = 1e9f;
     for (const Actor& a : level_.actors) {
-      if (a.parent != 0 || std::find(a.tags.begin(), a.tags.end(), "sock") == a.tags.end() || b.sock_rest.count(a.id)) continue;
       if (b.state == S::carry || b.state == S::pick) break;
-      // The sock's lumps: it, and its children.
+      const bool tagged_sock = std::find(a.tags.begin(), a.tags.end(), "sock") != a.tags.end();
+      const bool is_ball = !tagged_sock && a.body && a.body->motion == Motion::dynamic && a.mesh && a.mesh->shape == Shape::sphere &&
+                           (std::find(a.tags.begin(), a.tags.end(), "ball") != a.tags.end() || a.name == "Ball");
+      if (a.parent != 0 || b.sock_rest.count(a.id) || !((socks && tagged_sock) || (balls && is_ball))) continue;
+      // The thing's parts: it, and its children (a sock's lumps).
       Vec3 sum{};
       int n = 0;
       bool seen = false;
@@ -173,18 +196,23 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt) {
       }
       if (!n) continue;
       const Vec3 at = sum * (1.0f / static_cast<f32>(n));
-      if (at.z > 0.03f * S_) continue;  // not lying on the floor (in a beak)
+      if (at.z > (is_ball ? 0.08f : 0.03f) * S_) continue;  // not on the floor (in a beak, in the air)
       if (b.sock == a.id && !seen && b.sock_seen < kSockForget) continue;  // keeps the memory
       if (!seen) continue;
-      const f32 d = std::hypot(at.x - tp.position.x, at.y - tp.position.y);
+      const f32 d = std::hypot(at.x - tp.position.x, at.y - tp.position.y) * (tagged_sock ? 0.7f : 1.0f);  // socks first
       if (d < best) {
         best = d;
         if (b.sock != a.id) b.tries = 0;
         b.sock = a.id;
+        b.ball = is_ball;
         b.sock_at = at;
         b.sock_seen = 0;
       }
     }
+    // Close up the thing is under the camera, out of the picture: the duck goes by where it saw it
+    // (it does not move by itself), and forgets it only when it was far.
+    const bool near = b.sock && std::hypot(b.sock_at.x - tp.position.x, b.sock_at.y - tp.position.y) / S_ < 0.3f;
+    if (near && b.state == S::fetch) b.sock_seen = min_of(b.sock_seen, kSockForget * 0.5f);
     if (b.sock && b.sock_seen >= kSockForget && b.state == S::fetch) { b.sock = 0; b.enter(S::look_around, 2); }
     if (b.sock && !s.fallen && b.sock_seen < kSockForget && b.state != S::fetch && b.state != S::pick && b.state != S::carry && b.state != S::back_off && b.state != S::get_up) {
       b.settle = 0;
@@ -270,30 +298,33 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt) {
     case S::get_up:
       break;
     case S::fetch: {
-      // Walk up to the sock until it lies where the beak bites, then stand still, then bend down.
+      // Walk up to the sock until it lies where the beak bites (the ball: in front of the left foot),
+      // then stand still, then bend down (kick).
+      const f32 want_ahead = b.ball ? kKickAhead + foot_shift[0] : kBiteAhead, want_left = b.ball ? kKickLeft + foot_shift[1] : kBiteLeft;
+      const f32 tol = b.ball ? kKickTolerance : kBiteTolerance;
       const Vec3 left{-fwd.y, fwd.x, 0};
       const f32 dx = (b.sock_at.x - tp.position.x) / S_, dy = (b.sock_at.y - tp.position.y) / S_;
-      const f32 ahead = dx * fwd.x + dy * fwd.y - kBiteAhead, side = dx * left.x + dy * left.y - kBiteLeft;
+      const f32 ahead = dx * fwd.x + dy * fwd.y - want_ahead, side = dx * left.x + dy * left.y - want_left;
       const f32 dist = std::hypot(dx, dy), bearing = std::atan2(dy, dx) - heading;
-      head[1] = clamp(std::atan2(0.09f, max_of(dist, 0.05f)) - 0.1f, 0.0f, 0.6f);  // keep it in the picture
+      head[1] = clamp(std::atan2(0.12f, max_of(dist, 0.05f)) - 0.3f, 0.0f, 0.8f);  // keep it in the picture as long as it can
       if (dist > 0.25f) {  // far: walk to it, facing it
         const f32 err = wrap(bearing);
         cmd[0] = std::fabs(err) > 0.6f ? 0.05f : clamp(dist * 1.2f, 0.12f, kWanderSpeed);
         cmd[2] = clamp(err * 1.5f, -kTurnRate, kTurnRate);
         b.settle = 0;
-      } else if (std::fabs(ahead) > kBiteTolerance || std::fabs(side) > kBiteTolerance * 1.5f) {
+      } else if (std::fabs(ahead) > tol || std::fabs(side) > tol * (b.ball ? 1.0f : 1.5f)) {
         // Close: small steps (forward, sideways, a turn to keep it square) - the policy's dead band
         // swallows tiny commands, so never less than it walks on.
         auto step = [](f32 e, f32 gain, f32 lo, f32 hi) { const f32 v = clamp(e * gain, -hi, hi); return std::fabs(v) < lo ? (v < 0 ? -lo : lo) : v; };
-        if (std::fabs(ahead) > kBiteTolerance) cmd[0] = step(ahead, 2.0f, 0.06f, 0.12f);
-        if (std::fabs(side) > kBiteTolerance * 1.5f) cmd[1] = step(side, 2.0f, 0.06f, 0.1f);
-        cmd[2] = clamp(wrap(std::atan2(side + kBiteLeft, ahead + kBiteAhead)) * 0.8f, -0.3f, 0.3f);
+        if (std::fabs(ahead) > tol) cmd[0] = step(ahead, 2.0f, 0.1f, 0.15f);
+        if (std::fabs(side) > tol * (b.ball ? 1.0f : 1.5f)) cmd[1] = step(side, 2.0f, 0.1f, 0.15f);
+        cmd[2] = clamp(wrap(std::atan2(side + want_left, ahead + want_ahead) - std::atan2(want_left, want_ahead)) * 0.8f, -0.3f, 0.3f);
         if (std::fabs(cmd[2]) < 0.05f) cmd[2] = 0;
         b.settle = 0;
       } else {
         b.settle += dt;  // there: let the steps die out, then look again
-        if (b.settle > 1.2f && s.speed / S_ < 0.01f) {
-          if (walker_skill(w.actor, "pick").empty()) { b.enter(S::pick, 8); b.picked = false; b.tries++; }
+        if (b.settle > (b.ball ? 3.0f : 1.2f) && s.speed / S_ < 0.01f) {
+          if (walker_skill(w.actor, b.ball ? "kick_left" : "pick").empty()) { b.enter(S::pick, 8); b.picked = false; b.tries++; }
           else b.settle = 0;
         }
       }
@@ -302,8 +333,14 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt) {
     }
     case S::pick:
       // The pick runs on its own network (the controller); after it, the mouth encoder tells.
-      if (w.pick_phase >= 0) { b.picked = true; break; }
+      if (w.pick_phase >= 0 || w.skill >= 0) { b.picked = true; break; }
       if (!b.picked && b.time < 0.5f) break;
+      if (b.ball) {  // kicked: watch it roll, then after it again
+        b.sock_rest[b.sock] = b.range(2, 5);
+        b.sock = 0;
+        b.enter(S::look_around, b.range(1.5f, 3));
+        break;
+      }
       if (walker_holding(w.actor)) {
         b.carry_for = b.range(10, 20);
         b.goal_heading = pick_heading();
