@@ -593,6 +593,8 @@ const vpCenter = async (page, i = 0) => {
   await cmd(page, {cmd: "snap", gridSize: 2, grid: true});
   await cmd(page, {cmd: "mute", muted: true});
   check(await until(async () => (await stored())?.values?.["viewport0.show.joints"] === true), "settings: a choice is stored");
+  // Five choices were made: wait until all of them are written (software WebGL frames are slow), then compare the set.
+  await until(async () => Object.keys((await stored())?.values || {}).length >= 5);
   const keys = Object.keys((await stored()).values).sort();
   check(JSON.stringify(keys) === JSON.stringify(["layout", "muted", "snap.gridSize", "viewport0.show.colliders", "viewport0.show.joints"]),
         "settings: only the user's choices are stored (" + keys.join(", ") + ")");
