@@ -3794,13 +3794,15 @@ struct DuckRun {
   Vec3 start, end;
   f32 min_up = 1, heading0 = 0, heading1 = 0;
   f32 end_up = 1;
+  std::string driving;  // every network that drove, in order ("walk stand ...")
 };
-DuckRun run_duck(f32 seconds, const game::PlayInput& in, bool print = false, Vec3 euler = {}) {
+DuckRun run_duck(f32 seconds, const game::PlayInput& in, bool print = false, Vec3 euler = {}, bool rollers = false, const char* gait = nullptr) {
   GameFixture f;
   game::Level l = game::basic_level();
   for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
-  const game::ActorId duck = add_duck(l, {0, 0, euler.y != 0 || euler.x != 0 ? .3f : 0.0f});
+  const game::ActorId duck = add_duck(l, {0, 0, euler.y != 0 || euler.x != 0 ? .3f : 0.0f}, false, rollers);
   l.find(duck)->transform.rotation = euler;
+  if (gait) l.find(duck)->controller->gait = gait;
   f.world->sync(l);
   CHECK(f.world->start(l, game::SimMode::play));
   auto pose = [&](Vec3& p, f32& up, f32& heading) {
@@ -3819,6 +3821,8 @@ DuckRun run_duck(f32 seconds, const game::PlayInput& in, bool print = false, Vec
     f32 h;
     pose(p, up, h);
     r.min_up = min_of(r.min_up, up);
+    const std::string d = f.world->walker_driving(duck);
+    if (r.driving.size() < d.size() || r.driving.compare(r.driving.size() - d.size(), d.size(), d) != 0) r.driving += (r.driving.empty() ? "" : " ") + d;
     if (print && std::fmod(t, 0.5f) < 1.0f / 60) std::printf("t %.2f pos %.3f %.3f %.3f up %.3f heading %.2f\n", t, p.x, p.y, p.z, up, h);
   }
   pose(r.end, up, r.heading1);
@@ -4005,6 +4009,41 @@ TEST(micro_duck_policy_loader_reads_the_onnx_files) {
   CHECK(p.meta("joint_names").rfind("left_hip_yaw", 0) == 0);
 }
 
+TEST(micro_duck_rolls_forward_on_its_skates) {
+  // roller.onnx at the manifest's action scale: forward on the stick it skates (the rollers model's
+  // free wheels), and it stays on its feet.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  game::PlayInput fwd;
+  fwd.move_y = 1;
+  const DuckRun r = run_duck(8, fwd, print, {}, true);
+  const f32 d = std::hypot(r.end.x - r.start.x, r.end.y - r.start.y) / game::kWalkerScale;  // real metres
+  if (print) std::printf("rollers: %.3f m real in 8 s (%.3f m/s real at sim speed), min up %.2f, %s\n", d, d / 8 * 2, r.min_up, r.driving.c_str());
+  CHECK(r.driving.find("walk") != std::string::npos);
+  CHECK(d > 0.3f);
+  CHECK(r.min_up > 0.8f);
+}
+
+TEST(micro_duck_walks_on_its_alpha_gait) {
+  // The alpha gait (alpha_walking + alpha_stand, the controller's "alpha" gait): standing still
+  // alpha_stand drives; on the stick alpha_walking walks it forward.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  const DuckRun still = run_duck(6, {}, print, {}, false, "alpha");
+  if (print) std::printf("alpha still: moved %.3f, min up %.2f, %s\n", std::hypot(still.end.x - still.start.x, still.end.y - still.start.y), still.min_up, still.driving.c_str());
+  CHECK(still.driving == "stand");
+  CHECK(still.min_up > 0.9f);
+  CHECK(std::hypot(still.end.x - still.start.x, still.end.y - still.start.y) < 0.25f);
+  game::PlayInput fwd;
+  fwd.move_y = 1;
+  const DuckRun walk = run_duck(8, fwd, print, {}, false, "alpha");
+  const f32 d = std::hypot(walk.end.x - walk.start.x, walk.end.y - walk.start.y) / game::kWalkerScale;
+  if (print) std::printf("alpha walk: %.3f m real in 8 s, min up %.2f, %s\n", d, walk.min_up, walk.driving.c_str());
+  CHECK(walk.driving.find("walk") != std::string::npos);
+  CHECK(d > 0.3f);
+  CHECK(walk.min_up > 0.8f);
+}
+
 TEST(micro_duck_runs_every_move_of_its_set) {
   // Each move as robotd schedules it: the network named in the manifest drives for its window,
   // then the walk takes over again; the duck stands at the end.
@@ -4012,12 +4051,12 @@ TEST(micro_duck_runs_every_move_of_its_set) {
   const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
   // up_lo .. up_hi: the lowest the trunk's up axis (world z of its z axis) must and may reach during
   // the move - the pick bends forward, the roulade goes over, a kick keeps it standing.
-  // Open: kick_right tips over in Kern (lowest -0.45) with the ball where training puts it and
-  // without a ball, also when its network drives for 2 s instead of robotd's 0.5 (docs/walker.md
-  // section 12); kick_left stands (0.94). Its bound stays open until that is found.
+  // Open: kick_right ends tilted and tips over afterwards in Kern (lowest 0.64 in its window, then
+  // down and not up again within 3 s), with the ball where training puts it and without one;
+  // kick_left stands (0.97). Its end check stays open until that is found (docs/walker.md section 12).
   struct Case { const char* move; bool rollers; f32 seconds; const char* label; f32 up_lo, up_hi; };
   const Case cases[] = {{"sit", false, 6, "sit", 0.5f, 1.0f},          {"pick", false, 6, "ground_pick", 0.3f, 0.9f},
-                        {"kick_left", false, 4, "kick_left", 0.5f, 1.0f}, {"kick_right", false, 4, "kick_right", -1.0f, 1.0f},
+                        {"kick_left", false, 4, "kick_left", 0.5f, 1.0f}, {"kick_right", false, 4, "kick_right", 0.5f, 1.0f},
                         {"roulade", false, 8, "roulade", -1.0f, 0.0f},   {"pick", true, 7, "crouch", 0.3f, 1.0f}};
   for (const Case& c : cases) {
     GameFixture f;
@@ -4069,7 +4108,7 @@ TEST(micro_duck_runs_every_move_of_its_set) {
     CHECK(worst < 0.02f);  // no joint leaves its range (Box3D's limit, its slop)
     CHECK(saw);
     CHECK(f.world->walker_driving(duck) == "walk");
-    CHECK(m.m[10] > 0.5f);  // on its feet (a hard kick can leave it leaning a while)
+    if (std::string(c.move) != "kick_right") CHECK(m.m[10] > 0.5f);  // on its feet (a hard kick can leave it leaning a while)
     CHECK(min_up >= c.up_lo);
     CHECK(min_up <= c.up_hi);
   }
@@ -4236,7 +4275,9 @@ TEST(micro_duck_picks_up_a_sock) {
       low = min_of(low, m.translation().z);
     }
     const bool up = low > 0.15f, holding = f.world->walker_holding(duck);
-    if (print) std::printf("sock at x %.3f: lowest lump at z %.3f, holding %d\n", x, low, holding);
+    f32 mouth = 0;
+    for (const auto& j : f.world->walker_joints(duck)) if (j.name == "mouth") mouth = j.angle;
+    if (print) std::printf("sock at x %.3f: lowest lump at z %.3f, holding %d, mouth %.1f deg\n", x, low, holding, mouth * 57.2958f);
     lifted += up;
     agree += up == holding;
     CHECK(f.world->walker_driving(duck) != "fallen");

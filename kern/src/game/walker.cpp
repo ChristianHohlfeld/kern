@@ -112,7 +112,7 @@ constexpr f32 kCameraAspect = 9.0f / 16.0f;  // width / height, upright
 constexpr f32 kFallGravityZ = -0.5f, kFallDebounce = 0.2f;  // robotd's fall verdict (real seconds)
 // The mouth (duck-control model.rs): closed -5 deg (held shut against the pads), open 30 deg.
 constexpr f32 kMouthClosed = -5 * rt::kDegree, kMouthOpen = 30 * rt::kDegree;
-constexpr f32 kHoldingAngle = 5 * rt::kDegree;  // Kern: shut on nothing the beak rests at its pads (0 deg)
+constexpr f32 kHoldingAngle = 2 * rt::kDegree;  // Kern: shut on nothing the beak rests at its pads (0.0 deg); a sock holds it 3.6-7.8
 f32 mouth_target(f32 open) { return kMouthClosed + clamp(std::isfinite(open) ? open : 0.0f, 0.0f, 1.0f) * (kMouthOpen - kMouthClosed); }
 
 const DuckSiteDef* site(const char* name) {
@@ -411,6 +411,7 @@ constexpr f32 kStandingActionScale = 1.0f;
 constexpr f32 kHeadLowpass = 1.0f, kLegsLowpass = 1.0f;            // 1 = pass-through
 constexpr f32 kStandingThreshold = 0.05f;                          // DEFAULT_STANDING_THRESHOLD (twist)
 constexpr f32 kChainWindow = 0.15f;                                // CHAIN_WINDOW
+constexpr f32 kActuatorTravel = 3.14159265f;                       // safety.rs ACTUATOR_MIN / MAX (rad)
 // Kern: robotd leaves the beak to the operator's trigger during a ground pick. The controller opens
 // it near the bottom (opened on the way down, the jaw lands on what it should take) and bites while
 // the beak is lowest (docs/walker.md section 12).
@@ -930,9 +931,10 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
   for (i32 j = 0; j < kJoints; ++j) {
     const f32 a = std::isfinite(w.action[j]) ? w.action[j] : 0.0f;
     w.action[j] = a;  // raw: the observation feeds the policy its own output back
-    // The servo's goal stays inside the joint's range (the MJCF range; Box3D holds the same as a
-    // hard limit).
-    f32 t = clamp(kDuckLinks[j + 1].home + scale * a, kDuckLinks[j + 1].lower, kDuckLinks[j + 1].upper);
+    // The servo's goal stays inside the XL330's travel (robotd safety.rs: one turn, centred), not the
+    // joint's range: training leaves the target free (MJCF ctrlrange +-10), a goal past the range
+    // presses the joint into its stop - Box3D's hard limit, the MJCF range, as in MuJoCo.
+    f32 t = clamp(kDuckLinks[j + 1].home + scale * a, -kActuatorTravel, kActuatorTravel);
     if (w.has_previous) {
       const f32 alpha = j >= 5 && j < 9 ? kHeadLowpass : kLegsLowpass;
       t = alpha * t + (1 - alpha) * w.previous_target[j];
