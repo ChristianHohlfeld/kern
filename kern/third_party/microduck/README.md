@@ -8,15 +8,23 @@ Quellen für Kerns Micro Duck (`src/game/walker.cpp`, Doku: `docs/walker.md`).
 | `manifest.json` | dasselbe Repository | Apache-2.0 |
 | `robot_allcollisions_backlash.xml` | github.com/pollen-robotics/microduck_rl @ `b02fdea`, `src/mjlab_microduck/robot/microduck/`: das MJCF, auf dem die Policy trainiert wurde | Apache-2.0 (`LICENSE`) |
 
-Copyright Pollen Robotics. Die STL-Meshes des Roboters stehen unter CC BY-NC-SA 4.0 und liegen
-**nicht** in Kern. Der Import liest aus ihnen nur die Außenmaße der kollidierenden Teile, also
-Servogehäuse und Sohlen.
+| `micro_duck_meshes.inc` | die STL-Meshes aus microduck_rl (`src/mjlab_microduck/robot/microduck/assets/*.stl`), von `tools/micro_duck_import.py` vereinfacht, pro Glied zusammengeführt, in die Home-Pose gestellt, Normalen neu berechnet und quantisiert | **CC BY-NC-SA 4.0** (`LICENSE-MODELS.md` von microduck_rl) |
+
+Copyright Pollen Robotics. Die Meshes und ihre Bearbeitung in `micro_duck_meshes.inc` stehen unter
+der Creative-Commons-Lizenz CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+Das heißt: nicht kommerziell nutzen, Pollen Robotics nennen und Bearbeitungen unter derselben Lizenz
+weitergeben. Geändert wurde die Auflösung (Vertex-Clustering mit Quadrik-Repräsentanten, etwa 8 %
+der Dreiecke), die Teile sind pro Glied zusammengeführt und die Farben aus den MJCF-Materialien
+übernommen. Alles andere hier steht unter Apache-2.0.
 
 Neu erzeugen (aus dem Repository-Root, mit einem Checkout von microduck_rl für die STL-Maße):
 
 ```
 python3 -I tools/micro_duck_import.py kern/third_party/microduck/robot_allcollisions_backlash.xml \
-    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game
+    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game \
+    kern/third_party/microduck/micro_duck_meshes.inc
 ```
 
-Ergebnis: `src/game/micro_duck_model.inc` und `src/game/micro_duck_velstand.inc`.
+Ergebnis: `src/game/micro_duck_model.inc`, `src/game/micro_duck_velstand.inc` und
+`third_party/microduck/micro_duck_meshes.inc`. Für die Meshes braucht das Werkzeug numpy
+(`tools/mesh_simplify.py`).

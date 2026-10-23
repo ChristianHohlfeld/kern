@@ -122,19 +122,25 @@ Grenze trainiert wurde. Kern folgt dem.
 | Fall | Kern | Pollen (MuJoCo, v8) |
 |---|---|---|
 | Kommando 0 | steht 8 s, driftet unter 2 mm | steht |
-| vx = 0,4 m/s | ≈ 0,1–0,16 m/s echt | ≈ 0,17 m/s |
-| ωz = 1 rad/s im Stand | ≈ 0,4–0,7 rad/s echt | ≈ 0,97 rad/s |
+| vx = 0,4 m/s | ≈ 0,135 m/s echt (ohne Armatur 0,105) | ≈ 0,17 m/s |
+| ωz = 1 rad/s im Stand | ≈ 0,61 rad/s echt (ohne Armatur 0,52) | ≈ 0,97 rad/s |
+| Zappeln beim Laufen (Effektivwert der Winkelgeschwindigkeit, Test `micro_duck_holds_itself_steady`) | Rumpf 1,0 rad/s, Kopf 1,9 rad/s (ohne Armatur 3,6 und 6,7) | – |
 | liegt auf Bauch oder Rücken | steht nach höchstens 12 s wieder | steht auf |
 
 **Was fehlt, und warum:**
 
-- **Armatur (Rotorträgheit, 0,0018 kg·m² pro Gelenk).** MuJoCo addiert sie in reduzierten
-  Koordinaten auf die Gelenkachse. Box3D rechnet in maximalen Koordinaten, und ein Getriebe-Joint
-  existiert nicht.
-  - Eine Nachbildung über Zusatzmomente oder Geschwindigkeiten würde die Physik umgehen
-    (Abschnitt 1).
-  - Die Gelenke der Ente reagieren deshalb schneller als im Training. Das ist der
-    wahrscheinlichste Grund für das langsamere Drehen.
+- **Armatur (Rotorträgheit, 0,0018 kg·m² pro Gelenk, MJCF `chosen_actuator`).** MuJoCo addiert
+  sie in reduzierten Koordinaten auf die Gelenkachse. Box3D rechnet in maximalen Koordinaten und
+  kennt keinen Getriebe-Joint.
+  - Kern gibt sie dem Glied als Masse-Eigenschaft: eine dünne Scheibe auf der Gelenkachse, die das
+    Glied trägt. Das sind 0,0018 um die Achse und je die Hälfte quer dazu. Das ist ein gültiger
+    starrer Körper; ein rein axialer Tensor ist keiner, und Box3D gewinnt damit Energie.
+  - Es gibt keine Zusatzmomente und keine gesetzten Geschwindigkeiten. Die Trägheit wirkt durch
+    Box3Ds Löser.
+  - Unterschied zu MuJoCo: Der echte Rotor dreht mit Übersetzung (288:1) relativ zum Gehäuse.
+    Kerns Scheibe dreht mit dem Glied, also auch mit der Bewegung des Elternglieds um dieselbe
+    Achse. Dreht sich das Elternglied, ist die Trägheit dadurch etwas zu groß.
+  - Gemessen: Sie läuft und dreht näher am Training (Tabelle) und zappelt viel weniger.
 - **Getriebespiel ±1°:** nicht modelliert. Im Training ist es eine Domain-Randomization, die
   Policy ist dagegen robust.
 - **Reibungsmischung:** Box3D mischt die Reibung zweier Flächen als geometrisches Mittel. MuJoCo

@@ -21,7 +21,7 @@ bool parse_enum(std::string_view s, const char* const (&names)[N], E& out) {
   return false;
 }
 
-constexpr const char* kShapeNames[] = {"box", "sphere", "cylinder", "cone", "capsule", "plane", "torus", "ramp"};
+constexpr const char* kShapeNames[] = {"box", "sphere", "cylinder", "cone", "capsule", "plane", "torus", "ramp", "mesh"};
 constexpr const char* kMotionNames[] = {"static", "kinematic", "dynamic"};
 constexpr const char* kColliderNames[] = {"auto", "box", "sphere", "capsule", "hull"};
 constexpr const char* kJointNames[] = {"hinge", "slider", "ball", "fixed", "distance", "wheel", "motor", "parallel", "noCollision"};
@@ -393,6 +393,7 @@ json::Value actor_to_json(const Actor& a) {
     x.set("radius", num(m.radius));
     x.set("height", num(m.height));
     x.set("segments", m.segments);
+    if (!m.asset.empty()) x.set("asset", m.asset);
     x.set("collision", m.collision);
     x.set("material", material_json(m.material));
     c.set("mesh", std::move(x));
@@ -649,6 +650,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       mr.number("radius", m.radius, 0.001, 1e5);
       mr.number("height", m.height, 0.001, 1e5);
       mr.integer("segments", m.segments, 3, 128);
+      if (x->find("asset")) mr.string("asset", m.asset);
       mr.boolean("collision", m.collision);
       if (!mr.ok || !read_material((*x)["material"], m.material, error)) return false;
       a.mesh = m;

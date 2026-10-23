@@ -42,7 +42,7 @@ Transform matrix_transform(const Mat4& m);
 
 // ---- components ----
 
-enum class Shape : u8 { box, sphere, cylinder, cone, capsule, plane, torus, ramp };
+enum class Shape : u8 { box, sphere, cylinder, cone, capsule, plane, torus, ramp, mesh };
 const char* shape_name(Shape s);
 bool parse_shape(std::string_view s, Shape& out);
 
@@ -63,6 +63,7 @@ struct MeshComponent {
   f32 radius = 0.5f;            // sphere, cylinder, cone, capsule, torus (major)
   f32 height = 1;               // cylinder, cone, capsule (total), torus (minor radius)
   i32 segments = 24;
+  std::string asset;            // mesh: a built-in mesh ("duck/xl330", kern/game/builtin_meshes.h), scaled by size
   bool collision = true;        // generates a fitted collider when the actor has no explicit one
   MaterialDesc material;
 };

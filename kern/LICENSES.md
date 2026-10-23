@@ -61,6 +61,15 @@ Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Changes: translated t
 Kern's control step instead of the wall clock, seeded from the actor id, the beak and the breath
 computed but not applied.
 
+## Micro Duck meshes (`kern/third_party/microduck/micro_duck_meshes.inc`)
+
+The Micro Duck's 3D model (STL meshes from https://github.com/pollen-robotics/microduck_rl,
+`src/mjlab_microduck/robot/microduck/assets`), Copyright Pollen Robotics, licensed under the
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0,
+https://creativecommons.org/licenses/by-nc-sa/4.0/). Modified: simplified, merged per link, posed,
+normals recomputed, quantised (tools/micro_duck_import.py). This adaptation is licensed under
+CC BY-NC-SA 4.0 as well. Not for commercial use.
+
 ## Test data
 
 `tests/fixtures/konstanz-osm-sample.json` contains OpenStreetMap data,

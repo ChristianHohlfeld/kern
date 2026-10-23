@@ -1610,6 +1610,16 @@ json::Value Studio::run(const json::Value& c) {
     touch();
     return ok();
   }
+  if (name == "viewCamera") {
+    // Places the viewport's camera (scripts, tests, tutorials): position, yaw and pitch in degrees.
+    ViewCamera& cam = views_[view_index()].camera;
+    Vec3 p;
+    if (internal::json_vec(c["position"], p)) cam.position = p;
+    if (c["yaw"].is_number()) cam.yaw = static_cast<f32>(num("yaw"));
+    if (c["pitch"].is_number()) cam.pitch = clamp(static_cast<f32>(num("pitch")), -89.0f, 89.0f);
+    touch();
+    return ok();
+  }
   if (name == "fov") { views_[view_index()].camera.fov = clamp(static_cast<f32>(num("value", 70)), 10.0f, 150.0f); touch(); return ok(); }
   if (name == "bookmark") {
     const u32 slot = static_cast<u32>(num("slot"));

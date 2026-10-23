@@ -395,6 +395,7 @@ void GameWorld::idle_walker(WalkerBrain& w, bool still, f32 dt, f32 head[4]) {
   // robotd: still also needs nobody to have steered the head for `after_s`.
   const std::array<f64, 4> o = w.idle->tick(still && w.head_age >= kIdle.after_s, dt);
   for (int i = 0; i < 4; ++i) head[i] = static_cast<f32>(o[i]);
+  w.idle_mouth = static_cast<f32>(w.idle->mouth);
 }
 
 }  // namespace kern::game

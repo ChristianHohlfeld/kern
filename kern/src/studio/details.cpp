@@ -26,7 +26,7 @@ struct FieldDef {
   const char* group = nullptr;           // sub heading
 };
 
-constexpr const char* kShapes[] = {"box", "Box", "sphere", "Sphere", "cylinder", "Cylinder", "cone", "Cone", "capsule", "Capsule", "plane", "Plane", "torus", "Torus", "ramp", "Ramp", nullptr};
+constexpr const char* kShapes[] = {"box", "Box", "sphere", "Sphere", "cylinder", "Cylinder", "cone", "Cone", "capsule", "Capsule", "plane", "Plane", "torus", "Torus", "ramp", "Ramp", "mesh", "Mesh", nullptr};
 constexpr const char* kMotion[] = {"static", "Static", "kinematic", "Kinematic", "dynamic", "Dynamic (simulate physics)", nullptr};
 constexpr const char* kColliders[] = {"auto", "Fit to mesh", "box", "Box", "sphere", "Sphere", "capsule", "Capsule", "hull", "Convex hull", nullptr};
 constexpr const char* kJoints[] = {"hinge", "Hinge (revolute)", "slider", "Slider (prismatic)", "ball", "Ball (spherical)", "fixed", "Fixed (weld)", "distance", "Distance / rope",
@@ -508,7 +508,7 @@ json::Value Studio::details_json() const {
     if (std::strcmp(sd.type, "mesh") == 0 && actors.size() == 1 && p.mesh) {
       // Only the dimensions the shape uses.
       const game::Shape shape = p.mesh->shape;
-      const bool uses_size = shape == game::Shape::box || shape == game::Shape::plane || shape == game::Shape::ramp;
+      const bool uses_size = shape == game::Shape::box || shape == game::Shape::plane || shape == game::Shape::ramp || shape == game::Shape::mesh;
       json::Value kept = json::Value::array();
       for (const json::Value& f : fields.items()) {
         const std::string& path = f["path"].as_string();

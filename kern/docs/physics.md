@@ -124,8 +124,9 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
 - **Die Physik nicht umgehen.** Keine Zusatzmomente, die etwas „nachbilden" sollen. Keine gesetzten
   Geschwindigkeiten an Bodies mit Gelenken oder Kontakten. Keine Gyros, Sperren oder Stützkräfte für
   Roboter. In der echten Welt gibt es sie auch nicht.
-  - Was Box3D nicht abbilden kann, etwa die Rotorträgheit eines Getriebes (MuJoCo „armature")
-    ohne Getriebe-Joint, wird dokumentiert und nicht vorgetäuscht (`docs/walker.md` Abschnitt 6).
+  - Die Rotorträgheit eines Getriebes (MuJoCo „armature") ist eine Masse-Eigenschaft: eine
+    Scheibe auf der Gelenkachse, die das Glied trägt (`docs/walker.md` Abschnitt 6). Was Box3D
+    gar nicht abbilden kann, wird dokumentiert und nicht vorgetäuscht.
 - **Gelenkreibung** ist ein Motor mit Geschwindigkeit 0 und kleinem Maximalmoment
   (`box3d:docs/simulation.md:1431-1434`). Erins Ragdoll nutzt 5 N·m × einen Faktor pro Gelenk
   (`box3d:shared/human.c:347-393`).

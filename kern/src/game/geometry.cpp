@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include "kern/game/builtin_meshes.h"
 #include "kern/geo/primitives.h"
 #include "kern/geo/roads.h"
 
@@ -104,6 +105,27 @@ MeshData shape_mesh(const MeshComponent& mc) {
       m = primitives::torus(r, min_of(h, r * 0.95f), seg, max_of<u32>(6, seg / 2), kWhite);
       scale_uv(m, t);
       break;
+    case Shape::mesh: {
+      // A built-in mesh, scaled per axis by size (normals by the inverse).
+      const BuiltinMesh* b = builtin_mesh(mc.asset);
+      if (!b) {  // unknown asset: a small box, so it can be seen and fixed
+        MeshComponent box = mc;
+        box.shape = Shape::box;
+        box.size = {0.1f, 0.1f, 0.1f};
+        return shape_mesh(box);
+      }
+      m = b->mesh;
+      const Vec3 k = mc.size;
+      for (std::size_t i = 0; i < m.positions.size(); i += 3) {
+        m.positions[i] *= k.x; m.positions[i + 1] *= k.y; m.positions[i + 2] *= k.z;
+        Vec3 n{m.normals[i] / k.x, m.normals[i + 1] / k.y, m.normals[i + 2] / k.z};
+        n = normalize(n);
+        m.normals[i] = n.x; m.normals[i + 1] = n.y; m.normals[i + 2] = n.z;
+      }
+      if (k.x * k.y * k.z < 0)
+        for (std::size_t i = 0; i + 2 < m.indices.size(); i += 3) std::swap(m.indices[i + 1], m.indices[i + 2]);
+      break;
+    }
   }
   return m;
 }
@@ -121,6 +143,15 @@ Aabb shape_bounds(const MeshComponent& mc) {
     case Shape::cone: b.extend({-r, -r, -h * 0.5f}); b.extend({r, r, h * 0.5f}); break;
     case Shape::capsule: { const f32 hz = max_of(h * 0.5f, r); b.extend({-r, -r, -hz}); b.extend({r, r, hz}); break; }
     case Shape::torus: { const f32 m = min_of(h, r * 0.95f); b.extend({-r - m, -r - m, -m}); b.extend({r + m, r + m, m}); break; }
+    case Shape::mesh:
+      if (const BuiltinMesh* bm = builtin_mesh(mc.asset)) {
+        for (int i = 0; i < 8; ++i)
+          b.extend({(i & 1 ? bm->hi.x : bm->lo.x) * mc.size.x, (i & 2 ? bm->hi.y : bm->lo.y) * mc.size.y, (i & 4 ? bm->hi.z : bm->lo.z) * mc.size.z});
+      } else {
+        b.extend({-0.05f, -0.05f, -0.05f});
+        b.extend({0.05f, 0.05f, 0.05f});
+      }
+      break;
   }
   return b;
 }
@@ -159,6 +190,12 @@ std::vector<Vec3> shape_hull_points(const MeshComponent& mc) {
       }
       break;
     }
+    case Shape::mesh:
+      if (const BuiltinMesh* bm = builtin_mesh(mc.asset)) {
+        for (const Vec3& p : bm->hull) pts.push_back({p.x * mc.size.x, p.y * mc.size.y, p.z * mc.size.z});
+        break;
+      }
+      [[fallthrough]];
     default: {
       const Aabb b = shape_bounds(mc);
       for (int i = 0; i < 8; ++i) pts.push_back({i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z});

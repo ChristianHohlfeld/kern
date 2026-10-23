@@ -10,6 +10,7 @@
 // Generated data (tools/micro_duck_import.py): micro_duck_model.inc, micro_duck_velstand.inc.
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include "kern/game/runtime.h"
@@ -38,6 +39,7 @@ struct DuckBoxDef {
   Vec3 rotation;         // Euler degrees
   Vec3 size;
   bool sole;
+  f32 friction;          // soles 1, housings 0 (training), the beak's pads 1
 };
 
 struct DuckSiteDef {
@@ -52,7 +54,8 @@ struct DuckSiteDef {
 
 constexpr i32 kLinkCount = static_cast<i32>(sizeof kDuckLinks / sizeof kDuckLinks[0]);
 constexpr i32 kJoints = 14;
-static_assert(kLinkCount == kJoints + 1, "trunk + the policy's 14 joints");
+constexpr i32 kMouthLink = kJoints + 1;  // the beak's lower half on the mouth servo (not in any policy)
+static_assert(kLinkCount == kJoints + 2, "trunk, the policy's 14 joints, the mouth");
 
 // Box3D is tuned for objects of 0.1 .. 10 m (docs/physics.md section 1): the duck's 2-4 cm links
 // are below that, so Kern builds it at 4x with one conversion factor at the boundary. Froude
@@ -68,6 +71,7 @@ constexpr f32 kServoStiffness = 0.554f;   // N*m/rad
 constexpr f32 kServoDamping = 0.053f;     // N*m*s/rad
 constexpr f32 kServoFriction = 0.0048f;   // N*m
 constexpr f32 kServoTorque = 0.963f;     // N*m
+constexpr f32 kArmature = 0.0018f;       // kg*m^2: rotor inertia through the gearbox (MJCF chosen_actuator)
 
 // Timing in real (unscaled) seconds; Kern's simulation runs sqrt(S) slower.
 constexpr f32 kControlPeriod = 0.02f;     // the policy runs at 50 Hz
@@ -90,6 +94,9 @@ constexpr f32 kTofMinRange = 0.10f;         // Reprojector::MIN_RANGE_M (horizon
 constexpr f32 kCameraLong = 62 * rt::kDegree;
 constexpr f32 kCameraAspect = 9.0f / 16.0f;  // width / height, upright
 constexpr f32 kFallGravityZ = -0.5f, kFallDebounce = 0.2f;  // robotd's fall verdict (real seconds)
+// The mouth (duck-control model.rs): closed -5 deg (held shut against the pads), open 30 deg.
+constexpr f32 kMouthClosed = -5 * rt::kDegree, kMouthOpen = 30 * rt::kDegree;
+f32 mouth_target(f32 open) { return kMouthClosed + clamp(std::isfinite(open) ? open : 0.0f, 0.0f, 1.0f) * (kMouthOpen - kMouthClosed); }
 
 const DuckSiteDef* site(const char* name) {
   for (const DuckSiteDef& s : kDuckSites)
@@ -97,38 +104,11 @@ const DuckSiteDef* site(const char* name) {
   return nullptr;
 }
 
-const Vec3 kShell{.93f, .94f, .95f}, kDark{.16f, .17f, .19f}, kOrange{1.0f, .52f, .1f}, kEye{.03f, .03f, .035f};
 
 i32 link_of_joint(const std::string& name) {
   for (i32 i = 1; i < kLinkCount; ++i)
     if (name == kDuckLinks[i].joint) return i;
   return -1;
-}
-
-/// A point / rotation given in the MJCF zero pose (all joints at 0) moved into the home pose:
-/// from the root down, every joint of the chain turns its subtree by its home angle about its
-/// home axis (a joint's axis only depends on its ancestors, so the home axes are the right ones).
-void zero_to_home(i32 link, Vec3& p, Quat& r) {
-  i32 chain[kLinkCount];
-  i32 n = 0;
-  for (i32 i = link; i > 0; i = kDuckLinks[i].parent) chain[n++] = i;
-  while (n-- > 0) {
-    const DuckLinkDef& l = kDuckLinks[chain[n]];
-    const Quat q = Quat::axis_angle(l.axis, l.home);
-    p = l.pos + q.rotate(p - l.pos);
-    r = q * r;
-  }
-}
-
-Actor part(const char* name, Shape shape, Vec3 color) {
-  Actor a;
-  a.name = name;
-  a.mesh = MeshComponent{};
-  a.mesh->shape = shape;
-  a.mesh->material.color = color;
-  a.mesh->collision = false;
-  a.mesh->material.roughness = .45f;
-  return a;
 }
 
 /// One conversion factor at the Box3D boundary (see kDuckScale).
@@ -173,6 +153,15 @@ std::vector<Actor> micro_duck_actors() {
     a.body->mass = l.mass;
     a.body->center_of_mass = l.com;
     std::memcpy(a.body->inertia, l.inertia, sizeof l.inertia);
+    if (i > 0 && kArmature > 0) {
+      // The servo's rotor (armature): MuJoCo adds it to the joint's diagonal; here it is a thin
+      // disc on the joint axis that the link carries: kArmature about the axis, half of it across
+      // (a real rigid body: I = a/2 (E + axis axis^T); an axial-only tensor is not one, and Box3D
+      // gains energy with it).
+      const Vec3 ax = l.axis;
+      const f32 add[6] = {1 + ax.x * ax.x, 1 + ax.y * ax.y, 1 + ax.z * ax.z, ax.x * ax.y, ax.x * ax.z, ax.y * ax.z};
+      for (int k = 0; k < 6; ++k) a.body->inertia[k] += 0.5f * kArmature * add[k];
+    }
     a.body->allow_sleep = false;
     a.body->angular_damping = 0;  // MuJoCo bodies have none; the servos damp
     a.body->impact_sound = "";
@@ -200,14 +189,25 @@ std::vector<Actor> micro_duck_actors() {
       j.reference = l.home / rt::kDegree;  // built in the home pose, reading the MJCF angle
       j.enable_motor = true;
       j.servo = true;
-      j.servo_target = j.reference;
+      j.servo_target = i == kMouthLink ? kMouthClosed / rt::kDegree : j.reference;
       j.servo_stiffness = kServoStiffness;
       j.servo_damping = kServoDamping;
       j.servo_friction = kServoFriction;
       j.max_motor_force = kServoTorque;
       a.joints.push_back(j);
     }
-    // What collides in training: the soles (friction 1) and the XL330 housings (frictionless).
+    // The link as it looks: Pollen's meshes of its parts, merged, in the link's frame (builtin
+    // mesh "duck/<MJCF body>", vertex colours from the MJCF materials).
+    a.mesh = MeshComponent{};
+    a.mesh->shape = Shape::mesh;
+    a.mesh->asset = std::string("duck/") + l.body;
+    a.mesh->size = {1, 1, 1};
+    a.mesh->collision = false;
+    a.mesh->material.color = {1, 1, 1};
+    a.mesh->material.roughness = .5f;
+    // What collides: the soles (friction 1) and the XL330 housings (frictionless) as in training,
+    // the beak's soft pads (what grips), and the trunk's and head's shells (they enclose the
+    // servos: what a fallen duck lies and slides on).
     for (const DuckBoxDef& b : kDuckBoxes) {
       if (b.link != i) continue;
       ColliderComponent c;
@@ -215,44 +215,26 @@ std::vector<Actor> micro_duck_actors() {
       c.center = b.center;
       c.rotation = b.rotation;
       c.size = b.size;
-      c.friction = b.sole ? 1.0f : 0.0f;
+      c.friction = b.friction;
       a.colliders.push_back(c);
     }
+    for (const char* shell : kDuckShellBodies)
+      if (std::strcmp(shell, l.body) == 0) {
+        ColliderComponent c;
+        c.shape = ColliderShape::hull;  // the convex hull of the link's mesh
+        c.friction = kDuckShellFriction;
+        a.colliders.push_back(c);
+        // The shell encloses its neighbours' servos and brackets: it never touches its own robot.
+        for (i32 k = 0; k < kLinkCount; ++k) {
+          if (k == i || kDuckLinks[k].parent == i || kDuckLinks[i].parent == k) continue;
+          JointComponent nc;
+          nc.kind = JointKind::no_collision;
+          nc.target = static_cast<ActorId>(k + 1);
+          a.joints.push_back(nc);
+        }
+      }
     out.push_back(std::move(a));
   }
-  // Visual shells (welded to their links), placed in the MJCF zero pose and moved to the home pose.
-  const f32 lift = kDuckLinks[0].pos.z - .12f;  // the zero-pose trunk stands at 0.12 m
-  auto shell = [&](i32 link, const char* name, Shape shape, Vec3 color, Vec3 zero_center, Vec3 size, f32 radius = 0, f32 height = 0,
-                   Vec3 scale = {1, 1, 1}, Vec3 euler = {}) {
-    Actor v = part(name, shape, color);
-    v.mesh->size = size;
-    if (radius > 0) v.mesh->radius = radius;
-    if (height > 0) v.mesh->height = height;
-    Vec3 p = zero_center + Vec3{0, 0, lift};
-    Quat r = euler_to_quat(euler);
-    zero_to_home(link, p, r);
-    v.transform.position = p - kDuckLinks[link].pos;
-    v.transform.rotation = quat_to_euler(r);
-    v.transform.scale = scale;
-    v.parent = static_cast<ActorId>(link + 1);
-    out.push_back(std::move(v));
-  };
-  shell(0, "Body Shell", Shape::sphere, kShell, {-.014f, 0, .125f}, {}, .056f, 0, {1.05f, .82f, .7f});
-  shell(0, "Servo Bay", Shape::box, kDark, {.004f, 0, .1f}, {.05f, .07f, .03f});
-  shell(0, "Tail", Shape::cone, kShell, {-.07f, 0, .14f}, {}, .016f, .035f, {1, 1, 1}, {0, -70, 0});
-  for (f32 s : {1.0f, -1.0f}) {
-    const i32 o = s > 0 ? 0 : 9;  // left leg: links 1-5, right leg: 10-14
-    shell(1 + o, s > 0 ? "Hip Yaw Servo L" : "Hip Yaw Servo R", Shape::box, kDark, {.008f, .0175f * s, .11f}, {.022f, .02f, .018f});
-    shell(2 + o, s > 0 ? "Hip Roll Servo L" : "Hip Roll Servo R", Shape::box, kDark, {.016f, .03f * s, .1025f}, {.024f, .016f, .02f});
-    shell(3 + o, s > 0 ? "Thigh L" : "Thigh R", Shape::box, kShell, {-.014f, .041f * s, .091f}, {.034f, .024f, .034f});
-    shell(4 + o, s > 0 ? "Shin L" : "Shin R", Shape::box, kDark, {-.0318f, .051f * s, .059f}, {.02f, .026f, .044f});
-    shell(5 + o, s > 0 ? "Foot L" : "Foot R", Shape::box, kOrange, {-.02f, .0504f * s, .0085f}, {.092f, .046f, .014f});
-  }
-  shell(6, "Neck", Shape::cylinder, kShell, {.026f, .0145f, .177f}, {}, .013f, .05f);
-  shell(9, "Head", Shape::sphere, kShell, {.04f, .0015f, .241f}, {}, .046f, 0, {1.05f, .95f, .85f});
-  shell(9, "Beak", Shape::box, kOrange, {.087f, 0, .228f}, {.038f, .034f, .011f});
-  shell(9, "Eye L", Shape::sphere, kEye, {.078f, .022f, .25f}, {}, .0065f);
-  shell(9, "Eye R", Shape::sphere, kEye, {.078f, -.022f, .25f}, {}, .0065f);
   return scaled(std::move(out));
 }
 
@@ -303,10 +285,12 @@ void GameWorld::create_walkers() {
       for (const Actor* p = ja; p && !mine; p = level_.find(p->parent)) mine = p->id == a.id;
       if (!mine) continue;
       const i32 link = link_of_joint(ja->name);
-      if (link > 0 && !w->joint[link - 1]) { w->joint[link - 1] = sj.get(); ++found; }
+      if (link == kMouthLink) w->mouth = sj.get();
+      else if (link > 0 && !w->joint[link - 1]) { w->joint[link - 1] = sj.get(); ++found; }
     }
     w->bodies[0] = w->trunk;
     for (i32 j = 0; j < kJoints; ++j) if (w->joint[j]) w->bodies[j + 1] = w->joint[j]->b;
+    if (w->mouth) w->bodies[kMouthLink] = w->mouth->b;
     if (found != kJoints) {
       events_.push_back("Walker \"" + a.name + "\" needs the Micro Duck's 14 servo joints - it stands still");
       continue;
@@ -423,7 +407,7 @@ bool GameWorld::walker_sees(ActorId id, ActorId target, bool& visible, f32& bear
   if (x <= 0) return true;
   const f32 tan_v = std::tan(cam.fov / 2), tan_h = tan_v * kCameraAspect;
   if (std::fabs(y) > x * tan_h || std::fabs(z) > x * tan_v) return true;
-  const physics::RayHit hit = physics_.cast_ray_ignoring(cam.eye, to, Span<const physics::Body>(w->bodies, 15));
+  const physics::RayHit hit = physics_.cast_ray_ignoring(cam.eye, to, Span<const physics::Body>(w->bodies, WalkerBrain::kBodies));
   auto it = actor_of_body_.find(hit.body.id);
   // Seen when the first thing on the line is the target itself (or one of its welded parts).
   visible = !hit.hit || (it != actor_of_body_.end() && (it->second == target || level_.body_owner(target) == it->second));
@@ -477,7 +461,7 @@ void GameWorld::sense_walker(WalkerBrain& w) {
     const f32 elevation = half - static_cast<f32>(i / kTofSide) * step, azimuth = half - static_cast<f32>(i % kTofSide) * step;
     const Vec3 beam{std::cos(elevation) * std::cos(azimuth), std::cos(elevation) * std::sin(azimuth), std::sin(elevation)};
     const Vec3 dir = ax * beam.x + ay * beam.y + az * beam.z;
-    const physics::RayHit hit = physics_.cast_ray_ignoring(origin, dir * (kTofMaxRange * S), Span<const physics::Body>(w.bodies, 15));
+    const physics::RayHit hit = physics_.cast_ray_ignoring(origin, dir * (kTofMaxRange * S), Span<const physics::Body>(w.bodies, WalkerBrain::kBodies));
     if (!hit.hit) { out.range[i] = -1; out.zone[i] = 0; continue; }
     const f32 r = hit.fraction * kTofMaxRange * S;
     out.range[i] = r;
@@ -561,6 +545,8 @@ void GameWorld::drive_walkers(f32 h) {
       idle_walker(w, still, kControlPeriod, idle);
       f32 head_cmd[4];
       for (int i = 0; i < 4; ++i) head_cmd[i] = clamp(w.head[i] + idle[i], -kHeadRange[i], kHeadRange[i]);
+      // The mouth (robotd: not part of any policy): what was asked, or the idle yawn.
+      if (w.mouth) w.mouth->servo_target = mouth_target(max_of(w.mouth_open, w.idle_mouth));
       w.quack = max_of(0.0f, w.quack - kControlPeriod);
       w.manual_left = max_of(0.0f, w.manual_left - kControlPeriod);
       if (w.drive_left > 0) w.drive_left = max_of(0.0f, w.drive_left - kControlPeriod);  // < 0 holds until the next command

@@ -61,7 +61,11 @@ struct GameWorld::WalkerBrain {
   std::vector<std::vector<f32>> pending;  // targets on their way to the servos, oldest first
   PlayInput input;
   bool has_input = false;
-  physics::Body bodies[15];        // trunk + links: what its own sensors do not see
+  static constexpr i32 kBodies = 16;
+  physics::Body bodies[kBodies];   // trunk, the 14 links, the mouth: what its own sensors do not see
+  SimJoint* mouth = nullptr;       // the mouth servo (robotd: not part of any policy)
+  f32 mouth_open = 0;              // 0 closed (pressed shut) .. 1 open
+  f32 idle_mouth = 0;              // the idle look-around's yawn
   WalkerSensors sensors;
   f64 next_tof = 0;                // simulation time of the next ToF frame
   f32 tilted_for = 0;              // real seconds the trunk has been tipped past the fall limit

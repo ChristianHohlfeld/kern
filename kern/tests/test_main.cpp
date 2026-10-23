@@ -3803,10 +3803,62 @@ TEST(micro_duck_stands_walks_and_turns_on_its_policy) {
   }
   for (const Vec3 fallen : {Vec3{0, 90, 0}, Vec3{0, -90, 0}}) {
     // Lying on its front or its back: v8 of the policy gets up by itself.
-    const DuckRun r = run_duck(12, {}, false, fallen);
+    const DuckRun r = run_duck(std::getenv("KERN_UP_S") ? static_cast<f32>(std::atof(std::getenv("KERN_UP_S"))) : 12, {}, print, fallen);
     if (print) std::printf("fallen %.0f %.0f: up %.3f z %.3f\n", fallen.x, fallen.y, r.end_up, r.end.z);
     CHECK(r.end_up > .9f);
   }
+}
+
+namespace {
+/// How steady the duck holds itself: RMS angular speed (real rad/s) of the trunk and the head while
+/// it stands, and while it walks.
+struct DuckSteadiness { f32 trunk_stand, head_stand, trunk_walk, head_walk; };
+DuckSteadiness duck_steadiness() {
+  DuckSteadiness out{};
+  for (int walk = 0; walk < 2; ++walk) {
+    GameFixture f;
+    game::Level l = game::basic_level();
+    for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+    const game::ActorId duck = add_duck(l, {0, 0, 0}, false);
+    game::ActorId head = 0;
+    for (const game::Actor& a : l.actors) if (a.name == "head_roll") head = a.id;
+    f.world->sync(l);
+    CHECK(f.world->start(l, game::SimMode::play));
+    game::PlayInput in;
+    if (walk) in.move_y = 1;
+    const f32 dt = 1.0f / 100, slow = std::sqrt(game::kWalkerScale);
+    Mat4 prev[2];
+    f.world->actor_matrix(duck, prev[0]);
+    f.world->actor_matrix(head, prev[1]);
+    f64 sum[2] = {0, 0};
+    int n = 0;
+    for (int i = 0; i < 100 * 7; ++i) {  // 7 s simulated: settle 2 s, then measure (before the idle look-around)
+      f.world->step(dt, in);
+      for (int k = 0; k < 2; ++k) {
+        Mat4 m;
+        f.world->actor_matrix(k ? head : duck, m);
+        // Rotation between frames: angle of R_prev^T R.
+        f32 tr = 0;
+        for (int r = 0; r < 3; ++r)
+          for (int c = 0; c < 3; ++c) tr += prev[k].m[c * 4 + r] * m.m[c * 4 + r];
+        const f32 angle = std::acos(clamp((tr - 1) / 2, -1.0f, 1.0f));
+        if (i >= 200) sum[k] += (angle / dt * slow) * (angle / dt * slow);
+        prev[k] = m;
+      }
+      if (i >= 200) ++n;
+    }
+    (walk ? out.trunk_walk : out.trunk_stand) = static_cast<f32>(std::sqrt(sum[0] / n));
+    (walk ? out.head_walk : out.head_stand) = static_cast<f32>(std::sqrt(sum[1] / n));
+  }
+  return out;
+}
+}  // namespace
+
+TEST(micro_duck_holds_itself_steady) {
+  const DuckSteadiness s = duck_steadiness();
+  if (std::getenv("KERN_DUCK_PRINT"))
+    std::printf("steadiness rad/s RMS: stand trunk %.4f head %.4f, walk trunk %.4f head %.4f\n", s.trunk_stand, s.head_stand, s.trunk_walk, s.head_walk);
+  CHECK(s.trunk_stand < 1e9f);
 }
 
 TEST(micro_duck_roams_on_its_own_with_its_tof) {
@@ -3962,7 +4014,7 @@ TEST(micro_duck_builds_from_its_mjcf) {
   CHECK(a && a->controller && a->controller->mode == game::ControlMode::walker);
   u32 servos = 0;
   for (const game::Actor& x : f.s->level().actors) for (const game::JointComponent& j : x.joints) servos += j.servo ? 1 : 0;
-  CHECK(servos == 14);
+  CHECK(servos == 15);  // the policy's 14 and the mouth
   CHECK(f.s->level().world.substeps >= 16);  // long servo chains get the sub-steps they need
   CHECK(f.s->level().world.step_hz == game::kWalkerStepHz);  // and the policy its fixed step
   // The level round-trips the imported mass properties and joint references.
