@@ -624,12 +624,31 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
   channels = 1;
   out.clear();
   if (DuckRef d; parse_duck(name, d)) {
+    // As the robot plays it: rendered at the bank's 48 kHz and stored as 16-bit PCM (sounds
+    // to_wav: x 32767, clamped, truncated), then brought to the mixer's rate.
+    constexpr u32 kBankRate = 48000;
+    std::vector<f32> bank;
     if (d.segment.empty()) {
-      if (!render_duck_voice(d.tag, d.seed, d.variant, rate, out)) return false;
+      if (!render_duck_voice(d.tag, d.seed, d.variant, kBankRate, bank)) return false;
     } else {
       std::vector<f32> start, loop, end;
-      render_duck_wheee(d.seed, d.variant, rate, start, loop, end);
-      out = d.segment == "start" ? start : d.segment == "loop" ? loop : end;
+      render_duck_wheee(d.seed, d.variant, kBankRate, start, loop, end);
+      bank = d.segment == "start" ? start : d.segment == "loop" ? loop : end;
+    }
+    for (f32& v : bank) v = static_cast<f32>(static_cast<i16>(std::clamp(v * 32767.0f, -32768.0f, 32767.0f))) / 32768.0f;
+    if (rate == kBankRate) {
+      out = std::move(bank);
+    } else {  // cubic (Catmull-Rom) resampling
+      const f64 step = static_cast<f64>(kBankRate) / rate;
+      const std::size_t n = static_cast<std::size_t>(bank.size() / step);
+      out.resize(n);
+      auto at = [&](i64 i) { return i < 0 || i >= static_cast<i64>(bank.size()) ? 0.0f : bank[static_cast<std::size_t>(i)]; };
+      for (std::size_t k = 0; k < n; ++k) {
+        const f64 x = k * step;
+        const i64 i = static_cast<i64>(x);
+        const f32 t = static_cast<f32>(x - i), p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+        out[k] = p1 + 0.5f * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
+      }
     }
     // The robot's speaker rolls off below about 300 Hz (robotd SPEAKER_ROLLOFF_HZ): heard through
     // it, the voice has no lows - a second-order high-pass there, as the cone does.
@@ -802,13 +821,15 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
     s.slide = -6;
     add(out, synthesize(s, rate));
   } else if (name == "plastic") {
-    // A printed plastic shell or servo housing touching the floor or another part: a dull, soft
-    // "tock" - hollow plastic rings low and briefly, with no glassy highs.
-    out = struck(rate, {{420, 0.030f, 0.6f}, {980, 0.016f, 0.3f}, {1750, 0.007f, 0.12f}}, 0.25f, 3, 1800, 0.12f, 0.28f, 71);
+    // A printed plastic shell or servo housing touching the floor or another part: a short, solid
+    // "tock". A solid part rings neither low nor long - a low partial with a long decay is what
+    // reads as a hollow box - so the modes sit mid-range and die within a few milliseconds, and the
+    // contact itself carries most of it; no glassy highs.
+    out = struck(rate, {{760, 0.007f, 0.45f}, {1650, 0.004f, 0.28f}, {3100, 0.002f, 0.12f}}, 0.55f, 1.8f, 2600, 0.06f, 0.26f, 71);
   } else if (name == "plastic_step") {
-    // A small sole set down: a soft, dull tap - low partials, a muffled contact, quiet.
-    // Softer and duller than a knock: the TPU-padded sole on the floor is mostly a thud.
-    out = struck(rate, {{170, 0.030f, 0.6f}, {410, 0.014f, 0.25f}, {980, 0.005f, 0.06f}}, 0.35f, 9, 650, 0.12f, 0.13f, 73);
+    // A small sole set down: a soft, dull, solid tap, quiet. Soft is the muffled contact (low-passed),
+    // solid is that nothing rings on: the modes are short, so there is no boom of a cavity.
+    out = struck(rate, {{320, 0.006f, 0.4f}, {820, 0.004f, 0.25f}, {1700, 0.002f, 0.08f}}, 0.6f, 4, 1200, 0.05f, 0.13f, 73);
   } else if (name == "step") {
     SynthPatch n = patch(Wave::noise, 2400, 0.001f, 0.004f, 0.055f, 0.45f);
     n.lowpass = 900;

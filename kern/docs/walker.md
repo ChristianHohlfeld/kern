@@ -451,8 +451,13 @@ apirrone/microduck_sounds portiert. Es gibt keine Samples und kein Netz.
   Tonlage, Obertöne, Nasalität, Vibrato, Atem, Quakigkeit und Tempo.
 - **Laute:** greet, chirp (je 12 Varianten), wheee (6, in Start, Schleife und Ende), alarm, inquire,
   peck und coo (je 10). Gespielt wird eine zufällige Variante.
+  - Die Synthese ist bitgenau zum Original: Ein Vergleich aller 328 Puffer gegen das Rust-Crate
+    ergibt dieselbe Länge und eine maximale Abweichung von 0.
+  - Wie auf dem Roboter liegt jeder Laut als 48-kHz-Puffer mit 16 Bit vor (`to_wav`: × 32767,
+    begrenzt, abgeschnitten). Erst danach wird er kubisch auf die Rate des Mixers gebracht.
   - Zu hören ist sie durch den Lautsprecher des Roboters, also mit einem Hochpass bei 300 Hz
-    (`SPEAKER_ROLLOFF_HZ`).
+    (`SPEAKER_ROLLOFF_HZ`). robotd spielt die WAVs trocken über aplay, und den Abfall macht dort der
+    kleine Lautsprecher selbst; Kern bildet ihn mit diesem Filter nach.
   - Ein neuer Laut schneidet den laufenden ab. Während wheee werden andere Laute verworfen.
 - **Wann sie ruft** (`robotd/src/sound.rs`, Pad-Belegung des Roboters):
 
@@ -474,7 +479,7 @@ apirrone/microduck_sounds portiert. Es gibt keine Samples und kein Netz.
   - Lautstärke folgt der Arbeit (Last × Drehzahl) und leise der Haltelast, die Tonhöhe der Drehzahl
     der Motoren und etwas der Last. Gemessen: stehend Last 0,02 und Arbeit 0, gehend Last 0,06 und
     Arbeit 1,2 (Test `micro_duck_servo_load_drives_its_sound`). Leise, unter Schritten und Stimme.
-- **Berührungen:** Die Gehäuse und Servo-Housings klingen bei jeder Berührung weich und dumpf nach Kunststoff
+- **Berührungen:** Die Gehäuse und Servo-Housings klingen bei jeder Berührung kurz und massiv nach Kunststoff
   (`builtin:plastic`), mit dem Boden wie miteinander. Die Sohlen klingen als leiser, kleiner
   Schritt (`builtin:plastic_step`, als Impact Sound ihrer Collider): dumpf und leise, ein Schritt
   pro Fuß höchstens alle 0,5 s (Simulationszeit), weil eine Sohle von der Ferse zur Spitze abrollt
