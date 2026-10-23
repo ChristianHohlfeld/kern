@@ -65,9 +65,9 @@ export class StudioEngine {
     }
   }
   /** Loads the robot's policy set (microduck/<file>.onnx next to the page; the dev page reads the
-   *  repository's copy). A file that fails is fetched again later; until then the move it
+   *  repository's copy, so does the repository's single-file build in generated/). A file that fails is fetched again later; until then the move it
    *  drives is unavailable (the duck stands and says why). */
-  async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/microduck/"] : ["microduck/"]) {
+  async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/microduck/"] : /\/generated\/[^/]*$/.test(location.pathname) ? ["../kern/third_party/microduck/"] : ["microduck/"]) {
     if (this.policiesLoading) return this.policiesLoading;
     // A file that failed is asked for again later (5 s, 10 s, 20 s ... at most every minute).
     const retry = this.policyRetry ??= new Map(), now = Date.now();
