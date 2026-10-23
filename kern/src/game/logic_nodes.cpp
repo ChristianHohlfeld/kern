@@ -1,5 +1,6 @@
 // Kern Logic: gameplay nodes. Every node is a C++ function on the GameWorld;
 // they register themselves into the logic library at start-up.
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 
@@ -409,6 +410,44 @@ void add_walker_nodes(logic::Library& lib) {
                  "The beak is told to shut and its servo reads it open: something is in it (a sock).", "sock beak carry duck robot"));
   lib.add(action("walker.quack", "Chirp", "Robots", {data("target", "Robot", PinType::actor, 0)}, {},
                  [](Context& c, GameWorld& w) { w.walker_quack(target(c)); }, "The duck chirps (its own voice, the robot's synth) and opens its beak.", "sound duck robot"));
+  {
+    NodeDef d = action("walker.say", "Say", "Robots", {data("target", "Robot", PinType::actor, 0)}, {},
+                       [](Context& c, GameWorld& w) { w.walker_call(target(c), c.param("call", "chirp")); },
+                       "A call in the duck's own voice (the robot's synth): chirp, coo, greet, inquire, peck or alarm. The beak opens with it.",
+                       "voice sound chirp coo greet quack duck robot");
+    d.params = {param("call", "Call", ParamDef::Kind::choice, "chirp",
+                      {"chirp", "Chirp", "coo", "Coo", "greet", "Greet", "inquire", "Inquire", "peck", "Peck", "alarm", "Alarm"})};
+    d.title = [](const NodeDef&, const logic::Node& n) {
+      std::string call = n.param("call", "chirp");
+      if (!call.empty()) call[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(call[0])));
+      return "Say " + call;
+    };
+    lib.add(std::move(d));
+  }
+  lib.add(getter("walker.local", "Robot Frame Position", "Robots", {data("target", "Robot", PinType::actor, 0), data("other", "Actor", PinType::actor, 0)},
+                 {data("ahead", "Ahead (m)", PinType::number), data("left", "Left (m)", PinType::number), data("bearing", "Bearing (°, + left)", PinType::number),
+                  data("distance", "Distance (m)", PinType::number)},
+                 [](Context& c, GameWorld& w) {
+                   f32 ahead = 0, left = 0;
+                   w.walker_local(target(c), c.in_actor("other"), ahead, left);
+                   c.out("ahead", Value::number(ahead));
+                   c.out("left", Value::number(left));
+                   c.out("bearing", Value::number(std::atan2(left, ahead) * 180 / 3.14159265358979));
+                   c.out("distance", Value::number(std::hypot(ahead, left)));
+                 },
+                 "Where an actor is from the robot's body, on the floor, in the real robot's metres: ahead and to its left "
+                 "(the kick networks kick farthest with the ball about 9 cm ahead, 4.5 cm to the side of the kicking foot).",
+                 "relative position local frame bearing distance duck robot"));
+  lib.add(getter("walker.move_now", "Robot Network", "Robots", {data("target", "Robot", PinType::actor, 0)},
+                 {data("move", "Network", PinType::text), data("busy", "In a Move", PinType::boolean)},
+                 [](Context& c, GameWorld& w) {
+                   const std::string m = w.walker_driving(target(c));
+                   c.out("move", Value::text(m));
+                   c.out("busy", Value::boolean(!m.empty() && m != "walk" && m != "stand"));
+                 },
+                 "The network driving the robot now: walk, stand, sit, rise, ground_pick or a move (kick_left, roulade...). "
+                 "In a Move: anything but walking and standing.",
+                 "skill busy network policy duck robot"));
   lib.add(getter("walker.tof", "Robot ToF", "Robots", {data("target", "Robot", PinType::actor, 0)},
                  {data("blocked", "Obstacle Seen", PinType::boolean), data("distance", "Nearest (m)", PinType::number), data("bearing", "Bearing (°, + left)", PinType::number),
                   data("left", "Free Left (0-1)", PinType::number), data("right", "Free Right (0-1)", PinType::number)},

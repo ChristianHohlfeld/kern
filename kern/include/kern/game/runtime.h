@@ -355,6 +355,12 @@ class GameWorld {
   /// Autonomy on / off (on: it roams on its own whenever nobody drives it).
   bool walker_set_autonomous(ActorId id, bool on);
   bool walker_quack(ActorId id);
+  /// One call of its voice: "chirp", "coo", "greet", "inquire", "peck" or "alarm" (robotd sound.rs);
+  /// the beak opens with it. False for another tag or no such robot.
+  bool walker_call(ActorId id, std::string_view tag);
+  /// Where `other` is from the robot (its trunk, on the floor plane), in the real robot's metres:
+  /// ahead (+) and to its left (+). False when there is no such robot or actor.
+  bool walker_local(ActorId id, ActorId other, f32& ahead, f32& left) const;
   /// One of the robot's moves, as its daemon schedules them (robotd control.rs): "sit" (toggles
   /// sit / stand), "pick" (ground pick; the crouch on rollers), "kick_left", "kick_right",
   /// "roulade" (asked again while it runs, it rolls on). Returns "" when it started, else why not.

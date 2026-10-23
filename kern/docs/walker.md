@@ -324,9 +324,31 @@ fällt nie.
 | Pet Robot | eine Hand auf der Ente für n Sekunden (Petted) |
 | Robot Hears | eine Stimme (sie antwortet) oder ein Geräusch (sie schreckt aus dem Dösen) |
 | Robot Holds Something | der Mund-Encoder: etwas steckt im Schnabel |
+| Say | ein Ruf mit der eigenen Stimme: chirp, coo, greet, inquire, peck, alarm (der Schnabel öffnet sich) |
+| Robot Frame Position | wo ein Actor vom Rumpf aus liegt, in echten Metern: voraus, links, Richtung, Entfernung |
+| Robot Network | das Netz, das gerade fährt (walk, stand, kick_left …); *In a Move* außer beim Gehen und Stehen |
 
 Vorlage **Robot: walk and turn away with its ToF** (Templates im Blueprint-Editor): Die Ente
 läuft per Logic und dreht weg, sobald der ToF etwas näher als 1,6 m sieht.
+
+### Ballspiel (Beispiel-Level Micro Duck)
+
+Der Level-Blueprint **Play** lässt die Ente mit ihrem Ball spielen, und zwar mit dem, was ihre
+Netze können. Der Ball ist der aus dem Kick-Training: 70 mm, 15 g.
+
+| Zustand | Was sie tut |
+|---|---|
+| Search | dreht sich auf der Stelle, Kopf fast waagrecht, bis die Kamera den Ball sieht; dann *chirp* |
+| Approach | läuft zum Ball, dreht dabei zu ihm hin (schnell nur, wenn er geradeaus liegt), der Kopf folgt ihm. 2 s außer Sicht (und nicht direkt vor den Füßen, wo die Kamera ihn nicht sieht): *inquire*, zurück zu Search |
+| Line Up | kleine Schritte vor und seitwärts, bis der Ball etwa 9 cm voraus und 4,5 cm neben dem nähergelegenen Fuß liegt; dort schießen die Kick-Netze am weitesten (gemessen: 0,8–0,9 m) |
+| Kick | kurz still stehen, Kopf gerade (das Netz startet aus dem Stand, wie im Training), dann das Ball-Kick-Netz dieses Fußes, dazu *chirp*; nach 2,6 s weiter zu Watch |
+| Watch | steht und folgt dem Ball mit dem Kopf; nach 1,6 s geht es weiter: nach einem weiten Schuss manchmal Celebrate, sonst Approach oder Search |
+| Celebrate | *greet*, eine Roulade, dann wieder Search |
+
+- **Takt:** Ein *Every 0.1 s* steuert den aktuellen Zustand.
+- **Pausen:** Ist sie gefallen oder läuft gerade eine Bewegung, setzt der Takt aus. Aufstehen
+  erledigt ihr eigenes Verhalten.
+- **Test:** `micro_duck_plays_with_its_ball`
 
 ## 11. Aussehen und Kollision
 
@@ -429,8 +451,8 @@ apirrone/microduck_sounds portiert. Es gibt keine Samples und kein Netz.
 | Sie setzt sich | peck |
 
 - **Wann nicht:** Im Leerlauf, beim Gehen, beim Umschauen und beim Anblick des Balls ruft sie
-  nicht. Im Beispiel-Level ruft sie beim Ball nur, weil das der Level-Blueprint ausdrücklich so
-  vorführt.
+  nicht. Im Beispiel-Level ruft sie beim Spielen nur, weil der Level-Blueprint es so vorgibt
+  (Knoten **Say**).
 - **Servos:** Der Roboter und sein Training modellieren keine Servogeräusche, es gibt also keine
   Referenz. Kern leitet den Servo-Loop aus der Physik ab (`walker_servo_load`, jeden Regeltakt):
   - Drehmoment jedes Servos nach dem Servo-Gesetz, das Box3D löst (Steifigkeit × Fehler bis zum

@@ -691,6 +691,35 @@ bool GameWorld::walker_quack(ActorId id) {
   return any;
 }
 
+bool GameWorld::walker_call(ActorId id, std::string_view tag) {
+  static constexpr const char* kCalls[] = {"chirp", "coo", "greet", "inquire", "peck", "alarm"};
+  const char* call = nullptr;
+  for (const char* c : kCalls) if (tag == c) call = c;
+  if (!call) return false;
+  bool any = false;
+  for (auto& w : walkers_)
+    if (!id || w->actor == id) {
+      walker_say(*w, call);
+      w->beak_open = .25f;
+      any = true;
+    }
+  return any;
+}
+
+bool GameWorld::walker_local(ActorId id, ActorId other, f32& ahead, f32& left) const {
+  ahead = left = 0;
+  const WalkerBrain* w = walker_brain(id);
+  Mat4 m;
+  if (!w || !other || !actor_matrix(other, m)) return false;
+  const physics::Pose tp = physics_.pose(w->trunk);
+  const Vec3 fwd = tp.rotation.rotate({1, 0, 0});
+  const f32 heading = std::atan2(fwd.y, fwd.x), c = std::cos(heading), s = std::sin(heading);
+  const Vec3 d = m.translation() - tp.position;
+  ahead = (d.x * c + d.y * s) / kDuckScale;
+  left = (-d.x * s + d.y * c) / kDuckScale;
+  return true;
+}
+
 /// One call of the duck's voice (robotd/src/sound.rs): a random variant of the tag in this duck's
 /// own voice; a new call cuts the one it was making; while the wheee ride has the speaker, one-shots
 /// are dropped.

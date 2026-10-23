@@ -4590,9 +4590,9 @@ TEST(micro_duck_blueprint_nodes_drive_and_sense) {
 }
 
 TEST(micro_duck_example_level_runs) {
-  // File > New > Micro Duck: the room, the autonomous duck, the blueprint that quacks at the ball.
+  // File > New > Micro Duck: the room, the autonomous duck, the blueprint that plays with the ball.
   game::Level l = game::micro_duck_level();
-  CHECK(!l.logic.nodes.empty() && l.logic.comments.size() == 1);
+  CHECK(!l.logic.nodes.empty() && l.logic.comments.size() >= 6 && l.logic.machines.size() == 1);
   CHECK(no_errors(logic::check(l.logic)));
   CHECK(l.world.step_hz == game::kWalkerStepHz && l.world.substeps == 16);
   GameFixture f;
@@ -4611,6 +4611,52 @@ TEST(micro_duck_example_level_runs) {
   }
   CHECK(min_up > 0.7f);
   CHECK(f.world->walker_state(l.world.player) != "Idle");  // autonomous
+}
+
+TEST(micro_duck_plays_with_its_ball) {
+  // The example level's blueprint: find the ball, walk to it, line it up in front of a foot, kick it
+  // with the trained kick network, watch it roll, sometimes celebrate with a roulade.
+  load_duck_policies();
+  game::Level l = game::micro_duck_level();
+  game::ActorId ball = 0;
+  for (const game::Actor& a : l.actors) if (a.name == "Ball") ball = a.id;
+  CHECK(ball != 0);
+  GameFixture f;
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::play));
+  const game::ActorId duck = l.world.player;
+  Mat4 m;
+  f.world->actor_matrix(ball, m);
+  const Vec3 ball0 = m.translation();
+  std::set<std::string> states, moves, calls;
+  f32 travelled = 0;
+  Vec3 last = ball0;
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  const int secs = std::getenv("KERN_DUCK_LONG") ? 240 : 60;
+  for (int i = 0; i < 60 * secs; ++i) {
+    f.world->step(1.0f / 60, {});
+    for (const auto& inst : f.world->logic_runtime()->instances()) states.insert(inst->state("Play"));
+    moves.insert(f.world->walker_driving(duck));
+    calls.insert(f.world->walker_said(duck));
+    f.world->actor_matrix(ball, m);
+    travelled += length(m.translation() - last);
+    last = m.translation();
+    if (print && i % 60 == 0) {
+      f32 ahead = 0, left = 0;
+      f.world->walker_local(duck, ball, ahead, left);
+      std::string st;
+      for (const auto& inst : f.world->logic_runtime()->instances()) if (!inst->state("Play").empty()) st = inst->state("Play");
+      Mat4 dm;
+      f.world->actor_matrix(duck, dm);
+      std::printf("t %3d %-9s %-12s %-10s up %.2f ball ahead %.3f left %.3f travelled %.2f\n", i / 60, st.c_str(), f.world->walker_driving(duck).c_str(),
+                  f.world->walker_state(duck).c_str(), dm.m[10], ahead, left, travelled);
+    }
+  }
+  if (print) { for (const auto& s : states) std::printf(" state %s", s.c_str()); std::printf("\n"); for (const auto& s : moves) std::printf(" move %s", s.c_str()); std::printf("\n"); }
+  CHECK(states.count("Approach") && states.count("Line Up") && states.count("Kick") && states.count("Watch"));
+  CHECK(moves.count("kick_left") || moves.count("kick_right"));  // its own kick network kicked
+  CHECK(travelled > 1.0f);                                        // the ball got around
+  CHECK(calls.count("chirp"));
 }
 
 TEST(studio_robot_template_compiles) {

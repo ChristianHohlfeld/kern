@@ -195,8 +195,8 @@ Level orb_run_level() {
 
 Level micro_duck_level() {
   // A room of the real robot's size class: 2.5 x 2.5 m real (the duck is built kWalkerScale x, so
-  // 10 x 10 m here), a few things in it to walk around, and a ball it quacks at when its head
-  // camera sees it (the level blueprint).
+  // 10 x 10 m here), a few things in it to walk around, and its ball, which it plays with (the
+  // level blueprint).
   const f32 S = kWalkerScale;
   Level l;
   l.name = "Micro Duck";
@@ -235,10 +235,10 @@ Level micro_duck_level() {
   pot.folder = "Furniture";
   pot.mesh = round_mesh(Shape::cylinder, 0.08f * S, 0.16f * S, {0.75f, 0.4f, 0.25f}, 0.8f);
   l.add(pot);
-  // A light ball (a real 12 cm toy ball): Box3D pushes it when the duck walks into it.
-  Actor ball = make("Ball", {0.1f * S, -0.2f * S, 0.06f * S});
-  ball.mesh = round_mesh(Shape::sphere, 0.06f * S, 0.12f * S, {0.95f, 0.8f, 0.15f}, 0.4f);
-  ball.body = body(Motion::dynamic, 0.05f * S * S * S);
+  // Its ball: the one its kick networks were trained with (70 mm, 15 g; real size x S).
+  Actor ball = make("Ball", {0.1f * S, -0.2f * S, 0.035f * S});
+  ball.mesh = round_mesh(Shape::sphere, 0.035f * S, 0.07f * S, {0.95f, 0.8f, 0.15f}, 0.4f);
+  ball.body = body(Motion::dynamic, 0.015f * S * S * S);
   const ActorId ball_id = l.add(ball).id;
 
   // The duck: autonomous (it roams with its ToF and looks around when it stands).
@@ -256,19 +256,126 @@ Level micro_duck_level() {
   }
   l.world.player = base;
 
-  // Level blueprint (a demo of the Robots nodes, not the robot's own behaviour): chirp once whenever
-  // the ball comes into the head camera's picture.
-  char text[2048];
-  std::snprintf(text, sizeof text, R"({"variables":[{"name":"Ball Seen","type":"bool","value":false}],
-    "nodes":[{"id":1,"type":"event.every","x":0,"y":0,"params":{"seconds":"0.25"}},{"id":2,"type":"flow.branch","x":608,"y":0},
-      {"id":3,"type":"walker.sees","x":-32,"y":192,"values":{"other":%u}},{"id":4,"type":"var.get","x":32,"y":384,"params":{"variable":"Ball Seen"}},
-      {"id":5,"type":"logic.not","x":288,"y":384},{"id":6,"type":"logic.and","x":416,"y":224},
-      {"id":7,"type":"walker.quack","x":896,"y":-64},{"id":8,"type":"var.set","x":1152,"y":-64,"params":{"variable":"Ball Seen"}},
-      {"id":9,"type":"var.set","x":896,"y":160,"params":{"variable":"Ball Seen"}}],
-    "comments":[{"id":20,"x":-64,"y":-112,"w":1472,"h":592,"text":"Demo, not something the robot does by itself: chirp when the ball comes into the head camera's picture"}],
-    "links":[[1,"then",2,"exec"],[3,"visible",6,"a"],[4,"value",5,"a"],[5,"result",6,"b"],[6,"result",2,"condition"],
-      [2,"true",7,"exec"],[7,"then",8,"exec"],[3,"visible",8,"value"],[2,"false",9,"exec"],[3,"visible",9,"value"]]})",
-                static_cast<unsigned>(ball_id));
+  // Level blueprint "Play": the duck plays with the ball using its own trained moves (the
+  // ball-kick networks, the roulade, its voice). A state machine - Search, Approach, Line Up, Kick,
+  // Watch, Celebrate - and a beat ten times a second that steers it (docs/walker.md, "Ballspiel").
+  std::string text = R"JSON({"variables":[{"name":"Lost","type":"float","value":0}],
+"machines":[{"id":900,"name":"Play","states":[{"id":901,"name":"Search","initial":true,"x":0,"y":0},{"id":902,"name":"Approach","x":220,"y":0},{"id":903,"name":"Line Up","x":440,"y":0},{"id":904,"name":"Kick","x":440,"y":160},{"id":905,"name":"Watch","x":220,"y":160},{"id":906,"name":"Celebrate","x":0,"y":160}],"transitions":[{"id":910,"from":904,"to":905,"trigger":"timer","seconds":2.6,"label":"after the kick"}]}],
+"nodes":[
+  {"id":1,"type":"walker.sees","x":-900,"y":0,"values":{"other":BALL}},
+  {"id":2,"type":"walker.local","x":-900,"y":220,"values":{"other":BALL}},
+  {"id":3,"type":"walker.state","x":-900,"y":470},
+  {"id":4,"type":"walker.move_now","x":-900,"y":640},
+  {"id":5,"type":"state.get","x":-900,"y":790,"params":{"machine":"Play"}},
+  {"id":7,"type":"math.compare","x":-880,"y":900,"params":{"op":"<"},"values":{"b":0.35}},
+  {"id":8,"type":"logic.or","x":-880,"y":1000},
+  {"id":9,"type":"event.every","x":-420,"y":0,"params":{"seconds":"0.1"}},
+  {"id":10,"type":"logic.or","x":-400,"y":160},
+  {"id":11,"type":"flow.branch","x":-160,"y":0},
+  {"id":12,"type":"flow.switch_text","x":80,"y":0,"params":{"cases":"Search, Approach, Line Up, Watch"}},
+  {"id":14,"type":"walker.move","x":500,"y":-700,"values":{"forward":0.0,"strafe":0.0,"turn":45.0,"duration":0.4}},
+  {"id":15,"type":"walker.look","x":780,"y":-700,"values":{"yaw":0.0,"pitch":8.0,"duration":0.4}},
+  {"id":16,"type":"flow.branch","x":1060,"y":-700},
+  {"id":17,"type":"walker.say","x":1300,"y":-700,"params":{"call":"chirp"}},
+  {"id":18,"type":"state.set","x":1540,"y":-700,"params":{"machine":"Play","state":"Approach"}},
+  {"id":20,"type":"math.compare","x":500,"y":-80,"params":{"op":"<"},"values":{"b":0.2}},
+  {"id":21,"type":"flow.branch","x":740,"y":-280},
+  {"id":22,"type":"state.set","x":1000,"y":-340,"params":{"machine":"Play","state":"Line Up"}},
+  {"id":23,"type":"flow.branch","x":1000,"y":-180},
+  {"id":24,"type":"var.set","x":1260,"y":-220,"params":{"variable":"Lost"},"values":{"value":0.0}},
+  {"id":25,"type":"math.abs","x":1260,"y":20},
+  {"id":26,"type":"math.compare","x":1460,"y":20,"params":{"op":"<"},"values":{"b":20.0}},
+  {"id":27,"type":"logic.select","x":1680,"y":20,"values":{"a":0.3,"b":0.05}},
+  {"id":28,"type":"math.mul","x":1460,"y":170,"values":{"b":1.5}},
+  {"id":29,"type":"math.clamp","x":1680,"y":170,"values":{"min":-57.0,"max":57.0}},
+  {"id":30,"type":"walker.move","x":1920,"y":-220,"values":{"forward":0.0,"strafe":0.0,"turn":0.0,"duration":0.4}},
+  {"id":31,"type":"math.clamp","x":1920,"y":170,"values":{"min":-70.0,"max":70.0}},
+  {"id":32,"type":"walker.look","x":2180,"y":-220,"values":{"yaw":0.0,"pitch":30.0,"duration":0.4}},
+  {"id":33,"type":"math.mul","x":1920,"y":320,"values":{"b":-25.0}},
+  {"id":34,"type":"math.add","x":2100,"y":320,"values":{"b":30.0}},
+  {"id":35,"type":"math.clamp","x":2280,"y":320,"values":{"min":5.0,"max":30.0}},
+  {"id":36,"type":"var.add","x":1260,"y":480,"params":{"variable":"Lost"},"values":{"amount":0.1}},
+  {"id":37,"type":"math.compare","x":1260,"y":640,"params":{"op":">"},"values":{"b":2.0}},
+  {"id":38,"type":"flow.branch","x":1500,"y":480},
+  {"id":39,"type":"walker.say","x":1740,"y":480,"params":{"call":"inquire"}},
+  {"id":40,"type":"state.set","x":1980,"y":480,"params":{"machine":"Play","state":"Search"}},
+  {"id":42,"type":"math.compare","x":500,"y":1350,"params":{"op":">"},"values":{"b":0.32}},
+  {"id":43,"type":"flow.branch","x":740,"y":1150},
+  {"id":44,"type":"state.set","x":1000,"y":1090,"params":{"machine":"Play","state":"Approach"}},
+  {"id":45,"type":"math.compare","x":740,"y":1480,"params":{"op":">"},"values":{"b":0.0}},
+  {"id":46,"type":"logic.select","x":980,"y":1480,"values":{"a":0.045,"b":-0.045}},
+  {"id":47,"type":"math.sub","x":1220,"y":1400,"values":{"b":0.09}},
+  {"id":48,"type":"math.sub","x":1220,"y":1550},
+  {"id":49,"type":"math.abs","x":1440,"y":1400},
+  {"id":50,"type":"math.abs","x":1440,"y":1550},
+  {"id":51,"type":"math.compare","x":1640,"y":1400,"params":{"op":"<"},"values":{"b":0.02}},
+  {"id":52,"type":"math.compare","x":1640,"y":1550,"params":{"op":"<"},"values":{"b":0.015}},
+  {"id":53,"type":"logic.and","x":1860,"y":1470},
+  {"id":54,"type":"flow.branch","x":1000,"y":1250},
+  {"id":55,"type":"state.set","x":1260,"y":1210,"params":{"machine":"Play","state":"Kick"}},
+  {"id":56,"type":"math.mul","x":1640,"y":1710,"values":{"b":6.0}},
+  {"id":57,"type":"math.clamp","x":1860,"y":1710,"values":{"min":-0.15,"max":0.15}},
+  {"id":58,"type":"math.mul","x":1640,"y":1850,"values":{"b":6.0}},
+  {"id":59,"type":"math.clamp","x":1860,"y":1850,"values":{"min":-0.18,"max":0.18}},
+  {"id":60,"type":"walker.move","x":2100,"y":1290,"values":{"forward":0.0,"strafe":0.0,"turn":0.0,"duration":0.3}},
+  {"id":61,"type":"walker.look","x":2360,"y":1290,"values":{"yaw":0.0,"pitch":55.0,"duration":0.3}},
+  {"id":63,"type":"event.state_enter","x":3100,"y":-700,"params":{"machine":"Play","state":"Kick"}},
+  {"id":64,"type":"walker.move","x":3340,"y":-700,"values":{"forward":0.0,"strafe":0.0,"turn":0.0,"duration":2.0}},
+  {"id":65,"type":"walker.look","x":3580,"y":-700,"values":{"yaw":0.0,"pitch":0.0,"duration":2.0}},
+  {"id":66,"type":"flow.delay","x":3820,"y":-700,"values":{"duration":1.1}},
+  {"id":67,"type":"flow.branch","x":4060,"y":-700},
+  {"id":68,"type":"math.compare","x":3820,"y":-540,"params":{"op":">"},"values":{"b":0.0}},
+  {"id":69,"type":"walker.skill","x":4320,"y":-760,"values":{"move":"kick_left"}},
+  {"id":70,"type":"walker.skill","x":4320,"y":-580,"values":{"move":"kick_right"}},
+  {"id":71,"type":"walker.say","x":4600,"y":-670,"params":{"call":"chirp"}},
+  {"id":73,"type":"event.state_enter","x":3100,"y":-100,"params":{"machine":"Play","state":"Watch"}},
+  {"id":74,"type":"walker.move","x":3360,"y":-100,"values":{"forward":0.0,"strafe":0.0,"turn":0.0,"duration":1.8}},
+  {"id":75,"type":"flow.delay","x":3620,"y":-100,"values":{"duration":1.6}},
+  {"id":76,"type":"math.compare","x":3620,"y":100,"params":{"op":">"},"values":{"b":0.5}},
+  {"id":77,"type":"math.random_bool","x":3620,"y":230,"values":{"chance":0.4}},
+  {"id":78,"type":"logic.and","x":3860,"y":140},
+  {"id":79,"type":"flow.branch","x":3880,"y":-100},
+  {"id":80,"type":"state.set","x":4140,"y":-160,"params":{"machine":"Play","state":"Celebrate"}},
+  {"id":81,"type":"flow.branch","x":4140,"y":20},
+  {"id":82,"type":"state.set","x":4400,"y":-40,"params":{"machine":"Play","state":"Approach"}},
+  {"id":83,"type":"state.set","x":4400,"y":100,"params":{"machine":"Play","state":"Search"}},
+  {"id":84,"type":"math.clamp","x":3360,"y":380,"values":{"min":-80.0,"max":80.0}},
+  {"id":85,"type":"walker.look","x":3620,"y":380,"values":{"yaw":0.0,"pitch":15.0,"duration":0.3}},
+  {"id":87,"type":"event.state_enter","x":3100,"y":800,"params":{"machine":"Play","state":"Celebrate"}},
+  {"id":88,"type":"walker.say","x":3360,"y":800,"params":{"call":"greet"}},
+  {"id":89,"type":"flow.delay","x":3600,"y":800,"values":{"duration":0.4}},
+  {"id":90,"type":"walker.skill","x":3840,"y":800,"values":{"move":"roulade"}},
+  {"id":91,"type":"flow.delay","x":4100,"y":800,"values":{"duration":2.5}},
+  {"id":92,"type":"state.set","x":4340,"y":800,"params":{"machine":"Play","state":"Search"}}
+],"links":[
+  [2,"distance",7,"a"],[1,"visible",8,"a"],[7,"result",8,"b"],[3,"fallen",10,"a"],[4,"busy",10,"b"],[9,"then",11,"exec"],
+  [10,"result",11,"condition"],[11,"false",12,"exec"],[5,"state",12,"selection"],[12,"case0",14,"exec"],[14,"then",15,"exec"],[15,"then",16,"exec"],
+  [8,"result",16,"condition"],[16,"true",17,"exec"],[17,"then",18,"exec"],[2,"distance",20,"a"],[12,"case1",21,"exec"],[20,"result",21,"condition"],
+  [21,"true",22,"exec"],[21,"false",23,"exec"],[8,"result",23,"condition"],[23,"true",24,"exec"],[2,"bearing",25,"a"],[25,"result",26,"a"],
+  [26,"result",27,"pick"],[2,"bearing",28,"a"],[28,"result",29,"value"],[24,"then",30,"exec"],[27,"result",30,"forward"],[29,"result",30,"turn"],
+  [2,"bearing",31,"value"],[30,"then",32,"exec"],[31,"result",32,"yaw"],[2,"distance",33,"a"],[33,"result",34,"a"],[34,"result",35,"value"],
+  [35,"result",32,"pitch"],[23,"false",36,"exec"],[36,"value",37,"a"],[36,"then",38,"exec"],[37,"result",38,"condition"],[38,"true",39,"exec"],
+  [39,"then",40,"exec"],[2,"distance",42,"a"],[12,"case2",43,"exec"],[42,"result",43,"condition"],[43,"true",44,"exec"],[2,"left",45,"a"],
+  [45,"result",46,"pick"],[2,"ahead",47,"a"],[2,"left",48,"a"],[46,"result",48,"b"],[47,"result",49,"a"],[48,"result",50,"a"],
+  [49,"result",51,"a"],[50,"result",52,"a"],[51,"result",53,"a"],[52,"result",53,"b"],[43,"false",54,"exec"],[53,"result",54,"condition"],
+  [54,"true",55,"exec"],[47,"result",56,"a"],[56,"result",57,"value"],[48,"result",58,"a"],[58,"result",59,"value"],[54,"false",60,"exec"],
+  [57,"result",60,"forward"],[59,"result",60,"strafe"],[60,"then",61,"exec"],[63,"then",64,"exec"],[64,"then",65,"exec"],[65,"then",66,"exec"],
+  [66,"completed",67,"exec"],[2,"left",68,"a"],[68,"result",67,"condition"],[67,"true",69,"exec"],[67,"false",70,"exec"],[69,"then",71,"exec"],
+  [70,"then",71,"exec"],[73,"then",74,"exec"],[74,"then",75,"exec"],[2,"distance",76,"a"],[76,"result",78,"a"],[77,"result",78,"b"],
+  [75,"completed",79,"exec"],[78,"result",79,"condition"],[79,"true",80,"exec"],[79,"false",81,"exec"],[8,"result",81,"condition"],[81,"true",82,"exec"],
+  [81,"false",83,"exec"],[2,"bearing",84,"value"],[12,"case3",85,"exec"],[84,"result",85,"yaw"],[87,"then",88,"exec"],[88,"then",89,"exec"],
+  [89,"completed",90,"exec"],[90,"then",91,"exec"],[91,"completed",92,"exec"]
+],"comments":[
+  {"id":6,"x":-940,"y":-90,"w":340,"h":1200,"text":"What the duck knows: its head camera (does it see the ball?), where the ball is from its body (real metres), whether it fell, whether one of its moves runs - and whether the ball is in play (seen, or right at its feet where the camera cannot see it)"},
+  {"id":13,"x":-460,"y":-90,"w":800,"h":360,"text":"Ten times a second: what to do in the state it is in. A fallen duck gets up by itself, a running move is left alone"},
+  {"id":19,"x":460,"y":-790,"w":1320,"h":320,"text":"Search: turn on the spot, the head nearly level (to see far across the room), until the camera sees the ball - then chirp and go for it"},
+  {"id":41,"x":460,"y":-430,"w":2000,"h":1180,"text":"Approach: walk to the ball, turning towards it (fast when it is straight ahead), the head on it (lower the nearer it is). Close enough: line up. Lost for 2 s: ask where it went and search"},
+  {"id":62,"x":460,"y":1000,"w":2140,"h":1000,"text":"Line Up: small steps forward and sideways until the ball lies where its kick networks kick it best - about 9 cm ahead, 4.5 cm to the side of the foot nearest to it. Drifted away: approach again"},
+  {"id":72,"x":3060,"y":-850,"w":1780,"h":420,"text":"Kick: stand still for a moment, head straight (the network starts from a standing pose, as in its training), then its own ball-kick network with the foot on the ball's side, and a chirp. After 2.6 s the state machine moves on to Watch"},
+  {"id":86,"x":3060,"y":-250,"w":1560,"h":760,"text":"Watch: stand and follow the ball with the head. After 1.6 s: a long kick is sometimes worth a roulade, else play on (or search if it is out of sight)"},
+  {"id":93,"x":3060,"y":710,"w":1520,"h":300,"text":"Celebrate: a greeting, a forward roll (its roulade network), then look for the ball again"}
+]})JSON";
+  for (std::size_t at; (at = text.find("BALL")) != std::string::npos;) text.replace(at, 4, std::to_string(ball_id));
   json::Value j;
   logic::Graph g;
   if (json::parse(text, j) && logic::graph_from_json(j, g)) l.logic = std::move(g);
