@@ -638,7 +638,7 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
     // Servo-driven robots are long joint chains: Box3D needs more sub-steps to keep them from
     // stretching (docs/physics.md section 3), and their controller its fixed step (docs/walker.md).
     if (actors[0].controller && actors[0].controller->mode == game::ControlMode::walker) {
-      if (l.world.substeps < 16) { l.world.substeps = 16; raised_substeps = true; }
+      if (l.world.substeps < game::kWalkerSubsteps) { l.world.substeps = game::kWalkerSubsteps; raised_substeps = true; }
       if (l.world.step_hz != game::kWalkerStepHz) { l.world.step_hz = game::kWalkerStepHz; raised_substeps = true; }
     }
     select({root});
@@ -647,7 +647,7 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
   if (root && actors[0].controller)
     report(actors[0].name + " is the player now - press Play (Alt+P) to control it", "info");
   if (raised_substeps)
-    report("Physics set to " + std::to_string(static_cast<int>(game::kWalkerStepHz)) + " Hz with 16 sub-steps for the robot (World Settings)", "info");
+    report("Physics set to " + std::to_string(static_cast<int>(game::kWalkerStepHz)) + " Hz with " + std::to_string(game::kWalkerSubsteps) + " sub-steps for the robot (World Settings)", "info");
   return root;
 }
 

@@ -11,6 +11,7 @@
 
 #include "kern/core/base.h"
 #include "kern/game/runtime.h"
+#include "kern/game/walker.h"
 
 namespace kern::train {
 
@@ -64,12 +65,22 @@ class Task {
     f32 encoder_bias = 0.015f;          // per joint and episode, uniform +-
     f32 push_every_min = 3, push_every_max = 6;  // real seconds
     f32 push = 0.3f;                    // real m/s, x and y uniform +-
+    // The build, per episode (game::vary_micro_duck): trunk mass and inertia, the trunk's and the
+    // head's centre of mass (real metres, uniform +- per axis; the curricula widen them), the
+    // servos' armature and joint friction.
+    f32 mass_min = 0.95f, mass_max = 1.05f;
+    f32 com = 0.003f, head_com = 0.003f;
+    f32 armature_min = 0.9f, armature_max = 1.1f;
+    f32 friction_min = 0.9f, friction_max = 1.1f;
+    // The IMU (gyro, gravity) arrives 0..imu_lag ticks late, re-drawn every imu_lag_period ticks.
+    i32 imu_lag = 1, imu_lag_period = 64;
   };
   Noise noise;
   bool randomize = true;  // off: the clean robot (evaluation)
   virtual Start reset(Rng& rng) = 0;
-  /// Writes the command slots 48..60 of the observation (the unified layout: twist, head, body).
-  virtual void command(f32 observation[kObs]) { for (i32 i = 48; i < kObs; ++i) observation[i] = 0; }
+  /// Writes the command slots 48..60 of the observation (the unified layout: twist, head, body) for
+  /// control tick `step` of the episode (0 = its first).
+  virtual void command(f32 observation[kObs], i32 step) { (void)step; for (i32 i = 48; i < kObs; ++i) observation[i] = 0; }
   virtual void privileged(const game::GameWorld::WalkerProbe& p, f32* out) { (void)p; (void)out; }
   /// The reward for the last tick; terminal when the episode failed (no value after it).
   virtual f32 reward(const Tick& t, bool& terminal) = 0;
@@ -106,7 +117,9 @@ class Env {
 /// by tick from outside: reset, then observation / step.
 class DuckEnv : public Env {
  public:
-  DuckEnv(std::unique_ptr<Task> task, u64 seed);
+  /// substeps: Box3D sub-steps per fixed step (the Studio runs game::kWalkerSubsteps; a trainer
+  /// may run fewer for speed, docs/training.md measures what that changes).
+  DuckEnv(std::unique_ptr<Task> task, u64 seed, i32 substeps = 0);
   ~DuckEnv();
   DuckEnv(const DuckEnv&) = delete;
   DuckEnv& operator=(const DuckEnv&) = delete;
@@ -141,8 +154,27 @@ class DuckEnv : public Env {
   f32 previous_action_[kActions] = {}, last_action_[kActions] = {};
   f32 bias_[kActions] = {};
   i32 next_push_ = 0;
+  f32 imu_[6] = {};            // the IMU part of the last observation (for the delay)
+  i32 imu_lag_ = 0, imu_lag_left_ = 0;
   std::vector<f32> obs_, critic_;
   game::GameWorld::WalkerProbe probe_;
 };
+
+}  // namespace kern::train
+
+namespace kern::train {
+
+/// How a policy jumps (Kern's jump task), on the clean robot in the Studio's physics: per episode the
+/// highest trunk above where it stood, the longest flight (nothing of it on the floor), whether it
+/// fell (or touched the floor with anything but its soles). A jump counts as real when it flew at
+/// least 60 ms, rose at least 15 mm, never fell and stands upright on both soles at the end.
+struct JumpReport {
+  i32 episodes = 0, jumps = 0, falls = 0;
+  f32 height_mm = 0, flight_s = 0;  // means over the episodes
+  f32 best_height_mm = 0, best_flight_s = 0;
+  f32 success() const { return episodes ? static_cast<f32>(jumps) / static_cast<f32>(episodes) : 0.0f; }
+};
+using ActFn = void (*)(void* user, const f32* observation, f32* action);
+JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 substeps = 0);
 
 }  // namespace kern::train

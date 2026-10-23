@@ -1,8 +1,11 @@
 // kern_train: trains a Micro Duck policy headless on all cores (docs/training.md).
 //
-//   kern/tools/train.sh                      builds build/kern_train (native, optimised)
-//   kern_train --task jump --envs 64 --iterations 2000 --out jump.onnx
-//   kern_train --eval jump.onnx --task jump  evaluates an exported network on the clean robot
+//   kern/tools/train.sh                      builds kern/build/kern_train (native, optimised)
+//   kern_train --task jump --iterations 600 --out jump.onnx
+//   kern_train --eval jump.onnx               the jump on the clean robot in the Studio's physics
+//
+// Long runs (on a server, say): --checkpoint run.ckpt saves the whole learner every --save-every
+// iterations; --resume run.ckpt carries on from it.
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -10,9 +13,12 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "kern/game/walker.h"
 #include "kern/game/walker_policy.h"
+#include "kern/train/backend.h"
 #include "kern/train/env.h"
 #include "kern/train/onnx_export.h"
 #include "kern/train/ppo.h"
@@ -23,9 +29,11 @@ using namespace kern::train;
 namespace {
 
 struct Options {
-  std::string task = "jump", out, eval, log;
-  i32 envs = 64, threads = 0, iterations = 1500, steps = 24, save_every = 50, episodes = 20;
-  f32 init_std = 1.0f, learning_rate = 1e-3f, entropy = 0.01f;
+  std::string task = "jump", out, eval, log, checkpoint, resume, warm = "velstand";
+  i32 envs = 0, threads = 0, iterations = 600, steps = 24, save_every = 25, episodes = 10;
+  i32 substeps = game::kWalkerSubsteps, eval_every = 10, stop_after_jump = 0;
+  f32 init_std = 0.3f, learning_rate = 1e-3f, entropy = 0.005f;
+  std::vector<i32> critic{256, 128};
   u64 seed = 1;
 };
 
@@ -36,10 +44,11 @@ std::unique_ptr<Task> make_task(const std::string& name) {
 }
 
 bool write_file(const std::string& path, const std::vector<u8>& bytes) {
-  FILE* f = std::fopen(path.c_str(), "wb");
+  const std::string tmp = path + ".tmp";
+  FILE* f = std::fopen(tmp.c_str(), "wb");
   if (!f) return false;
   const bool ok = std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
-  return std::fclose(f) == 0 && ok;
+  return std::fclose(f) == 0 && ok && std::rename(tmp.c_str(), path.c_str()) == 0;
 }
 
 std::vector<u8> read_file(const std::string& path) {
@@ -53,8 +62,14 @@ std::vector<u8> read_file(const std::string& path) {
   return out;
 }
 
-// What a jump looks like: per episode the highest trunk above standing, the time with both soles in
-// the air, whether it fell, and the return.
+void act_onnx(void* user, const f32* o, f32* a) { static_cast<const game::WalkerPolicy*>(user)->run(o, a); }
+void act_ppo(void* user, const f32* o, f32* a) { static_cast<const Ppo*>(user)->act(o, a); }
+
+void print_report(const char* what, const JumpReport& r) {
+  std::printf("%s: %d of %d episodes a real jump, trunk up %.1f mm (best %.1f), flight %.3f s (best %.3f), fell %d\n", what, r.jumps,
+              r.episodes, r.height_mm, r.best_height_mm, r.flight_s, r.best_flight_s, r.falls);
+}
+
 int evaluate(const Options& o) {
   game::WalkerPolicy p;
   std::string err;
@@ -63,33 +78,18 @@ int evaluate(const Options& o) {
     std::fprintf(stderr, "cannot read %s: %s\n", o.eval.c_str(), err.c_str());
     return 1;
   }
-  DuckEnv env(make_task(o.task), o.seed);
-  env.task().randomize = false;
-  f64 ret = 0, height = 0, air = 0, body = 0;
-  i32 falls = 0;
-  for (i32 e = 0; e < o.episodes; ++e) {
-    env.reset();
-    f32 best = 0, airborne = 0, touching = 0;
-    for (;;) {
-      f32 a[kActions];
-      p.run(env.observation(), a);
-      const Env::Step s = env.step(a);
-      const auto& pr = env.probe();
-      best = std::max(best, pr.position.z - 0.115f);
-      if (!pr.foot_contact[0] && !pr.foot_contact[1] && !pr.body_contact) airborne += kControlDt;
-      if (pr.body_contact) touching += kControlDt;
-      if (s.terminal) ++falls;
-      if (s.terminal || s.timeout) break;
-    }
-    ret += env.episode_return();
-    height += best;
-    air += airborne;
-    body += touching;
-  }
-  const f64 n = o.episodes;
-  std::printf("%s on %s: return %.2f, highest trunk +%.1f mm, in the air %.2f s, something other than the soles on the floor %.2f s, fell %d of %d\n",
-              o.eval.c_str(), o.task.c_str(), ret / n, height / n * 1000, air / n, body / n, falls, o.episodes);
+  print_report(o.eval.c_str(), evaluate_jump(act_onnx, &p, o.episodes, 1000, game::kWalkerSubsteps));
   return 0;
+}
+
+std::vector<i32> parse_dims(const char* s) {
+  std::vector<i32> out;
+  while (*s) {
+    out.push_back(std::atoi(s));
+    while (*s && *s != ',') ++s;
+    if (*s == ',') ++s;
+  }
+  return out;
 }
 
 }  // namespace
@@ -113,53 +113,109 @@ int main(int argc, char** argv) {
     else if (a == "--init-std") o.init_std = static_cast<f32>(std::atof(next()));
     else if (a == "--lr") o.learning_rate = static_cast<f32>(std::atof(next()));
     else if (a == "--entropy") o.entropy = static_cast<f32>(std::atof(next()));
+    else if (a == "--substeps") o.substeps = std::atoi(next());
+    else if (a == "--critic") o.critic = parse_dims(next());
+    else if (a == "--warm-start") o.warm = next();
+    else if (a == "--checkpoint") o.checkpoint = next();
+    else if (a == "--resume") o.resume = next();
+    else if (a == "--eval-every") o.eval_every = std::atoi(next());
+    else if (a == "--stop-after-jump") o.stop_after_jump = 1;
     else {
-      std::fprintf(stderr, "usage: kern_train [--task jump|stand] [--envs 64] [--threads N] [--iterations 1500] [--steps 24] [--seed 1] [--out task.onnx] [--log log.csv]\n"
-                           "                  [--init-std 1.0] [--lr 1e-3] [--entropy 0.01]\n"
-                           "       kern_train --eval policy.onnx [--task jump] [--episodes 20]\n");
+      std::fprintf(stderr,
+                   "usage: kern_train [--task jump|stand] [--envs N] [--threads N] [--iterations 600] [--steps 24] [--seed 1]\n"
+                   "                  [--out task.onnx] [--log log.csv] [--checkpoint run.ckpt] [--resume run.ckpt] [--save-every 25]\n"
+                   "                  [--warm-start velstand|none|file.onnx] [--init-std 0.3] [--lr 1e-3] [--entropy 0.005]\n"
+                   "                  [--critic 256,128] [--substeps 16] [--eval-every 10] [--stop-after-jump]\n"
+                   "       kern_train --eval policy.onnx [--episodes 10]\n");
       return 2;
     }
   }
   if (!make_task(o.task)) { std::fprintf(stderr, "unknown task %s\n", o.task.c_str()); return 2; }
   if (!o.eval.empty()) return evaluate(o);
   if (o.out.empty()) o.out = o.task + ".onnx";
+  const i32 threads = o.threads > 0 ? o.threads : max_of(1, static_cast<i32>(std::thread::hardware_concurrency()));
+  if (o.envs <= 0) o.envs = 16 * threads;
 
-  std::vector<std::unique_ptr<DuckEnv>> owned;
-  std::vector<Env*> envs;
-  for (i32 i = 0; i < o.envs; ++i) {
-    owned.push_back(std::make_unique<DuckEnv>(make_task(o.task), o.seed * 1000003ull + static_cast<u64>(i)));
-    owned.back()->reset();
-    envs.push_back(owned.back().get());
-  }
+  // The compute: this machine's threads, each stepping its own group of ducks (backend.h).
+  const i32 per_worker = max_of(1, o.envs / threads);
+  o.envs = per_worker * threads;
+  ThreadBackend backend(
+      threads, per_worker, o.seed,
+      [&](i32, i32 count, u64 seed) {
+        std::vector<std::unique_ptr<Env>> v;
+        for (i32 i = 0; i < count; ++i) v.push_back(std::make_unique<DuckEnv>(make_task(o.task), seed + static_cast<u64>(i), o.substeps));
+        return v;
+      },
+      [](Env& e, i32 it) {
+        auto& d = static_cast<DuckEnv&>(e);
+        d.task().progress(it);
+        d.push_scale = it < 300 ? 0.0f : it < 500 ? 0.27f : 1.0f;  // shoves come in once the move has formed (Pollen's kick)
+      });
+  DuckEnv probe_env(make_task(o.task), 1);
   PpoConfig cfg;
   cfg.steps_per_env = o.steps;
   cfg.seed = o.seed;
   cfg.init_std = o.init_std;
   cfg.learning_rate = o.learning_rate;
   cfg.entropy_coef = o.entropy;
-  Ppo ppo(cfg, envs[0]->obs_size(), envs[0]->critic_size(), envs[0]->action_size());
-  const ParallelFor pool = thread_pool(o.threads);
-  FILE* log = o.log.empty() ? nullptr : std::fopen(o.log.c_str(), "w");
-  if (log) std::fprintf(log, "iteration,steps,mean_reward,mean_return,mean_length,episodes,value_loss,surrogate_loss,entropy,mean_std,learning_rate,steps_per_second\n");
-  std::printf("training %s: %d envs, %d steps each per iteration, %d iterations\n", o.task.c_str(), o.envs, o.steps, o.iterations);
-  for (i32 it = 1; it <= o.iterations; ++it) {
-    // Curricula (Pollen's kick: pushes ramp in after the skill forms).
-    const f32 push = it < 500 ? 0.0f : it < 1000 ? 0.27f : 1.0f;
-    for (auto& e : owned) { e->task().progress(it); e->push_scale = push; }
-    const IterationStats s = ppo.iterate(envs, pool);
+  cfg.critic_hidden = o.critic;
+  cfg.learn_threads = threads;
+  Ppo ppo(cfg, probe_env.obs_size(), probe_env.critic_size(), probe_env.action_size());
+  // Warm start: the actor begins as Pollen's velstand network (it stands and balances); the jump's
+  // phase arrives in slots that network never used.
+  if (o.warm != "none" && o.resume.empty()) {
+    std::shared_ptr<const game::WalkerPolicy> w;
+    if (o.warm == "velstand") w = game::walker_policy("velstand.onnx");
+    else {
+      auto p = std::make_shared<game::WalkerPolicy>();
+      const std::vector<u8> bytes = read_file(o.warm);
+      if (!bytes.empty() && game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), *p)) w = p;
+    }
+    if (!w || !ppo.warm_start(w->dims, w->weights, w->biases, w->mean, w->div, {game::kJumpPhaseSlot, game::kJumpPhaseSlot + 1})) {
+      std::fprintf(stderr, "cannot warm-start from %s\n", o.warm.c_str());
+      return 1;
+    }
+  }
+  if (!o.resume.empty()) {
+    const std::vector<u8> bytes = read_file(o.resume);
+    if (bytes.empty() || !ppo.load(bytes.data(), bytes.size())) { std::fprintf(stderr, "cannot resume from %s\n", o.resume.c_str()); return 1; }
+    std::printf("resumed at iteration %d (%lld steps)\n", ppo.iteration(), static_cast<long long>(ppo.total_steps()));
+  }
+  FILE* log = o.log.empty() ? nullptr : std::fopen(o.log.c_str(), o.resume.empty() ? "w" : "a");
+  if (log && o.resume.empty())
+    std::fprintf(log, "iteration,steps,seconds,mean_reward,mean_return,mean_length,episodes,value_loss,entropy,mean_std,learning_rate,steps_per_second,jumps,height_mm,flight_s,falls\n");
+  std::printf("training %s: %d envs on %d threads, %d steps each per iteration, physics %d sub-steps, warm start %s\n", o.task.c_str(), o.envs,
+              threads, o.steps, o.substeps, o.resume.empty() ? o.warm.c_str() : "(resumed)");
+  const auto start = std::chrono::steady_clock::now();
+  bool jumped = false;
+  for (i32 it = ppo.iteration() + 1; it <= o.iterations; ++it) {
+    const IterationStats s = train_iteration(ppo, backend);
+    const f64 seconds = std::chrono::duration<f64>(std::chrono::steady_clock::now() - start).count();
     const f64 sps = static_cast<f64>(o.envs) * o.steps / (s.collect_seconds + s.learn_seconds);
-    std::printf("it %5d  return %8.3f  len %6.1f  reward/step %7.4f  value %8.4f  std %.3f  lr %.1e  %6.0f steps/s (collect %.2fs, learn %.2fs)\n",
-                s.iteration, s.mean_return, s.mean_length, s.mean_reward, s.value_loss, s.mean_std, s.learning_rate, sps, s.collect_seconds, s.learn_seconds);
+    JumpReport rep;
+    const bool evaluated = o.task == "jump" && o.eval_every > 0 && it % o.eval_every == 0;
+    if (evaluated) rep = evaluate_jump(act_ppo, &ppo, 5, 1000, game::kWalkerSubsteps);
+    std::printf("it %5d  %8.0f s  return %7.3f  len %5.1f  value %7.4f  std %.3f  lr %.1e  %5.0f steps/s (collect %.2fs, learn %.2fs)", s.iteration, seconds,
+                s.mean_return, s.mean_length, s.value_loss, s.mean_std, s.learning_rate, sps, s.collect_seconds, s.learn_seconds);
+    if (evaluated) std::printf("  | jumps %d/5 up %.1f mm flight %.2f s falls %d", rep.jumps, rep.height_mm, rep.flight_s, rep.falls);
+    std::printf("\n");
+    if (evaluated && rep.jumps >= 4 && !jumped) {
+      jumped = true;
+      std::printf("FIRST REAL JUMP at iteration %d: %lld steps, %.0f s (%d threads)\n", s.iteration, static_cast<long long>(s.steps), seconds, threads);
+      write_file(o.out, export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task)));
+    }
     std::fflush(stdout);
     if (log) {
-      std::fprintf(log, "%d,%lld,%g,%g,%g,%d,%g,%g,%g,%g,%g,%g\n", s.iteration, static_cast<long long>(s.steps), s.mean_reward, s.mean_return, s.mean_length, s.episodes,
-                   s.value_loss, s.surrogate_loss, s.entropy, s.mean_std, s.learning_rate, sps);
+      std::fprintf(log, "%d,%lld,%.1f,%g,%g,%g,%d,%g,%g,%g,%g,%.0f,%d,%.1f,%.3f,%d\n", s.iteration, static_cast<long long>(s.steps), seconds, s.mean_reward,
+                   s.mean_return, s.mean_length, s.episodes, s.value_loss, s.entropy, s.mean_std, s.learning_rate, sps, evaluated ? rep.jumps : -1,
+                   rep.height_mm, rep.flight_s, rep.falls);
       std::fflush(log);
     }
     if (it % o.save_every == 0 || it == o.iterations) {
-      if (!write_file(o.out, export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task))))
-        std::fprintf(stderr, "cannot write %s\n", o.out.c_str());
+      if (!jumped || !o.stop_after_jump) write_file(o.out, export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task)));
+      if (!o.checkpoint.empty()) write_file(o.checkpoint, ppo.save());
     }
+    if (jumped && o.stop_after_jump) break;
   }
   if (log) std::fclose(log);
   std::printf("wrote %s\n", o.out.c_str());

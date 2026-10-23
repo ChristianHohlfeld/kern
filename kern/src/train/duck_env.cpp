@@ -20,14 +20,14 @@ struct DuckEnv::Impl {
   ~Impl() { world.reset(); }
 };
 
-DuckEnv::DuckEnv(std::unique_ptr<Task> task, u64 seed) : impl_(std::make_unique<Impl>()), task_(std::move(task)), rng_(seed) {
+DuckEnv::DuckEnv(std::unique_ptr<Task> task, u64 seed, i32 substeps) : impl_(std::make_unique<Impl>()), task_(std::move(task)), rng_(seed) {
   game::Level& l = impl_->base;
   l.name = "Training";
   l.world.step_hz = game::kWalkerStepHz;
-  l.world.substeps = 16;
   l.world.ground = true;
   l.world.ground_friction = 1.0f;  // as the example level's floor
   duck_ = game::add_micro_duck(l, {0, 0, 0});
+  if (substeps > 0) l.world.substeps = substeps;
   l.find(duck_)->controller->autonomous = false;
   l.world.player = 0;
   max_steps_ = max_of(1, static_cast<i32>(std::lround(task_->episode_seconds() / kControlDt)));
@@ -53,6 +53,16 @@ void DuckEnv::reset() {
   for (game::Actor& a : l.actors)
     for (game::ColliderComponent& c : a.colliders)
       if (c.impact_sound == "builtin:plastic_step") c.friction *= s.foot_friction;  // the soles
+  const Task::Noise& n = task_->noise;
+  if (task_->randomize) {
+    game::DuckVariation v;
+    v.trunk_mass = rng_.uniform(n.mass_min, n.mass_max);
+    v.trunk_com = {rng_.uniform(-n.com, n.com), rng_.uniform(-n.com, n.com), rng_.uniform(-n.com, n.com)};
+    v.head_com = {rng_.uniform(-n.head_com, n.head_com), rng_.uniform(-n.head_com, n.head_com), rng_.uniform(-n.head_com, n.head_com)};
+    v.armature = rng_.uniform(n.armature_min, n.armature_max);
+    v.joint_friction = rng_.uniform(n.friction_min, n.friction_max);
+    game::vary_micro_duck(l, duck_, v);
+  }
   game::GameWorld& w = *impl_->world;
   w.start(l, game::SimMode::simulate);
   w.set_walker_external(duck_, true);
@@ -60,7 +70,7 @@ void DuckEnv::reset() {
   return_ = 0;
   std::memset(previous_action_, 0, sizeof previous_action_);
   std::memset(last_action_, 0, sizeof last_action_);
-  const Task::Noise& n = task_->noise;
+  imu_lag_ = imu_lag_left_ = 0;
   for (f32& b : bias_) b = task_->randomize ? rng_.uniform(-n.encoder_bias, n.encoder_bias) : 0.0f;
   next_push_ = push_interval();
   w.walker_probe(duck_, probe_);
@@ -70,12 +80,21 @@ void DuckEnv::reset() {
 void DuckEnv::observe() {
   game::GameWorld& w = *impl_->world;
   w.walker_observation(duck_, obs_.data());
-  task_->command(obs_.data());
+  task_->command(obs_.data(), step_);
   // The critic sees the clean state; the actor what the robot's sensors give (noise, bias).
   std::memcpy(critic_.data(), obs_.data(), sizeof(f32) * kObs);
   if (task_->privileged()) task_->privileged(probe_, critic_.data() + kObs);
   if (task_->randomize) {
     const Task::Noise& n = task_->noise;
+    // The IMU's latency: this tick's reading or the last one (re-drawn every imu_lag_period ticks).
+    if (--imu_lag_left_ <= 0) {
+      imu_lag_ = n.imu_lag > 0 ? static_cast<i32>(rng_.next() % static_cast<u64>(n.imu_lag + 1)) : 0;
+      imu_lag_left_ = max_of(1, n.imu_lag_period);
+    }
+    f32 now[6];
+    std::memcpy(now, obs_.data(), sizeof now);
+    if (imu_lag_ > 0 && step_ > 0) std::memcpy(obs_.data(), imu_, sizeof imu_);
+    std::memcpy(imu_, now, sizeof imu_);
     for (i32 i = 0; i < 3; ++i) obs_[static_cast<std::size_t>(i)] += rng_.uniform(-n.gyro, n.gyro);
     for (i32 i = 3; i < 6; ++i) obs_[static_cast<std::size_t>(i)] += rng_.uniform(-n.gravity, n.gravity);
     for (i32 j = 0; j < kActions; ++j) {

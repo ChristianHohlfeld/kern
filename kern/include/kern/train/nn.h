@@ -56,6 +56,10 @@ class Adam {
   struct Block { f32* params; f32* grad; std::size_t size; };
   void step(std::initializer_list<Block> blocks);
   void reset() { m_.clear(); v_.clear(); t_ = 0; }
+  // The moments and the step count (checkpoints).
+  std::vector<f32>& m() { return m_; }
+  std::vector<f32>& v() { return v_; }
+  i64& t() { return t_; }
 
  private:
   std::vector<f32> m_, v_;

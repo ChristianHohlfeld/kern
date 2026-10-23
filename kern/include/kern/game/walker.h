@@ -12,6 +12,9 @@ namespace kern::game {
 /// physics / 50 Hz control in real size; Kern builds it 4x larger (time runs 2x slower), so 100 Hz
 /// and a policy step every 4 physics steps reproduce the training timing exactly.
 constexpr f32 kWalkerStepHz = 100;
+/// Box3D sub-steps per fixed step for a walker: its servo chains need more than the default to keep
+/// the joints from stretching (docs/physics.md section 3, docs/walker.md section 3).
+constexpr i32 kWalkerSubsteps = 16;
 /// The Micro Duck is built this many times its real size (Box3D's size range, docs/walker.md).
 constexpr f32 kWalkerScale = 4;
 
@@ -23,6 +26,22 @@ std::vector<Actor> micro_duck_actors(bool rollers = false);
 /// Adds a Micro Duck to `level` standing at `at` (its trunk on the floor plane at z = 0 when at.z is
 /// 0) and sets the level's step rate for it; returns the trunk's id.
 ActorId add_micro_duck(Level& level, Vec3 at, bool rollers = false);
+/// Kern's jump (trained in Kern, docs/training.md): one jump in kJumpSeconds. Its network sees the
+/// move's phase t / kJumpSeconds as cos and sin in observation slots kJumpPhaseSlot and the next (the
+/// body command's x and y, which Pollen's networks never use); the rest of the command is 0.
+constexpr f32 kJumpSeconds = 2.0f;
+constexpr i32 kJumpPhaseSlot = 55;
+
+/// A variation of the Micro Duck's build for training (domain randomisation as in Pollen's recipes):
+/// trunk mass and inertia scaled together, the trunk's and the head's centre of mass moved (real
+/// metres), the servos' rotor inertia (armature) and joint friction scaled.
+struct DuckVariation {
+  f32 trunk_mass = 1;
+  Vec3 trunk_com, head_com;
+  f32 armature = 1, joint_friction = 1;
+};
+/// Applies `v` to the duck whose trunk is `trunk` in `level` (as add_micro_duck laid it out).
+void vary_micro_duck(Level& level, ActorId trunk, const DuckVariation& v);
 /// A crumpled sock for the duck to pick up (seven lumps of fabric on soft springs, tagged "sock"),
 /// in the same convention.
 std::vector<Actor> micro_duck_sock_actors();

@@ -215,6 +215,7 @@ Ppo::Ppo(const PpoConfig& config, i32 obs_size, i32 critic_size, i32 action_size
 }
 
 IterationStats Ppo::iterate(std::vector<Env*>& envs, const ParallelFor& parallel) {
+  if (parallel) parallel_ = parallel;
   collector_.collect(envs, cfg_.steps_per_env, policy_, local_, parallel);
   return learn({&local_});
 }
@@ -243,7 +244,7 @@ IterationStats Ppo::learn(const std::vector<const Rollout*>& rollouts) {
   // The normalisers learn from what was observed (rsl_rl updates them step by step while collecting;
   // collectors elsewhere keep the policy fixed for a rollout, so the learner does it here).
   for (const Rollout* r : rollouts) {
-    policy_.normalizer.update(r->observation.data(), r->envs * r->steps);
+    if (!cfg_.freeze_actor_normalizer) policy_.normalizer.update(r->observation.data(), r->envs * r->steps);
     critic_norm_.update(r->critic_obs.data(), r->envs * r->steps);
   }
   // Gather every row; evaluate the old policy and the values under today's normalisers.
@@ -334,34 +335,58 @@ void Ppo::update(IterationStats& stats) {
   for (std::size_t k = rows - 1; k > 0; --k) std::swap(perm[k], perm[rng_.next() % (k + 1)]);
   const std::vector<f32> old_std = policy_.stddev;
   const i32 A = act_;
-  std::vector<f32> xa(size * static_cast<std::size_t>(obs_)), xc(size * static_cast<std::size_t>(crit_)), ro(xa.size()), rc(xc.size());
-  std::vector<f32> mu(size * static_cast<std::size_t>(A)), value(size), dmu(mu.size()), dv(size), dstd(static_cast<std::size_t>(A));
-  std::vector<f32> gactor(policy_.actor.params().size()), gcritic(critic_.params().size());
-  Mlp::Cache ca, cc;
+  // A minibatch is cut into chunks that run on the learner's threads; their gradients add up.
+  const i32 chunks = static_cast<i32>(std::min(static_cast<std::size_t>(max_of(1, cfg_.learn_threads)), size));
+  struct Chunk {
+    std::size_t lo = 0, n = 0;
+    std::vector<f32> ro, rc, xa, xc, mu, value, dmu, dv, dstd, gactor, gcritic;
+    Mlp::Cache ca, cc;
+    f64 sloss = 0, vloss = 0;
+  };
+  std::vector<Chunk> part(static_cast<std::size_t>(chunks));
+  for (i32 c = 0; c < chunks; ++c) {
+    Chunk& k = part[static_cast<std::size_t>(c)];
+    k.lo = size * static_cast<std::size_t>(c) / static_cast<std::size_t>(chunks);
+    k.n = size * static_cast<std::size_t>(c + 1) / static_cast<std::size_t>(chunks) - k.lo;
+    k.ro.resize(k.n * obs_); k.xa.resize(k.ro.size());
+    k.rc.resize(k.n * crit_); k.xc.resize(k.rc.size());
+    k.mu.resize(k.n * A); k.dmu.resize(k.mu.size());
+    k.value.resize(k.n); k.dv.resize(k.n);
+    k.dstd.resize(static_cast<std::size_t>(A));
+    k.gactor.resize(policy_.actor.params().size());
+    k.gcritic.resize(critic_.params().size());
+  }
+  const ParallelFor run = parallel_ ? parallel_ : thread_pool(1);
+  const f32 inv = 1.0f / static_cast<f32>(size);
   f64 vloss_sum = 0, sloss_sum = 0, ent_sum = 0;
   i32 updates = 0;
   for (i32 epoch = 0; epoch < cfg_.epochs; ++epoch) {
     for (i32 b = 0; b < mb; ++b) {
-      for (std::size_t k = 0; k < size; ++k) {
-        const std::size_t row = perm[static_cast<std::size_t>(b) * size + k];
-        std::memcpy(ro.data() + k * obs_, obs_buf_.data() + row * obs_, sizeof(f32) * static_cast<std::size_t>(obs_));
-        std::memcpy(rc.data() + k * crit_, crit_buf_.data() + row * crit_, sizeof(f32) * static_cast<std::size_t>(crit_));
-      }
-      policy_.normalizer.apply(ro.data(), static_cast<i32>(size), xa.data());
-      critic_norm_.apply(rc.data(), static_cast<i32>(size), xc.data());
-      policy_.actor.forward(xa.data(), static_cast<i32>(size), mu.data(), &ca);
-      critic_.forward(xc.data(), static_cast<i32>(size), value.data(), &cc);
+      const u32* rows_of = perm.data() + static_cast<std::size_t>(b) * size;
+      run(chunks, [&](i32 c) {
+        Chunk& k = part[static_cast<std::size_t>(c)];
+        for (std::size_t r = 0; r < k.n; ++r) {
+          const std::size_t row = rows_of[k.lo + r];
+          std::memcpy(k.ro.data() + r * obs_, obs_buf_.data() + row * obs_, sizeof(f32) * static_cast<std::size_t>(obs_));
+          std::memcpy(k.rc.data() + r * crit_, crit_buf_.data() + row * crit_, sizeof(f32) * static_cast<std::size_t>(crit_));
+        }
+        policy_.normalizer.apply(k.ro.data(), static_cast<i32>(k.n), k.xa.data());
+        critic_norm_.apply(k.rc.data(), static_cast<i32>(k.n), k.xc.data());
+        policy_.actor.forward(k.xa.data(), static_cast<i32>(k.n), k.mu.data(), &k.ca);
+        critic_.forward(k.xc.data(), static_cast<i32>(k.n), k.value.data(), &k.cc);
+      });
       // Adaptive learning rate from the KL divergence between the old and the new policy.
       if (cfg_.adaptive_lr && cfg_.desired_kl > 0) {
         f64 kl = 0;
-        for (std::size_t k = 0; k < size; ++k) {
-          const std::size_t row = perm[static_cast<std::size_t>(b) * size + k];
-          for (i32 j = 0; j < A; ++j) {
-            const f32 s0 = old_std[static_cast<std::size_t>(j)], s1 = policy_.stddev[static_cast<std::size_t>(j)];
-            const f32 d = mu_buf_[row * A + j] - mu[k * A + j];
-            kl += std::log(s1 / s0) + (s0 * s0 + d * d) / (2 * s1 * s1) - 0.5f;
+        for (const Chunk& k : part)
+          for (std::size_t r = 0; r < k.n; ++r) {
+            const std::size_t row = rows_of[k.lo + r];
+            for (i32 j = 0; j < A; ++j) {
+              const f32 s0 = old_std[static_cast<std::size_t>(j)], s1 = policy_.stddev[static_cast<std::size_t>(j)];
+              const f32 d = mu_buf_[row * A + j] - k.mu[r * A + j];
+              kl += std::log(s1 / s0) + (s0 * s0 + d * d) / (2 * s1 * s1) - 0.5f;
+            }
           }
-        }
         kl /= static_cast<f64>(size);
 #ifdef KERN_PPO_DEBUG
         std::fprintf(stderr, "    epoch %d mb %d kl %.5f lr %.2e\n", epoch, b, kl, lr_);
@@ -370,46 +395,58 @@ void Ppo::update(IterationStats& stats) {
         else if (kl < cfg_.desired_kl / 2.0 && kl > 0.0) lr_ = min_of(1e-2f, lr_ * 1.5f);
         actor_adam_.lr = critic_adam_.lr = lr_;
       }
-      std::fill(dstd.begin(), dstd.end(), 0.0f);
-      f64 sloss = 0, vloss = 0;
-      const f32 inv = 1.0f / static_cast<f32>(size);
-      for (std::size_t k = 0; k < size; ++k) {
-        const std::size_t row = perm[static_cast<std::size_t>(b) * size + k];
-        f32 logp = 0;
-        for (i32 j = 0; j < A; ++j) {
-          const f32 s = policy_.stddev[static_cast<std::size_t>(j)], d = act_buf_[row * A + j] - mu[k * A + j];
-          logp += -0.5f * d * d / (s * s) - std::log(s) - 0.5f * kLog2Pi;
+      run(chunks, [&](i32 c) {
+        Chunk& k = part[static_cast<std::size_t>(c)];
+        std::fill(k.dstd.begin(), k.dstd.end(), 0.0f);
+        k.sloss = k.vloss = 0;
+        for (std::size_t r = 0; r < k.n; ++r) {
+          const std::size_t row = rows_of[k.lo + r];
+          f32 logp = 0;
+          for (i32 j = 0; j < A; ++j) {
+            const f32 sd = policy_.stddev[static_cast<std::size_t>(j)], d = act_buf_[row * A + j] - k.mu[r * A + j];
+            logp += -0.5f * d * d / (sd * sd) - std::log(sd) - 0.5f * kLog2Pi;
+          }
+          const f32 adv = adv_buf_[row];
+          const f32 ratio = std::exp(clamp(logp - logp_buf_[row], -20.0f, 20.0f));
+          const f32 s1 = -adv * ratio, s2 = -adv * clamp(ratio, 1 - cfg_.clip, 1 + cfg_.clip);
+          k.sloss += max_of(s1, s2);
+          const f32 g = s1 >= s2 ? -adv * ratio * inv : 0.0f;  // d(loss)/d(logp)
+          for (i32 j = 0; j < A; ++j) {
+            const f32 sd = policy_.stddev[static_cast<std::size_t>(j)], d = act_buf_[row * A + j] - k.mu[r * A + j];
+            k.dmu[r * A + j] = g * d / (sd * sd);
+            k.dstd[static_cast<std::size_t>(j)] += g * (d * d / (sd * sd * sd) - 1 / sd);
+          }
+          // Value loss (clipped around the value at collection).
+          const f32 v = k.value[r], v0 = value_buf_[row], R = return_buf_[row];
+          const f32 vc = v0 + clamp(v - v0, -cfg_.clip, cfg_.clip);
+          const f32 l1 = (v - R) * (v - R), l2 = (vc - R) * (vc - R);
+          if (!cfg_.clipped_value_loss || l1 >= l2) { k.vloss += l1; k.dv[r] = cfg_.value_coef * 2 * (v - R) * inv; }
+          else { k.vloss += l2; k.dv[r] = std::fabs(v - v0) < cfg_.clip ? cfg_.value_coef * 2 * (vc - R) * inv : 0.0f; }
         }
-        const f32 adv = adv_buf_[row];
-        const f32 ratio = std::exp(clamp(logp - logp_buf_[row], -20.0f, 20.0f));
-        const f32 s1 = -adv * ratio, s2 = -adv * clamp(ratio, 1 - cfg_.clip, 1 + cfg_.clip);
-        sloss += max_of(s1, s2);
-        const f32 g = s1 >= s2 ? -adv * ratio * inv : 0.0f;  // d(loss)/d(logp)
-        for (i32 j = 0; j < A; ++j) {
-          const f32 s = policy_.stddev[static_cast<std::size_t>(j)], d = act_buf_[row * A + j] - mu[k * A + j];
-          dmu[k * A + j] = g * d / (s * s);
-          dstd[static_cast<std::size_t>(j)] += g * (d * d / (s * s * s) - 1 / s);
-        }
-        // Value loss (clipped around the value at collection).
-        const f32 v = value[k], v0 = value_buf_[row], R = return_buf_[row];
-        const f32 vc = v0 + clamp(v - v0, -cfg_.clip, cfg_.clip);
-        const f32 l1 = (v - R) * (v - R), l2 = (vc - R) * (vc - R);
-        if (!cfg_.clipped_value_loss || l1 >= l2) { vloss += l1; dv[k] = cfg_.value_coef * 2 * (v - R) * inv; }
-        else { vloss += l2; dv[k] = std::fabs(v - v0) < cfg_.clip ? cfg_.value_coef * 2 * (vc - R) * inv : 0.0f; }
+        std::fill(k.gactor.begin(), k.gactor.end(), 0.0f);
+        std::fill(k.gcritic.begin(), k.gcritic.end(), 0.0f);
+        policy_.actor.backward(k.ca, k.dmu.data(), k.gactor.data());
+        critic_.backward(k.cc, k.dv.data(), k.gcritic.data());
+      });
+      Chunk& first = part[0];
+      f64 sloss = first.sloss, vloss = first.vloss;
+      for (std::size_t c = 1; c < part.size(); ++c) {
+        const Chunk& k = part[c];
+        for (std::size_t i = 0; i < first.gactor.size(); ++i) first.gactor[i] += k.gactor[i];
+        for (std::size_t i = 0; i < first.gcritic.size(); ++i) first.gcritic[i] += k.gcritic[i];
+        for (i32 j = 0; j < A; ++j) first.dstd[static_cast<std::size_t>(j)] += k.dstd[static_cast<std::size_t>(j)];
+        sloss += k.sloss;
+        vloss += k.vloss;
       }
       // Entropy bonus: sum over actions of 0.5 + 0.5 log(2 pi) + log(std), the same for every sample.
       f32 entropy = 0;
       for (i32 j = 0; j < A; ++j) {
         entropy += 0.5f + 0.5f * kLog2Pi + std::log(policy_.stddev[static_cast<std::size_t>(j)]);
-        dstd[static_cast<std::size_t>(j)] += -cfg_.entropy_coef / policy_.stddev[static_cast<std::size_t>(j)];
+        first.dstd[static_cast<std::size_t>(j)] += -cfg_.entropy_coef / policy_.stddev[static_cast<std::size_t>(j)];
       }
-      std::fill(gactor.begin(), gactor.end(), 0.0f);
-      std::fill(gcritic.begin(), gcritic.end(), 0.0f);
-      policy_.actor.backward(ca, dmu.data(), gactor.data());
-      critic_.backward(cc, dv.data(), gcritic.data());
-      actor_adam_.step({Adam::Block{policy_.actor.params().data(), gactor.data(), gactor.size()}, Adam::Block{policy_.stddev.data(), dstd.data(), dstd.size()}});
-      critic_adam_.step({Adam::Block{critic_.params().data(), gcritic.data(), gcritic.size()}});
-      for (f32& s : policy_.stddev) s = max_of(kMinStd, s);
+      actor_adam_.step({Adam::Block{policy_.actor.params().data(), first.gactor.data(), first.gactor.size()}, Adam::Block{policy_.stddev.data(), first.dstd.data(), first.dstd.size()}});
+      critic_adam_.step({Adam::Block{critic_.params().data(), first.gcritic.data(), first.gcritic.size()}});
+      for (f32& sd : policy_.stddev) sd = max_of(kMinStd, sd);
       sloss_sum += sloss / static_cast<f64>(size);
       vloss_sum += vloss / static_cast<f64>(size);
       ent_sum += entropy;
@@ -421,6 +458,102 @@ void Ppo::update(IterationStats& stats) {
     stats.value_loss = static_cast<f32>(vloss_sum / updates);
     stats.entropy = static_cast<f32>(ent_sum / updates);
   }
+}
+
+bool Ppo::warm_start(const std::vector<i32>& dims, const std::vector<std::vector<f32>>& weights, const std::vector<std::vector<f32>>& biases,
+                     const std::vector<f32>& mean, const std::vector<f32>& div, const std::vector<i32>& new_inputs) {
+  Mlp& a = policy_.actor;
+  if (dims != a.dims() || weights.size() != static_cast<std::size_t>(a.layers()) || mean.size() != div.size() ||
+      mean.size() != static_cast<std::size_t>(a.inputs()))
+    return false;
+  for (i32 l = 0; l < a.layers(); ++l) {
+    const i32 in = dims[static_cast<std::size_t>(l)], out = dims[static_cast<std::size_t>(l) + 1];
+    const std::vector<f32>& w = weights[static_cast<std::size_t>(l)];  // [out][in] (ONNX Gemm transB)
+    if (w.size() != static_cast<std::size_t>(in) * static_cast<std::size_t>(out) || biases[static_cast<std::size_t>(l)].size() != static_cast<std::size_t>(out)) return false;
+    f32* dst = a.weight(l);
+    for (i32 o = 0; o < out; ++o)
+      for (i32 i = 0; i < in; ++i) dst[static_cast<std::size_t>(i) * out + o] = w[static_cast<std::size_t>(o) * in + i];
+    std::copy(biases[static_cast<std::size_t>(l)].begin(), biases[static_cast<std::size_t>(l)].end(), a.bias(l));
+  }
+  // The normaliser it was trained with: y = (x - mean) / div, div = std + 0.01.
+  std::vector<f32> m = mean, var(div.size());
+  for (std::size_t i = 0; i < div.size(); ++i) var[i] = (div[i] - 0.01f) * (div[i] - 0.01f);
+  for (i32 i : new_inputs) {
+    if (i < 0 || i >= a.inputs()) return false;
+    m[static_cast<std::size_t>(i)] = 0;
+    var[static_cast<std::size_t>(i)] = 0.99f * 0.99f;  // div 1
+    f32* row = a.weight(0) + static_cast<std::size_t>(i) * static_cast<std::size_t>(dims[1]);
+    std::fill(row, row + dims[1], 0.0f);
+  }
+  policy_.normalizer.set(std::move(m), std::move(var), 1e9);
+  cfg_.freeze_actor_normalizer = true;
+  return true;
+}
+
+namespace {
+template <typename T>
+void put_all(std::vector<u8>& out, const std::vector<T>& v) {
+  const u64 n = v.size();
+  out.insert(out.end(), reinterpret_cast<const u8*>(&n), reinterpret_cast<const u8*>(&n) + 8);
+  out.insert(out.end(), reinterpret_cast<const u8*>(v.data()), reinterpret_cast<const u8*>(v.data()) + n * sizeof(T));
+}
+template <typename T>
+bool get_all(const u8* d, std::size_t size, std::size_t& at, std::vector<T>& v, std::size_t expect = ~std::size_t{0}) {
+  if (at + 8 > size) return false;
+  u64 n;
+  std::memcpy(&n, d + at, 8);
+  at += 8;
+  if (n > (size - at) / sizeof(T) || (expect != ~std::size_t{0} && n != expect)) return false;
+  v.resize(static_cast<std::size_t>(n));
+  if (n) std::memcpy(v.data(), d + at, static_cast<std::size_t>(n) * sizeof(T));
+  at += static_cast<std::size_t>(n) * sizeof(T);
+  return true;
+}
+}  // namespace
+
+std::vector<u8> Ppo::save() const {
+  std::vector<u8> out;
+  const char magic[8] = {'K', 'E', 'R', 'N', 'P', 'P', 'O', '1'};
+  out.insert(out.end(), magic, magic + 8);
+  put_all(out, std::vector<f64>{static_cast<f64>(iteration_), static_cast<f64>(total_steps_), lr_, cfg_.freeze_actor_normalizer ? 1.0 : 0.0});
+  put_all(out, policy_.serialize());
+  put_all(out, critic_.params());
+  put_all(out, critic_norm_.mean());
+  put_all(out, critic_norm_.variance());
+  put_all(out, std::vector<f64>{critic_norm_.count()});
+  Ppo& self = const_cast<Ppo&>(*this);
+  for (Adam* a : {&self.actor_adam_, &self.critic_adam_}) {
+    put_all(out, a->m());
+    put_all(out, a->v());
+    put_all(out, std::vector<f64>{static_cast<f64>(a->t())});
+  }
+  return out;
+}
+
+bool Ppo::load(const u8* d, std::size_t size) {
+  if (size < 8 || std::memcmp(d, "KERNPPO1", 8) != 0) return false;
+  std::size_t at = 8;
+  std::vector<f64> head, count;
+  std::vector<f32> pol, cp, cm, cv;
+  if (!get_all(d, size, at, head) || head.size() != 4 || !get_all(d, size, at, pol) || !get_all(d, size, at, cp, critic_.params().size()) ||
+      !get_all(d, size, at, cm) || !get_all(d, size, at, cv) || !get_all(d, size, at, count) || count.size() != 1)
+    return false;
+  Policy p = policy_;
+  if (!p.deserialize(pol.data(), pol.size()) || p.actor.dims() != policy_.actor.dims()) return false;
+  for (Adam* a : {&actor_adam_, &critic_adam_}) {
+    std::vector<f64> t;
+    if (!get_all(d, size, at, a->m()) || !get_all(d, size, at, a->v()) || !get_all(d, size, at, t) || t.size() != 1) return false;
+    a->t() = static_cast<i64>(t[0]);
+  }
+  policy_ = std::move(p);
+  critic_.params() = std::move(cp);
+  critic_norm_.set(std::move(cm), std::move(cv), count[0]);
+  iteration_ = static_cast<i32>(head[0]);
+  total_steps_ = static_cast<i64>(head[1]);
+  lr_ = static_cast<f32>(head[2]);
+  cfg_.freeze_actor_normalizer = head[3] != 0;
+  actor_adam_.lr = critic_adam_.lr = lr_;
+  return true;
 }
 
 }  // namespace kern::train

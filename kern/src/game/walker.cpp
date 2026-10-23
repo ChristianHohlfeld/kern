@@ -173,8 +173,29 @@ ActorId add_micro_duck(Level& l, Vec3 at, bool rollers) {
     l.add(std::move(a));
   }
   l.world.step_hz = kWalkerStepHz;
-  l.world.substeps = 16;
+  l.world.substeps = kWalkerSubsteps;
   return base;
+}
+
+void vary_micro_duck(Level& level, ActorId trunk, const DuckVariation& v) {
+  const f32 S = kDuckScale, S5 = S * S * S * S * S;
+  for (i32 i = 0; i < kLinkCount; ++i) {
+    Actor* a = level.find(trunk + static_cast<ActorId>(i));
+    if (!a || !a->body) continue;
+    if (i == 0) {
+      a->body->mass *= v.trunk_mass;
+      for (f32& k : a->body->inertia) k *= v.trunk_mass;
+      a->body->center_of_mass = a->body->center_of_mass + v.trunk_com * S;
+    }
+    if (i == 9) a->body->center_of_mass = a->body->center_of_mass + v.head_com * S;  // the head (head_roll)
+    if (i > 0 && kArmature > 0 && v.armature != 1) {
+      const Vec3 ax = kDuckLinks[i].axis;  // the rotor disc as built in micro_duck_actors, scaled
+      const f32 add[6] = {1 + ax.x * ax.x, 1 + ax.y * ax.y, 1 + ax.z * ax.z, ax.x * ax.y, ax.x * ax.z, ax.y * ax.z};
+      for (int k = 0; k < 6; ++k) a->body->inertia[k] += 0.5f * kArmature * (v.armature - 1) * add[k] * S5;
+    }
+    for (JointComponent& j : a->joints)
+      if (j.servo) j.servo_friction *= v.joint_friction;
+  }
 }
 
 std::vector<Actor> micro_duck_sock_actors() {
@@ -445,6 +466,8 @@ struct SkillDef {
   f32 command[3] = {0, 0, 0}, unwind[3] = {0, 0, 0};
   f32 unwind_s = 0;
   f32 action_scale = -1;  // < 0: the gait's
+  i32 phase_slot = -1;    // >= 0: the network sees the move's phase as cos / sin in this slot and the next
+  f32 period = 0;         // seconds per phase cycle
 };
 struct PhaseDef {
   std::string file;
@@ -498,8 +521,10 @@ const PolicySet& policy_set() {
     SkillDef jump;
     jump.name = "jump";
     jump.file = "jump.onnx";
-    jump.duration = 2.5f;
+    jump.duration = kJumpSeconds;
     jump.action_scale = 1.0f;
+    jump.phase_slot = kJumpPhaseSlot;
+    jump.period = kJumpSeconds;
     out.skills.push_back(std::move(jump));
     return out;
   }();
@@ -1067,6 +1092,11 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     const f32* c = w.skill_unwinding ? d.unwind : d.command;
     for (int i = 0; i < 3; ++i) obs[48 + i] = c[i];
     for (int i = 51; i < 61; ++i) obs[i] = 0;  // head and body zero-padded, as trained
+    if (d.phase_slot >= 0 && d.period > 0) {  // a phase-encoded move (Kern's jump): its clock, as trained
+      const f32 a = 2 * 3.14159265f * (d.duration - w.skill_remaining) / d.period;
+      obs[d.phase_slot] = std::cos(a);
+      obs[d.phase_slot + 1] = std::sin(a);
+    }
     net = walker_policy(d.file);
     if (d.action_scale >= 0) scale = d.action_scale;
     w.driving = w.skill_unwinding ? d.name + ":unwind" : d.name;

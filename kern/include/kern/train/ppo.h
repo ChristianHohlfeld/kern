@@ -27,6 +27,10 @@ struct PpoConfig {
   f32 value_coef = 1.0f, entropy_coef = 0.01f;
   f32 learning_rate = 1e-3f, desired_kl = 0.01f, max_grad_norm = 1.0f;
   bool adaptive_lr = true, clipped_value_loss = true;
+  /// A warm-started actor keeps the normaliser its weights were trained with (see warm_start).
+  bool freeze_actor_normalizer = false;
+  /// Threads the update's minibatches are cut across (the ParallelFor of iterate / set_parallel).
+  i32 learn_threads = 1;
   u64 seed = 1;
 };
 
@@ -92,6 +96,18 @@ class Ppo {
   IterationStats iterate(std::vector<Env*>& envs, const ParallelFor& parallel = {});
   /// Learn from rollouts collected elsewhere with the current policy().
   IterationStats learn(const std::vector<const Rollout*>& rollouts);
+  void set_parallel(const ParallelFor& parallel) { parallel_ = parallel; }
+  /// Starts the actor from a trained network of the same shape (Pollen's velstand, say): its
+  /// weights and its observation normaliser, which then stays fixed. Inputs in `new_inputs` were
+  /// unused in that network's training (their weights never learned): they start at 0 weight and
+  /// a unit normaliser, so the warm-started actor acts exactly as the network did until it learns
+  /// to use them. False when the shapes differ.
+  bool warm_start(const std::vector<i32>& dims, const std::vector<std::vector<f32>>& weights_out_in,
+                  const std::vector<std::vector<f32>>& biases, const std::vector<f32>& mean, const std::vector<f32>& div,
+                  const std::vector<i32>& new_inputs);
+  /// The whole learner (networks, normalisers, std, Adam, schedule) for checkpoints.
+  std::vector<u8> save() const;
+  bool load(const u8* data, std::size_t size);
   /// The deterministic action (the mean) for one observation, as the exported network computes it.
   void act(const f32* observation, f32* action) const { policy_.act(observation, action); }
 
@@ -107,6 +123,7 @@ class Ppo {
 
  private:
   void update(IterationStats& stats);
+  ParallelFor parallel_;
   PpoConfig cfg_;
   i32 obs_ = 0, crit_ = 0, act_ = 0;
   Policy policy_;

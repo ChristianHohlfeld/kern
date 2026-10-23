@@ -203,7 +203,7 @@ Level micro_duck_level() {
   l.world.title = "Micro Duck";
   l.world.time_of_day = 0.4f;
   l.world.step_hz = kWalkerStepHz;  // the policy's timing (docs/walker.md section 3)
-  l.world.substeps = 16;
+  l.world.substeps = kWalkerSubsteps;
   l.world.reverb = 0.2f;
   l.world.ground = false;  // the floor is the ground (no z-fighting with the ground plane)
   l.world.ground_friction = 1.0f;

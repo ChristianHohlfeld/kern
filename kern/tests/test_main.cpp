@@ -3993,7 +3993,7 @@ game::ActorId add_duck(game::Level& l, Vec3 at, bool autonomous = false, bool ro
   }
   l.world.player = base;
   l.world.step_hz = game::kWalkerStepHz;
-  l.world.substeps = 16;
+  l.world.substeps = game::kWalkerSubsteps;
   return base;
 }
 game::ActorId add_sock(game::Level& l, Vec3 at) {
@@ -5263,7 +5263,7 @@ TEST(micro_duck_example_level_runs) {
   game::Level l = game::micro_duck_level();
   CHECK(!l.logic.nodes.empty() && l.logic.comments.size() == 1);
   CHECK(no_errors(logic::check(l.logic)));
-  CHECK(l.world.step_hz == game::kWalkerStepHz && l.world.substeps == 16);
+  CHECK(l.world.step_hz == game::kWalkerStepHz && l.world.substeps == game::kWalkerSubsteps);
   GameFixture f;
   f.world->sync(l);
   CHECK(f.world->start(l, game::SimMode::play));
@@ -5301,7 +5301,7 @@ TEST(micro_duck_builds_from_its_mjcf) {
   u32 servos = 0;
   for (const game::Actor& x : f.s->level().actors) for (const game::JointComponent& j : x.joints) servos += j.servo ? 1 : 0;
   CHECK(servos == 15);  // the policy's 14 and the mouth
-  CHECK(f.s->level().world.substeps >= 16);  // long servo chains get the sub-steps they need
+  CHECK(f.s->level().world.substeps >= game::kWalkerSubsteps);  // long servo chains get the sub-steps they need
   CHECK(f.s->level().world.step_hz == game::kWalkerStepHz);  // and the policy its fixed step
   // The level round-trips the imported mass properties and joint references.
   const std::string text = game::to_text(f.s->level());
