@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cfloat>
+#if !defined(__wasi__)
+#include <mutex>
+#endif
 
 #include "box3d/box3d.h"
 #include "box3d/collision.h"
@@ -21,6 +24,17 @@ Quat kq(b3Quat q) { return {q.v.x, q.v.y, q.v.z, q.s}; }
 b3Transform bt(const Pose& p) { return {bv(p.position), bq(p.rotation)}; }
 
 b3WorldId world_id(u32 w) { return b3LoadWorldId(w); }
+#if defined(__wasi__)
+struct WorldTableLock {};  // one thread
+#else
+std::mutex& world_table_mutex() {
+  static std::mutex m;
+  return m;
+}
+struct WorldTableLock {
+  std::lock_guard<std::mutex> guard{world_table_mutex()};
+};
+#endif
 b3BodyId body_id(Body b) { return b3LoadBodyId(b.id); }
 b3ShapeId shape_id(Shape s) { return b3LoadShapeId(s.id); }
 b3JointId joint_id(Joint j) { return b3LoadJointId(j.id); }
@@ -93,7 +107,13 @@ bool World::create(const WorldSettings& s) {
   if (s.contact_speed > 0) def.contactSpeed = s.contact_speed;
   if (s.maximum_linear_speed > 0) def.maximumLinearSpeed = s.maximum_linear_speed;
   def.workerCount = 1;  // single-threaded WebAssembly: no scheduler threads
-  const b3WorldId id = b3CreateWorld(&def);
+  b3WorldId id;
+  {
+    // Box3D keeps its worlds in one global table: creating and destroying them is not thread-safe
+    // (the trainer runs a world per environment on several threads).
+    WorldTableLock lock;
+    id = b3CreateWorld(&def);
+  }
   if (!b3World_IsValid(id)) return fail("Box3D could not create a world (too many worlds?)");
   world_ = b3StoreWorldId(id);
   settings_ = s;
@@ -104,6 +124,7 @@ bool World::create(const WorldSettings& s) {
 void World::destroy() {
   if (world_) {
     const b3WorldId id = world_id(world_);
+    WorldTableLock lock;
     if (b3World_IsValid(id)) b3DestroyWorld(id);
   }
   world_ = 0;
