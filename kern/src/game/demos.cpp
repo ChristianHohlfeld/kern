@@ -241,6 +241,23 @@ Level micro_duck_level() {
   ball.body = body(Motion::dynamic, 0.05f * S * S * S);
   const ActorId ball_id = l.add(ball).id;
 
+  // Two crumpled socks on the floor: the duck sees them with its head camera, walks up, picks one
+  // up, carries it off and puts it down (Kern behaviour, docs/walker.md section 9).
+  for (const Vec3 at : {Vec3{-0.2f * S, -0.55f * S, 0}, Vec3{0.45f * S, -0.1f * S, 0}}) {
+    std::vector<Actor> sock = micro_duck_sock_actors();
+    const ActorId first = l.next_id;
+    for (std::size_t i = 0; i < sock.size(); ++i) {
+      Actor a = sock[i];
+      a.id = first + static_cast<ActorId>(i);
+      a.folder = "Socks";
+      if (i == 0) a.transform.position = a.transform.position + at;
+      if (a.parent) a.parent = first + a.parent - 1;
+      for (JointComponent& j : a.joints)
+        if (j.target) j.target = first + j.target - 1;
+      l.add(std::move(a));
+    }
+  }
+
   // The duck: autonomous (it roams with its ToF and looks around when it stands).
   std::vector<Actor> parts = micro_duck_actors();
   const ActorId base = l.next_id;

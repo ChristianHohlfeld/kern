@@ -784,6 +784,8 @@ GameWorld::PolicyStatus GameWorld::walker_abilities(const WalkerBrain& w) const 
   PolicyStatus out;
   out.ground_pick = !w.rollers && walker_policy(set.pick.file) != nullptr;
   out.sit_stand = !w.rollers && walker_policy(set.sitstand) != nullptr;
+  const i32 kick = skill_index("kick_left");
+  out.kick_left = !w.rollers && kick >= 0 && walker_policy(set.skills[static_cast<std::size_t>(kick)].file) != nullptr;
   return out;
 }
 

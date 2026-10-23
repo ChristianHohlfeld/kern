@@ -409,7 +409,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
     w.auto_body_active = false;
     w.auto_mouth = static_cast<f32>(b.mouth_now());
     w.auto_wheee = false;
-    w.state = sn.fallen ? "GetUp" : state_name(b.state);
+    w.state = sn.fallen ? "GetUp" : b.state == S::act ? (b.ball ? "Kick" : "Pick") : state_name(b.state);
     return;
   }
   if (sitting && b.state != S::nap) { b.enter(S::nap); b.nap_sit_sent = true; }
@@ -492,7 +492,8 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
       const bool sock = std::find(a.tags.begin(), a.tags.end(), "sock") != a.tags.end();
       const bool ball = !sock && a.body && a.body->motion == Motion::dynamic && a.mesh && a.mesh->shape == Shape::sphere &&
                         (std::find(a.tags.begin(), a.tags.end(), "ball") != a.tags.end() || a.name == "Ball");
-      if (a.parent != 0 || b.rest.count(a.id) || !(ball || (sock && w.mouth && abilities.ground_pick))) continue;
+      if (a.parent != 0 || b.rest.count(a.id) || !((ball && abilities.kick_left) || (sock && w.mouth && abilities.ground_pick))) continue;
+      if (b.state == S::fetch && b.target && a.id != b.target) continue;  // it keeps to what it went for
       Vec3 sum{};
       int n = 0;
       bool seen = false;

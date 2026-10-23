@@ -412,7 +412,7 @@ class GameWorld {
   void drive_walkers(f32 h);
   void sense_walker(WalkerBrain& w);
   void think_walker(WalkerBrain& w, f32 dt);  // the autonomous behaviour (walker_brain.cpp)
-  struct PolicyStatus { bool ground_pick = false, sit_stand = false; };
+  struct PolicyStatus { bool ground_pick = false, sit_stand = false, kick_left = false; };
   PolicyStatus walker_abilities(const WalkerBrain& w) const;  // which of its moves are loaded
   void run_controller(WalkerBrain& w, f32 obs[61]);  // robotd's controller: network, scale, low-pass
   void walker_say(WalkerBrain& w, const char* tag);   // the duck's voice (one call, cutting the last)
