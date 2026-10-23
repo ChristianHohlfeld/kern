@@ -91,6 +91,19 @@ Was die ersten Läufe zeigten (je einige Hunderttausend Schritte auf 2 Kernen):
 - **Dritter und vierter Lauf** (Startrauschen 1,0 bzw. 0,4): Die Ente fiel nicht mehr, stützte sich
   aber auf ein anderes Teil. Seitdem beendet jeder Bodenkontakt außer den Sohlen die Episode wie ein
   Sturz.
+- **Fünfter Lauf** (Startrauschen 0,4, 800 Iterationen, rund 900.000 Schritte auf 2 Kernen): Die
+  Ente steht in allen 10 Prüf-Episoden stabil, auch gegen Stöße, nur auf den Sohlen. Sie springt
+  aber noch nicht (Rumpf höchstens +3 mm): Stehen ist das sichere Optimum, solange ein Sprung beim
+  Erkunden meist mit −20 endet.
+
+Nächste Schritte für den Sprung:
+
+1. **Längere Läufe auf mehr Kernen.** Pollens Netze sehen Hunderte Millionen Schritte; hier waren es
+   unter einer Million.
+2. **Lehrplan (Curriculum):** Der Sturz kostet anfangs wenig und erst später −20. So lohnt sich das
+   Erkunden des Absprungs.
+3. **Ein Phasen-Signal wie Pollens Ground-Pick:** Ein „jetzt springen“-Befehl in den Befehlsplätzen
+   gibt der Policy einen Zeitpunkt. Das Netz bliebe dann mit dem 61er-Layout kompatibel.
 
 Die Gewichte sind ein erster Entwurf. Sie werden mit dem Training abgestimmt (Schritt 7).
 
