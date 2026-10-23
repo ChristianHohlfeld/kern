@@ -391,6 +391,22 @@ void add_walker_nodes(logic::Library& lib) {
                  [](Context& c, GameWorld& w) { w.walker_set_autonomous(target(c), c.in_bool("enable")); },
                  "On: the robot roams on its own (camera, ToF, exploration memory) whenever nobody drives it. Off: it stands until driven.",
                  "brain behaviour wander ai duck robot"));
+  lib.add(action("walker.skill", "Robot Move", "Robots", {data("target", "Robot", PinType::actor, 0), data("move", "Move", PinType::text, "pick")}, {},
+                 [](Context& c, GameWorld& w) { w.walker_skill(target(c), c.in_text("move")); },
+                 "One of the robot's moves, as its daemon runs them: sit (toggles), pick (ground pick; the crouch on rollers), kick_left, kick_right, roulade.",
+                 "skill sit kick roll pick duck robot"));
+  lib.add(action("walker.beak", "Robot Beak", "Robots", {data("target", "Robot", PinType::actor, 0), data("open", "Open (0-1)", PinType::number, 1.0)}, {},
+                 [](Context& c, GameWorld& w) { w.walker_mouth(target(c), static_cast<f32>(c.in_number("open"))); },
+                 "Opens (1) or closes (0) the beak.", "mouth jaw duck robot"));
+  lib.add(action("walker.pet", "Pet Robot", "Robots", {data("target", "Robot", PinType::actor, 0), data("seconds", "Seconds", PinType::number, 3.0)}, {},
+                 [](Context& c, GameWorld& w) { w.walker_pet(target(c), static_cast<f32>(c.in_number("seconds"))); },
+                 "A hand on the duck for a while: it melts, wiggles or falls asleep, as Pollen's brain does it.", "petting stroke touch duck robot"));
+  lib.add(action("walker.hear", "Robot Hears", "Robots", {data("target", "Robot", PinType::actor, 0), data("voice", "Voice (else a noise)", PinType::boolean, true)}, {},
+                 [](Context& c, GameWorld& w) { w.walker_hear(target(c), c.in_bool("voice")); },
+                 "The duck hears someone talk (it perks up and answers) or a noise (it stirs from a doze).", "sound voice listen duck robot"));
+  lib.add(getter("walker.holding", "Robot Holds Something", "Robots", {data("target", "Robot", PinType::actor, 0)}, {data("holding", "Holding", PinType::boolean)},
+                 [](Context& c, GameWorld& w) { c.out("holding", Value::boolean(w.walker_holding(target(c)))); },
+                 "The beak is told to shut and its servo reads it open: something is in it (a sock).", "sock beak carry duck robot"));
   lib.add(action("walker.quack", "Chirp", "Robots", {data("target", "Robot", PinType::actor, 0)}, {},
                  [](Context& c, GameWorld& w) { w.walker_quack(target(c)); }, "The duck chirps (its own voice, the robot's synth) and opens its beak.", "sound duck robot"));
   lib.add(getter("walker.tof", "Robot ToF", "Robots", {data("target", "Robot", PinType::actor, 0)},

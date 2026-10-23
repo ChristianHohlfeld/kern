@@ -319,6 +319,11 @@ fällt nie.
 | Robot ToF | Hindernis gesehen, Entfernung, Richtung, freie linke / rechte Hälfte |
 | Robot Camera Sees | ein Actor im Bild: sichtbar, Richtung, Entfernung |
 | Robot State | Verhalten (Chill, Wander … Driven, Logic), gefallen, Geschwindigkeit |
+| Robot Move | eine Bewegung des Sets: sit, pick, kick_left, kick_right, roulade |
+| Robot Beak | Schnabel auf (1) / zu (0) |
+| Pet Robot | eine Hand auf der Ente für n Sekunden (Petted) |
+| Robot Hears | eine Stimme (sie antwortet) oder ein Geräusch (sie schreckt aus dem Dösen) |
+| Robot Holds Something | der Mund-Encoder: etwas steckt im Schnabel |
 
 Vorlage **Robot: walk and turn away with its ToF** (Templates im Blueprint-Editor): Die Ente
 läuft per Logic und dreht weg, sobald der ToF etwas näher als 1,6 m sieht.

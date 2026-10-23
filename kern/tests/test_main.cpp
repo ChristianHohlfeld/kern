@@ -4341,6 +4341,37 @@ TEST(micro_duck_picks_up_a_sock) {
   CHECK(agree == static_cast<int>(sizeof xs / sizeof xs[0]));  // and knows when it has one
 }
 
+TEST(micro_duck_answers_and_melts_when_petted) {
+  // Pollen's brain: a hand on it - it goes to Petted (melt, wiggle or sleepy melt) and leaves a
+  // moment after the hand does; a voice gets an answer (a chirp burst after 0.35-0.8 s).
+  load_duck_policies();
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  for (int i = 0; i < 200; ++i) f.world->step(1.0f / 100, {});
+  CHECK(f.world->walker_pet(duck, 4));
+  bool petted = false;
+  for (int i = 0; i < 300; ++i) {
+    f.world->step(1.0f / 100, {});
+    petted = petted || f.world->walker_state(duck) == "Petted";
+  }
+  CHECK(petted);
+  for (int i = 0; i < 2000 && f.world->walker_state(duck) == "Petted"; ++i) f.world->step(1.0f / 100, {});
+  CHECK(f.world->walker_state(duck) != "Petted");  // the hand is gone: it moves on
+  f.world->sound_cues().clear();
+  CHECK(f.world->walker_hear(duck, true));
+  bool answered = false;
+  for (int i = 0; i < 300 && !answered; ++i) {
+    f.world->step(1.0f / 100, {});
+    for (const game::SoundCue& c : f.world->sound_cues()) answered = answered || c.sound.find("duck_chirp") != std::string::npos;
+    f.world->sound_cues().clear();
+  }
+  CHECK(answered);
+}
+
 TEST(micro_duck_plays_with_a_ball_on_its_own) {
   // Autonomous: a ball 30 cm (real) away, a little to the side. The duck sees it with its head
   // camera, walks up until the ball lies in front of its left foot and kicks it.
