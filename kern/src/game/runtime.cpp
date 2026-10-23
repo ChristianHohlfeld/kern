@@ -1928,7 +1928,8 @@ void GameWorld::handle_events() {
       std::string sound = ss->second;
       if (sound == "builtin:impact" && h.approach_speed < threshold * 2.2f) sound = "builtin:impact_light";
       const f32 mass = physics_.mass(hb);
-      const f32 pitch = clamp(1.25f - std::log10(max_of(0.1f, mass)) * 0.18f, 0.6f, 1.6f);
+      // Heavier sounds lower; light things only a little higher (pitched far up, taps turn glassy).
+      const f32 pitch = clamp(1.05f - std::log10(max_of(0.1f, mass)) * 0.1f, 0.7f, 1.15f);
       cue(sound, h.point, strength, pitch, true, audio::Bus::sfx, id);
       ++impacts;
       break;
