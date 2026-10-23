@@ -3795,6 +3795,12 @@ TEST(micro_duck_stands_walks_and_turns_on_its_policy) {
     const DuckRun a = run_duck(3, fwd), b = run_duck(3, fwd);
     CHECK(a.end.x == b.end.x && a.end.y == b.end.y && a.end.z == b.end.z);
   }
+  {
+    // Placed turned (yaw): it stands just the same.
+    const DuckRun r = run_duck(8, {}, print, Vec3{0, 0, 45});
+    if (print) std::printf("yaw 45: min up %.3f\n", r.min_up);
+    CHECK(r.min_up > .9f);
+  }
   for (const Vec3 fallen : {Vec3{0, 90, 0}, Vec3{0, -90, 0}}) {
     // Lying on its front or its back: v8 of the policy gets up by itself.
     const DuckRun r = run_duck(12, {}, false, fallen);
@@ -3912,6 +3918,30 @@ TEST(micro_duck_blueprint_nodes_drive_and_sense) {
   logic::Instance* inst = f.world->logic_runtime()->find(0);
   CHECK(inst && inst->get("Sees").as_bool());                 // the cube is in its picture
   CHECK(inst && inst->get("Dist").as_number() > 0);           // and in its ToF
+}
+
+TEST(micro_duck_example_level_runs) {
+  // File > New > Micro Duck: the room, the autonomous duck, the blueprint that quacks at the ball.
+  game::Level l = game::micro_duck_level();
+  CHECK(!l.logic.nodes.empty() && l.logic.comments.size() == 1);
+  CHECK(no_errors(logic::check(l.logic)));
+  CHECK(l.world.step_hz == game::kWalkerStepHz && l.world.substeps == 16);
+  GameFixture f;
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::play));
+  CHECK(f.world->walkers().size() == 1);
+  Mat4 m;
+  f32 min_up = 1;
+  const int secs = std::getenv("KERN_DUCK_LONG") ? 240 : 20;
+  for (int i = 0; i < 60 * secs; ++i) {
+    f.world->step(1.0f / 60, {});
+    f.world->actor_matrix(l.world.player, m);
+    min_up = min_of(min_up, m.m[10]);
+    if (std::getenv("KERN_DUCK_PRINT") && i % 60 == 0)
+      std::printf("t %d pos %.2f %.2f up %.2f %s\n", i / 60, m.translation().x, m.translation().y, m.m[10], f.world->walker_state(l.world.player).c_str());
+  }
+  CHECK(min_up > 0.7f);
+  CHECK(f.world->walker_state(l.world.player) != "Idle");  // autonomous
 }
 
 TEST(studio_robot_template_compiles) {

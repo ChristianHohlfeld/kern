@@ -43,6 +43,7 @@ const ICONS = {
   step: '<path d="M6 5l9 7-9 7zM18 5v14"/>',
   stop: '<path d="M6 6h12v12H6z"/>',
   eject: '<path d="M5 15h14L12 6z"/><path d="M5 19h14"/>',
+  panels: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16M16.5 8h2M16.5 11h2M16.5 14h2"/>',
   layout: '<path d="M4 4h16v16H4zM12 4v16M4 12h16"/>',
   layout1: '<path d="M4 4h16v16H4z"/>',
   layout2: '<path d="M4 4h16v16H4zM12 4v16"/>',
@@ -746,6 +747,7 @@ class StudioPage {
       $("#details").hidden = t.dataset.tab !== "details";
       $("#worldSettings").hidden = t.dataset.tab !== "world";
     };
+    this.initCompact();
     for (const t of $$("#drawer .tab")) t.onclick = () => this.drawerTab(t.dataset.dtab);
     $("#drawerClose").onclick = () => this.toggleDrawer(false);
     $("#drawerBtn").onclick = () => this.toggleDrawer();
@@ -1446,41 +1448,89 @@ class StudioPage {
   }
 
   // ---- menus ------------------------------------------------------------------------------
-  openMenu(entries, x, y, fromBar = false, level = 0) {
+  /**
+   * A popup menu. With a mouse, submenus cascade on hover (beside the parent, never on top of it).
+   * With touch, or where a submenu would not fit beside its parent, a tap on the entry drills
+   * down in place instead: the submenu replaces the menu, with a back row at the top. A menu
+   * therefore never opens under the finger that opened it, and every entry stays reachable.
+   */
+  openMenu(entries, x, y, fromBar = false, level = 0, back = null) {
     if (level === 0) this.closeMenus(fromBar);
     else while (this.menuStack.length > level) this.menuStack.pop().remove();
     if (!entries?.length) return;
     const m = document.createElement("div");
-    m.className = "menu";
+    m.className = "menu" + (back ? " drill" : "");
     m.setAttribute("role", "menu");
-    m.innerHTML = entries.map((e, i) => {
-      if (e.separator) return `<div class="msep"></div>`;
-      if (e.header) return `<div class="mh">${esc(e.header)}</div>`;
-      const mark = e.checked ? icon("check") : e.icon ? icon(e.icon) : "";
-      return `<div class="mi${e.disabled ? " disabled" : ""}" data-i="${i}" role="menuitem"><span class="chk-mark">${mark}</span><span>${esc(e.label)}</span><span class="k">${esc(e.shortcut || "")}</span><span class="sub">${e.submenu ? icon("chevron") : ""}</span></div>`;
-    }).join("");
+    m.innerHTML = (back ? `<div class="mi mback" data-back="1" role="menuitem"><span class="chk-mark">${icon("chevron")}</span><span>${esc(back.label)}</span><span class="k"></span><span class="sub"></span></div><div class="msep"></div>` : "") +
+      entries.map((e, i) => {
+        if (e.separator) return `<div class="msep"></div>`;
+        if (e.header) return `<div class="mh">${esc(e.header)}</div>`;
+        const mark = e.checked ? icon("check") : e.icon ? icon(e.icon) : "";
+        return `<div class="mi${e.disabled ? " disabled" : ""}${e.submenu ? " has-sub" : ""}" data-i="${i}" role="menuitem"${e.submenu ? ' aria-haspopup="menu"' : ""}><span class="chk-mark">${mark}</span><span>${esc(e.label)}</span><span class="k">${esc(e.shortcut || "")}</span><span class="sub">${e.submenu ? icon("chevron") : ""}</span></div>`;
+      }).join("");
     $("#menuLayer").append(m);
     const r = m.getBoundingClientRect();
     m.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + "px";
     m.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 4)) + "px";
     this.menuStack ??= [];
     this.menuStack.push(m);
+    const closeChildren = () => { while (this.menuStack.length > level + 1) this.menuStack.pop().remove(); };
+    // A cascading submenu beside the parent: right of it, else left of it; null when neither fits
+    // without covering the parent menu.
+    const cascade = (entry, it) => {
+      const ir = it.getBoundingClientRect(), mr = m.getBoundingClientRect();
+      for (const o of m.querySelectorAll(".mi.hover")) o.classList.remove("hover");
+      it.classList.add("hover");
+      this.openMenu(entry.submenu, mr.right - 2, ir.top - 4, false, level + 1);
+      const sub = this.menuStack[level + 1], sr = sub?.getBoundingClientRect();
+      if (!sub) return false;
+      if (mr.right - 2 + sr.width <= innerWidth - 4) return true;
+      if (mr.left + 2 - sr.width >= 4) { sub.style.left = (mr.left + 2 - sr.width) + "px"; return true; }
+      closeChildren();
+      return false;
+    };
+    const drill = entry => {
+      const mr = m.getBoundingClientRect();
+      const label = entry.label;
+      const parent = {entries, x: mr.left, y: mr.top, fromBar, back};
+      closeChildren();
+      m.remove();
+      this.menuStack.splice(level, 1);
+      this.openMenu(entry.submenu, mr.left, mr.top, fromBar, level, {label, ...parent});
+      // The stack slot of the drilled menu keeps the level; the back row reopens the parent there.
+    };
     m.addEventListener("pointerover", e => {
+      if (e.pointerType !== "mouse") return;  // touch and pen: taps decide, not hover
       const it = e.target.closest(".mi");
-      if (!it) return;
+      if (!it || it.dataset.back) return;
       const entry = entries[+it.dataset.i];
       for (const o of m.querySelectorAll(".mi.hover")) o.classList.remove("hover");
-      if (entry.submenu) {
-        it.classList.add("hover");
-        const ir = it.getBoundingClientRect();
-        this.openMenu(entry.submenu, ir.right - 2, ir.top - 4, false, level + 1);
-      } else while (this.menuStack.length > level + 1) this.menuStack.pop().remove();
+      if (entry.submenu && !entry.disabled) cascade(entry, it);
+      else closeChildren();
     });
+    // Remember how the menu was last pressed (click events do not say).
+    let lastPointer = "mouse";
+    m.addEventListener("pointerdown", e => { lastPointer = e.pointerType || "mouse"; });
     m.addEventListener("click", e => {
       const it = e.target.closest(".mi");
       if (!it) return;
+      if (it.dataset.back) {
+        const b = back;
+        closeChildren();
+        m.remove();
+        this.menuStack.splice(level, 1);
+        this.openMenu(b.entries, b.x, b.y, b.fromBar, level, b.back);
+        return;
+      }
       const entry = entries[+it.dataset.i];
-      if (entry.submenu || entry.disabled) return;
+      if (entry.disabled) return;
+      if (entry.submenu) {
+        // Touch: drill down. Mouse: the hover already cascaded it; if it could not, drill down.
+        const open = this.menuStack.length > level + 1;
+        if (lastPointer === "mouse" && open) return;
+        if (lastPointer !== "mouse" || !cascade(entry, it)) drill(entry);
+        return;
+      }
       if (!entry.keepOpen) this.closeMenus();
       if (entry.run) entry.run();
       else if (entry.cmd) this.runCommand(entry.cmd);
@@ -1738,6 +1788,42 @@ class StudioPage {
     this.canvas.addEventListener("pointerdown", e => lockedButton(POINTER.down, e));
     this.canvas.addEventListener("pointerup", e => lockedButton(POINTER.up, e));
     this.canvas.addEventListener("mousedown", e => { if (document.pointerLockElement === this.canvas) e.preventDefault(); });
+  }
+
+  /**
+   * Phones and small windows: the viewport gets the whole main area, and the Outliner, Details and
+   * World Settings open as one sheet over it (beside the viewport in landscape, from the bottom in
+   * portrait) from the toolbar's panels button, one at a time behind large tabs.
+   */
+  initCompact() {
+    const app = $("#app"), main = $("#main"), side = $("#side");
+    const small = matchMedia("(max-width: 900px), (pointer: coarse) and (max-height: 600px)");
+    const wide = matchMedia("(orientation: landscape)");
+    const apply = () => {
+      app.classList.toggle("compact", small.matches);
+      app.classList.toggle("landscape", wide.matches);
+      if (!small.matches) main.classList.remove("panels-open");
+      $("#panelsBtn").classList.toggle("on", main.classList.contains("panels-open"));
+    };
+    small.addEventListener?.("change", apply);
+    wide.addEventListener?.("change", apply);
+    apply();
+    this.showPane = pane => {
+      side.dataset.pane = pane;
+      for (const t of $$("#sideTabs .tab")) t.classList.toggle("active", t.dataset.pane === pane);
+      if (pane !== "outliner") $(`#detailsPanel .tab[data-tab="${pane}"]`)?.click();
+    };
+    this.setPanels = open => {
+      main.classList.toggle("panels-open", open);
+      $("#panelsBtn").classList.toggle("on", open);
+    };
+    for (const t of $$("#sideTabs .tab")) t.onclick = () => this.showPane(t.dataset.pane);
+    $("#sideClose").onclick = () => this.setPanels(false);
+    $("#panelsBtn").onclick = () => {
+      const open = !main.classList.contains("panels-open");
+      if (open && side.dataset.pane === "details" && !this.state?.selection?.length) this.showPane("outliner");
+      this.setPanels(open);
+    };
   }
 
   initSplitters() {

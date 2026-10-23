@@ -64,6 +64,7 @@
       <button class="tb icon" id="layoutBtn" title="Viewport layout" data-icon="layout"></button>
       <button class="tb logic" id="logicBtn" data-cmd='{"cmd":"logicOpen","owner":0}' title="Logic: the level's Blueprint-style graph (actors have their own: Details > Logic)"><span data-icon="logic"></span>Logic</button>
       <button class="tb icon" data-ui="packageGame" title="Package the game as one HTML file" data-icon="package"></button>
+      <button class="tb icon" id="panelsBtn" title="Outliner and Details" data-icon="panels"></button>
     </div>
   </div>
 
@@ -74,7 +75,14 @@
       <div id="viewports"></div>
     </section>
     <div class="splitter v" id="sideSplit"></div>
-    <aside id="side">
+    <aside id="side" data-pane="details">
+      <div id="sideTabs" class="tabs" role="tablist">
+        <button class="tab" data-pane="outliner">Outliner</button>
+        <button class="tab active" data-pane="details">Details</button>
+        <button class="tab" data-pane="world">World</button>
+        <div class="spacer"></div>
+        <button class="ph icon" id="sideClose" title="Close" data-icon="close"></button>
+      </div>
       <section id="outlinerPanel" class="panel">
         <div class="panel-head"><span>Outliner</span><div class="spacer"></div>
           <button class="ph icon" id="newFolderBtn" title="New folder for the selection" data-icon="folderPlus"></button>

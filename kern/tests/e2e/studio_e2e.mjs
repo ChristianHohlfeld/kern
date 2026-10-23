@@ -511,6 +511,31 @@ const vpCenter = async (page, i = 0) => {
   await ctx.close();
 }
 
+// ---- phone: compact layout, menus by touch, the Micro Duck example -----------------------
+{
+  const ctx = await browser.newContext({viewport: {width: 844, height: 390}, hasTouch: true, isMobile: true});
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  await page.goto(base + "/generated/studio.html");
+  await page.waitForFunction(() => window.KernStudio && window.KernStudio.frames() > 3, null, {timeout: 120000});
+  check(await page.evaluate(() => document.querySelector("#app").classList.contains("compact")), "phone: compact layout");
+  check(!(await page.locator("#side").isVisible()), "phone: the viewport gets the whole main area");
+  await page.tap("#panelsBtn");
+  check(await until(() => page.locator("#side").isVisible()), "phone: the panels button opens Outliner / Details");
+  await page.tap('#sideTabs .tab[data-pane="world"]');
+  check(await until(() => page.locator("#worldSettings").isVisible()), "phone: World tab");
+  await page.tap("#sideClose");
+  await page.tap('#menubar .mb[data-menu="file"]');
+  await until(() => page.locator(".menu .mi", {hasText: "Example Levels"}).isVisible());
+  await page.locator(".menu .mi", {hasText: "Example Levels"}).tap();
+  check(await until(() => page.locator(".menu .mi.mback").isVisible()) && await page.locator(".menu").count() === 1, "phone: a submenu drills down in place (one menu, back row)");
+  await page.locator(".menu .mi", {hasText: "Micro Duck"}).tap();
+  check(await until(async () => (await state(page)).level.name === "Micro Duck"), "phone: File > Example Levels > Micro Duck opens");
+  check(errors.length === 0, "no page errors on the phone studio" + (errors.length ? ": " + errors.join(" | ") : ""));
+  await ctx.close();
+}
+
 await browser.close();
 console.log(`${checks} checks, ${failures} failures (screenshots: ${shots})`);
 process.exit(failures ? 1 : 0);

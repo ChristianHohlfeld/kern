@@ -16,6 +16,9 @@ Level physics_lab_level();
 /// target dummies at 10-60 m, cover, crates to shoot around, a tower to climb.
 /// Score 150 points to win; works as is with several players.
 Level shooting_range_level();
+/// Micro Duck (the walking robot, autonomous) in a room at its scale with furniture and a ball;
+/// the level blueprint quacks when its head camera sees the ball.
+Level micro_duck_level();
 /// A floor, daylight and nothing else.
 Level basic_level();
 /// Nothing at all.

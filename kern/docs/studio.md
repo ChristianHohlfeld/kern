@@ -39,6 +39,20 @@ Die Seite enthält keine Editorlogik. Sie zeichnet die Panels aus dem JSON von `
 | Content Drawer (Ctrl+Space) | Place Actors (Klick oder Ziehen in einen Viewport), Texturen, Output Log |
 | Statusleiste | Konsole (`help`), Statusmeldung, Physik-Statistik, Auswahl |
 
+Beispiel-Levels (File › Example Levels und File › New Level): Orb Run, Physics Lab, Shooting Range,
+Micro Duck, Basic, Empty.
+
+**Menüs:** Mit der Maus klappen Untermenüs beim Überfahren neben dem Menü auf, nie darüber. Passt
+daneben kein Platz, oder wird getippt (Touch, Stift), öffnet ein Tipp das Untermenü an Ort und
+Stelle, mit einer Zurück-Zeile oben. So liegt nie ein Menü unter dem Finger, der es geöffnet hat.
+Lange Menüs scrollen, und auf Touch sind die Zeilen 40 px hoch.
+
+**Handy und kleine Fenster** (bis 900 px Breite, oder Touch mit bis 600 px Höhe):
+- Der Viewport bekommt die ganze Fläche.
+- Outliner, Details und World Settings öffnen sich über den Panels-Knopf rechts in der Toolbar als
+  ein Blatt mit großen Tabs. Im Querformat erscheint es neben dem Viewport, im Hochformat von unten.
+- Der Content Drawer belegt höchstens die halbe Höhe.
+
 ## Steuerung
 
 | Eingabe | Wirkung |
@@ -249,6 +263,9 @@ Actors werden repliziert, auch an Spieler, die später dazukommen.
   - Oben rechts im Viewport zeigt Studio ihre Kopfkamera und das ToF-Gitter (Show › Robot Camera).
   - Logic steuert sie mit den Knoten der Kategorie Robots (Walk, Look, Robot ToF, Robot Camera Sees …).
   - Beim Einfügen stellt Studio die Physik auf 100 Hz mit 16 Sub-Steps.
+  - Beispiel-Level **Micro Duck**: ein Zimmer in ihrem Maßstab (2,5 × 2,5 m echt) mit Möbeln und
+    einem Ball. Die Ente läuft autonom. Der Level-Blueprint lässt sie quaken, sobald ihre
+    Kopfkamera den Ball sieht.
   - Details: [`walker.md`](walker.md).
 - **Geräteerkennung:** Die Engine erkennt Touch, Maus+Tastatur und Gamepad selbst und schaltet auf
   das zuletzt benutzte um (`src/game/touch.cpp`).

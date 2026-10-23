@@ -50,10 +50,11 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 #menubar { display: flex; }
 .mb { padding: 4px 9px; border: 0; border-radius: var(--radius); background: none; color: var(--text); }
 .mb:hover, .mb.open { background: var(--bg3); color: var(--text-hi); }
-.doc-tab { display: flex; align-items: center; gap: 6px; margin-left: 14px; padding: 3px 12px; border-radius: var(--radius) var(--radius) 0 0; background: var(--bg2); color: var(--text-hi); align-self: flex-end; height: 26px; border: 1px solid var(--line2); border-bottom: 0; }
+.doc-tab { display: flex; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; align-items: center; gap: 6px; margin-left: 14px; padding: 3px 12px; border-radius: var(--radius) var(--radius) 0 0; background: var(--bg2); color: var(--text-hi); align-self: flex-end; height: 26px; border: 1px solid var(--line2); border-bottom: 0; }
 #dirtyDot { width: 6px; height: 6px; border-radius: 50%; background: var(--text); display: none; }
 #dirtyDot.on { display: block; }
-#fps { padding-right: 4px; }
+#fps { padding-right: 4px; white-space: nowrap; }
+#app.compact #fps { display: none; }
 
 /* ---- toolbar ---- */
 #toolbar { display: flex; align-items: center; gap: 4px; padding: 0 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; background: var(--bg2); border-bottom: 1px solid var(--line); user-select: none; }
@@ -259,7 +260,7 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 #log .t { color: var(--faint); margin-right: 8px; }
 
 /* ---- status bar ---- */
-#statusbar { display: flex; align-items: center; gap: 4px; padding: 0 6px; background: var(--bg1); border-top: 1px solid var(--line); font-size: 11px; user-select: none; min-width: 0; }
+#statusbar { grid-row: 5;  display: flex; align-items: center; gap: 4px; padding: 0 6px; background: var(--bg1); border-top: 1px solid var(--line); font-size: 11px; user-select: none; min-width: 0; }
 .sb { display: inline-flex; flex: none; white-space: nowrap; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border: 0; border-radius: 3px; background: none; color: var(--text); }
 .sb:hover, .sb.on { background: var(--bg3); color: var(--text-hi); }
 .sb [data-icon] svg { width: 13px; height: 13px; }
@@ -271,7 +272,15 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 
 /* ---- menus and dialogs ---- */
 #menuLayer { position: fixed; inset: 0; pointer-events: none; z-index: 50; }
-.menu { position: fixed; min-width: 220px; padding: 4px; border-radius: 6px; background: #202023; border: 1px solid #333338; box-shadow: 0 12px 32px rgba(0, 0, 0, .55); pointer-events: auto; user-select: none; }
+.menu { position: fixed; min-width: 220px; max-width: calc(100vw - 8px); max-height: calc(100vh - 8px); overflow-y: auto; overscroll-behavior: contain; padding: 4px; border-radius: 6px; background: #202023; border: 1px solid #333338; box-shadow: 0 12px 32px rgba(0, 0, 0, .55); pointer-events: auto; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: pan-y; }
+.mi.mback { color: var(--dim); }
+.mi.mback .chk-mark svg { transform: scaleX(-1); width: 10px; height: 10px; }
+@media (pointer: coarse) {
+  .mi { height: 40px; padding: 0 12px; font-size: 14px; }
+  .mi:hover:not(.hover) { background: none; color: var(--text); }  /* sticky touch hover */
+  .mi:active, .mi:active:hover { background: var(--accent); color: #fff; }
+  .menu { min-width: 240px; }
+}
 .mi { display: grid; grid-template-columns: 16px 1fr auto 12px; align-items: center; gap: 8px; height: 24px; padding: 0 8px; border-radius: 4px; color: var(--text); white-space: nowrap; }
 .mi:hover, .mi.hover { background: var(--accent); color: #fff; }
 .mi.disabled { color: var(--faint); pointer-events: none; }
@@ -319,10 +328,25 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 #app:not(.booting) #splash { opacity: 0; pointer-events: none; }
 
 /* ---- small screens ---- */
+#sideTabs, #panelsBtn { display: none; }
+/* Phones and small windows (#app.compact, set by initCompact): the viewport takes the main area;
+   Outliner / Details / World open as one sheet over it, beside it in landscape, from below in portrait. */
+#app.compact #main { grid-template: minmax(0, 1fr) / minmax(0, 1fr); position: relative; }
+#app.compact #sideSplit, #app.compact #panelSplit { display: none; }
+#app.compact #panelsBtn { display: inline-flex; }
+#app.compact #side { display: none; position: absolute; z-index: 30; grid-template-rows: 44px minmax(0, 1fr); background: var(--bg2); box-shadow: 0 0 40px rgba(0, 0, 0, .65); }
+#app.compact #main.panels-open #side { display: grid; }
+#app.compact.landscape #side { top: 0; bottom: 0; right: 0; width: min(440px, 60vw); border-left: 1px solid var(--line2); }
+#app.compact:not(.landscape) #side { left: 0; right: 0; bottom: 0; height: 64%; border-radius: 14px 14px 0 0; border-top: 1px solid var(--line2); overflow: hidden; }
+#app.compact #sideTabs { display: flex; align-items: center; gap: 2px; padding: 0 4px 0 6px; background: var(--bg1); border-bottom: 1px solid var(--line); }
+#app.compact #sideTabs .tab { height: 44px; padding: 0 14px; font-size: 13px; }
+#app.compact #sideClose { width: 40px; height: 36px; }
+#app.compact #side[data-pane="outliner"] #detailsPanel, #app.compact #side:not([data-pane="outliner"]) #outlinerPanel { display: none; }
+#app.compact #detailsPanel > .panel-head { display: none; }
+#app.compact #detailsPanel, #app.compact #outlinerPanel { min-height: 0; }
+#app.compact #main.logic-open #side { display: none; }
+#app.compact #drawer { height: min(var(--drawer, 230px), 48vh); }
 @media (max-width: 900px) {
-  #main { grid-template-columns: 1fr; grid-template-rows: 1fr 44%; }
-  #side { grid-template-rows: 40% 4px 1fr; }
-  #sideSplit { display: none; }
   .snap:not(:last-child), #spaceBtn, .cmdline, #simStats { display: none; }
   #toolbar { overflow-x: auto; }
 }

@@ -3,7 +3,10 @@
 #include <cmath>
 #include <cstdio>
 
+#include "kern/core/json.h"
 #include "kern/game/geometry.h"
+#include "kern/game/walker.h"
+#include "kern/logic/logic.h"
 
 namespace kern::game {
 
@@ -187,6 +190,91 @@ Level orb_run_level() {
   l.camera.position = {car.transform.position.x, car.transform.position.y - 38, 13};
   l.camera.yaw = 90;
   l.camera.pitch = -15;
+  return l;
+}
+
+Level micro_duck_level() {
+  // A room of the real robot's size class: 2.5 x 2.5 m real (the duck is built kWalkerScale x, so
+  // 10 x 10 m here), a few things in it to walk around, and a ball it quacks at when its head
+  // camera sees it (the level blueprint).
+  const f32 S = kWalkerScale;
+  Level l;
+  l.name = "Micro Duck";
+  l.world.title = "Micro Duck";
+  l.world.time_of_day = 0.4f;
+  l.world.step_hz = kWalkerStepHz;  // the policy's timing (docs/walker.md section 3)
+  l.world.substeps = 16;
+  l.world.reverb = 0.2f;
+  l.world.ground = false;  // the floor is the ground (no z-fighting with the ground plane)
+  Actor floor = make("Floor", {0, 0, -0.1f});
+  floor.mesh = box_mesh({60, 60, 0.2f}, {0.62f, 0.55f, 0.46f}, 0.85f);  // a wooden floor
+  floor.mesh->material.tiling = 0.5f;
+  l.add(floor);
+  const f32 half = 1.25f * S, h = 0.25f * S;
+  const struct { const char* name; Vec3 at, size; } walls[] = {
+      {"Wall North", {0, half, h}, {2 * half + 0.4f, 0.4f, 2 * h}}, {"Wall South", {0, -half, h}, {2 * half + 0.4f, 0.4f, 2 * h}},
+      {"Wall East", {half, 0, h}, {0.4f, 2 * half, 2 * h}},         {"Wall West", {-half, 0, h}, {0.4f, 2 * half, 2 * h}}};
+  for (const auto& w : walls) {
+    Actor a = make(w.name, w.at);
+    a.folder = "Room";
+    a.mesh = box_mesh(w.size, {0.86f, 0.84f, 0.8f}, 0.9f);
+    l.add(a);
+  }
+  // Furniture at duck scale: shoeboxes, a stack of books, a flower pot (real sizes x S).
+  const struct { const char* name; Vec3 at, size, color; } boxes[] = {
+      {"Shoebox", {0.35f * S, 0.4f * S, 0.06f * S}, {0.33f * S, 0.2f * S, 0.12f * S}, {0.8f, 0.3f, 0.25f}},
+      {"Books", {-0.45f * S, 0.55f * S, 0.05f * S}, {0.24f * S, 0.17f * S, 0.1f * S}, {0.25f, 0.4f, 0.7f}},
+      {"Crate", {0.6f * S, -0.5f * S, 0.1f * S}, {0.2f * S, 0.2f * S, 0.2f * S}, {0.72f, 0.52f, 0.3f}}};
+  for (const auto& b : boxes) {
+    Actor a = make(b.name, b.at);
+    a.folder = "Furniture";
+    a.mesh = box_mesh(b.size, b.color, 0.7f);
+    l.add(a);
+  }
+  Actor pot = make("Flower Pot", {-0.5f * S, -0.45f * S, 0.08f * S});
+  pot.folder = "Furniture";
+  pot.mesh = round_mesh(Shape::cylinder, 0.08f * S, 0.16f * S, {0.75f, 0.4f, 0.25f}, 0.8f);
+  l.add(pot);
+  // A light ball (a real 12 cm toy ball): Box3D pushes it when the duck walks into it.
+  Actor ball = make("Ball", {0.1f * S, -0.2f * S, 0.06f * S});
+  ball.mesh = round_mesh(Shape::sphere, 0.06f * S, 0.12f * S, {0.95f, 0.8f, 0.15f}, 0.4f);
+  ball.body = body(Motion::dynamic, 0.05f * S * S * S);
+  const ActorId ball_id = l.add(ball).id;
+
+  // The duck: autonomous (it roams with its ToF and looks around when it stands).
+  std::vector<Actor> parts = micro_duck_actors();
+  const ActorId base = l.next_id;
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    Actor a = parts[i];
+    a.id = base + static_cast<ActorId>(i);
+    if (i == 0) a.transform.position = a.transform.position + Vec3{-0.7f * S, -0.7f * S, 0};
+    if (i == 0) a.transform.rotation = {0, 0, 45};
+    if (a.parent) a.parent = base + a.parent - 1;
+    for (JointComponent& j : a.joints)
+      if (j.target) j.target = base + j.target - 1;
+    l.add(std::move(a));
+  }
+  l.world.player = base;
+
+  // Level blueprint: quack once whenever the ball comes into the head camera's picture.
+  char text[2048];
+  std::snprintf(text, sizeof text, R"({"variables":[{"name":"Ball Seen","type":"bool","value":false}],
+    "nodes":[{"id":1,"type":"event.every","x":0,"y":0,"params":{"seconds":"0.25"}},{"id":2,"type":"flow.branch","x":608,"y":0},
+      {"id":3,"type":"walker.sees","x":-32,"y":192,"values":{"other":%u}},{"id":4,"type":"var.get","x":32,"y":384,"params":{"variable":"Ball Seen"}},
+      {"id":5,"type":"logic.not","x":288,"y":384},{"id":6,"type":"logic.and","x":416,"y":224},
+      {"id":7,"type":"walker.quack","x":896,"y":-64},{"id":8,"type":"var.set","x":1152,"y":-64,"params":{"variable":"Ball Seen"}},
+      {"id":9,"type":"var.set","x":896,"y":160,"params":{"variable":"Ball Seen"}}],
+    "comments":[{"id":20,"x":-64,"y":-112,"w":1472,"h":592,"text":"Quack when the ball comes into the head camera's picture"}],
+    "links":[[1,"then",2,"exec"],[3,"visible",6,"a"],[4,"value",5,"a"],[5,"result",6,"b"],[6,"result",2,"condition"],
+      [2,"true",7,"exec"],[7,"then",8,"exec"],[3,"visible",8,"value"],[2,"false",9,"exec"],[3,"visible",9,"value"]]})",
+                static_cast<unsigned>(ball_id));
+  json::Value j;
+  logic::Graph g;
+  if (json::parse(text, j) && logic::graph_from_json(j, g)) l.logic = std::move(g);
+
+  l.camera.position = {-8.5f, -9.5f, 7.5f};
+  l.camera.yaw = 50;
+  l.camera.pitch = -38;
   return l;
 }
 

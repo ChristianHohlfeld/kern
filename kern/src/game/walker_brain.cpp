@@ -190,13 +190,13 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt) {
     case S::turn: {
       const f32 err = wrap(b.goal_heading - heading);
       cmd[2] = clamp(err * 1.5f, -kTurnRate, kTurnRate);
-      head[2] = clamp(err, -0.8f, 0.8f);  // the head leads
+      head[2] = clamp(err * 0.5f, -0.4f, 0.4f);  // the head leads
       if (std::fabs(err) < 0.15f) b.enter(S::wander, b.range(5, 12)), b.goal_heading = heading;
       break;
     }
     case S::back_off:
       cmd[0] = -0.15f;
-      cmd[2] = b.turn_dir * 0.4f;
+      cmd[2] = 0;  // straight back: backing and turning at once tips it
       if (b.time > b.length) { b.enter(S::turn, 4); }
       break;
     case S::get_up:
