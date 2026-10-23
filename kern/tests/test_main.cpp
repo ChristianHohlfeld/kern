@@ -1813,6 +1813,11 @@ TEST(logic_tier_cases_interpreter) {
     }
     if (std::string(c.name) == "state_machine") CHECK(inst->state("M") == "A" || inst->state("M") == "B");
     if (std::string(c.name) == "infinite_loop") CHECK(inst->disabled());
+    if (std::string(c.name) == "reroutes") {
+      CHECK(inst->get("Hits").as_int() == 6);  // 6 x Go through two exec knots
+      CHECK(inst->get("Sum").as_number() == 0 + 2 + 4 + 5 + 5 + 1);  // the values through two data knots
+      CHECK(inst->graph().comments.size() == 1);
+    }
     CHECK(!r.empty());
   }
   // The generated programs exist and the WebAssembly module is well-formed (magic, version, sections).
@@ -4099,6 +4104,108 @@ TEST(studio_logic_editor_commands) {
   CHECK(dg.machines.back().transitions.back().trigger == logic::TriggerKind::condition);
   CHECK(dg.variable(dg.machines.back().transitions.back().variable) != nullptr);
   CHECK(logic::check(dg).empty() || no_errors(logic::check(dg)));
+}
+
+TEST(studio_blueprint_breakpoints_pause_the_game) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"logicOpen","owner":0})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"logicTemplate","template":"spawner"})")["ok"].as_bool());
+  u32 spawn = 0;
+  for (const logic::Node& n : f.s->level().logic.nodes) if (n.type == "actor.spawn") spawn = n.id;
+  json::Value bp = json::Value::object();
+  bp.set("cmd", "logicBreakpoint");
+  bp.set("node", spawn);
+  CHECK(f.s->command(bp)["on"].as_bool());
+  bool flagged = false;
+  const json::Value st1 = f.s->state();
+  for (const json::Value& n : st1["logic"]["nodes"].items()) flagged |= n["id"].as_number() == spawn && n["breakpoint"].as_bool();
+  CHECK(flagged);
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  f.frames(60 * 4);  // the spawner fires every 3 s
+  CHECK(f.s->world().paused());
+  bool hit = false;
+  const json::Value st2 = f.s->state();
+  for (const json::Value& n : st2["logic"]["nodes"].items()) hit |= n["id"].as_number() == spawn && n["hit"].as_bool();
+  CHECK(hit);
+  // Resume runs on; removing the breakpoint lets it keep running.
+  bp.set("on", false);
+  CHECK(!f.s->command(bp)["on"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"pause","value":false})")["ok"].as_bool());
+  f.frames(60 * 4);
+  CHECK(!f.s->world().paused());
+  f.cmd(R"({"cmd":"stop"})");
+}
+
+TEST(studio_blueprint_comments_reroutes_promote) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"logicOpen","owner":0})")["ok"].as_bool());
+  const u32 begin = static_cast<u32>(f.cmd(R"({"cmd":"logicAdd","type":"event.begin","x":0,"y":0})")["id"].as_number());
+  const u32 msg = static_cast<u32>(f.cmd(R"({"cmd":"logicAdd","type":"game.message","x":400,"y":0})")["id"].as_number());
+  const u32 add = static_cast<u32>(f.cmd(R"({"cmd":"logicAdd","type":"math.add","x":0,"y":200})")["id"].as_number());
+  auto cmd = [&](std::initializer_list<std::pair<const char*, json::Value>> kv) {
+    json::Value c = json::Value::object();
+    for (const auto& [k, v] : kv) c.set(k, v);
+    return f.s->command(c);
+  };
+  CHECK(cmd({{"cmd", "logicConnect"}, {"from", begin}, {"out", "then"}, {"to", msg}, {"in", "exec"}})["ok"].as_bool());
+  // Compact nodes: an operator draws as its symbol.
+  json::Value st = f.s->state();
+  bool compact = false;
+  for (const json::Value& n : st["logic"]["nodes"].items()) compact |= n["id"].as_number() == add && n["compact"].as_string() == "+";
+  CHECK(compact);
+  // Double-click on the wire: a reroute knot splits it, one undo step.
+  json::Value link = json::Value::array();
+  link.push(begin);
+  link.push("then");
+  link.push(msg);
+  link.push("exec");
+  const json::Value rr = cmd({{"cmd", "logicInsertReroute"}, {"link", link}, {"x", 200}, {"y", 40}});
+  CHECK(rr["ok"].as_bool());
+  const logic::Graph& g = f.s->level().logic;
+  CHECK(g.nodes.size() == 4 && g.links.size() == 2 && g.find(static_cast<u32>(rr["id"].as_number()))->type == "flow.reroute");
+  CHECK(no_errors(logic::check(g)));
+  CHECK(f.cmd(R"({"cmd":"undo"})")["ok"].as_bool());
+  CHECK(f.s->level().logic.nodes.size() == 3 && f.s->level().logic.links.size() == 1);
+  // Promote to Variable: the Add node's A input gets a float variable and a Get node.
+  const json::Value pr = cmd({{"cmd", "logicPromote"}, {"node", add}, {"pin", "a"}, {"output", false}});
+  CHECK(pr["ok"].as_bool() && f.s->level().logic.variable(pr["variable"].as_string()) != nullptr);
+  CHECK(f.s->level().logic.links.size() == 2);
+  // Comment boxes: add, move with resize, edit, copy / paste, delete.
+  const u32 cb = static_cast<u32>(f.cmd(R"({"cmd":"logicCommentBox","op":"add","x":-40,"y":-40,"w":700,"h":300,"text":"Start"})")["id"].as_number());
+  CHECK(f.s->level().logic.comments.size() == 1);
+  json::Value moves = json::Value::array();
+  json::Value mv = json::Value::object();
+  mv.set("id", cb);
+  mv.set("x", -80);
+  mv.set("y", -80);
+  mv.set("w", 800);
+  mv.set("h", 400);
+  moves.push(mv);
+  CHECK(cmd({{"cmd", "logicMove"}, {"moves", moves}})["ok"].as_bool());
+  CHECK(f.s->level().logic.comments[0].w == 800 && f.s->level().logic.comments[0].x == -80);
+  CHECK(cmd({{"cmd", "logicCommentBox"}, {"op", "edit"}, {"id", cb}, {"text", "Begin"}, {"color", 0x3366aa}})["ok"].as_bool());
+  CHECK(f.s->level().logic.comments[0].text == "Begin" && f.s->level().logic.comments[0].color == 0x3366aa);
+  CHECK(f.s->state()["logic"]["comments"].size() == 1);
+  json::Value ids = json::Value::array();
+  ids.push(cb);
+  const json::Value copy = cmd({{"cmd", "logicCopy"}, {"ids", ids}});
+  CHECK(cmd({{"cmd", "logicPaste"}, {"text", copy["text"]}, {"x", 0}, {"y", 800}})["ok"].as_bool());
+  CHECK(f.s->level().logic.comments.size() == 2);
+  CHECK(cmd({{"cmd", "logicDelete"}, {"ids", ids}})["ok"].as_bool());
+  CHECK(f.s->level().logic.comments.size() == 1);
+  // A comment does not change the compiled program (the hash ignores the editor's layout).
+  logic::Graph a = f.s->level().logic, b = a;
+  b.comments.clear();
+  CHECK(logic::graph_hash(a) == logic::graph_hash(b));
+  // Context palette from a pin offers a reroute knot of the pin's type.
+  json::Value from = json::Value::object();
+  from.set("node", add);
+  from.set("pin", "result");
+  from.set("output", true);
+  const json::Value pal = cmd({{"cmd", "logicPalette"}, {"query", "reroute"}, {"from", from}});
+  CHECK(pal["items"].size() >= 1 && pal["items"][0]["type"].as_string() == "value.reroute" && pal["items"][0]["params"]["type"].as_string() == "float");
 }
 
 TEST(studio_multiplayer_play) {

@@ -147,6 +147,32 @@ void add_events(Library& lib) {
 
 void add_flow(Library& lib) {
   {
+    // Reroute nodes (Blueprint knots): a wire bends through them; they change nothing.
+    NodeDef d = make("flow.reroute", "Reroute (exec)", "Flow", NodeKind::flow, "A knot an exec wire passes through, to route wires tidily.");
+    d.inputs = {exec_in()};
+    d.outputs = {exec_out()};
+    d.keywords = "knot reroute wire";
+    d.run = [](Context&) { return 0; };
+    lib.add(std::move(d));
+  }
+  {
+    NodeDef d = make("value.reroute", "Reroute", "Flow", NodeKind::pure, "A knot a data wire passes through, to route wires tidily.");
+    d.params = {param("type", "Type", ParamDef::Kind::choice, "float",
+                      {"bool", "Boolean", "int", "Integer", "float", "Float", "vector", "Vector", "text", "Text", "actor", "Actor"})};
+    d.keywords = "knot reroute wire";
+    d.shape = [](const NodeDef&, const Node& n, const Graph&, std::vector<PinDef>& in, std::vector<PinDef>& out) {
+      PinType t = PinType::number;
+      if (!pin_type_from_name(n.param("type", "float"), t) || t == PinType::exec) t = PinType::number;
+      in = {data("in", "", t, Value::zero(t).to_json())};
+      out = {data("out", "", t)};
+    };
+    d.run = [](Context& c) {
+      c.out(std::size_t{0}, c.in(std::size_t{0}));
+      return kStop;
+    };
+    lib.add(std::move(d));
+  }
+  {
     NodeDef d = make("flow.branch", "Branch", "Flow", NodeKind::flow, "If the condition is true, continue at True, otherwise at False.");
     d.inputs = {exec_in(), data("condition", "Condition", PinType::boolean, true)};
     d.outputs = {exec_out("true", "True"), exec_out("false", "False")};

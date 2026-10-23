@@ -60,6 +60,9 @@ struct GameWorld::WalkerBrain {
   std::vector<std::vector<f32>> pending;  // targets on their way to the servos, oldest first
   PlayInput input;
   bool has_input = false;
+  physics::Body bodies[15];        // trunk + links: what its own sensors do not see
+  WalkerSensors sensors;
+  f64 next_tof = 0;                // simulation time of the next ToF frame
 };
 
 class GameWorld::LogicHost : public logic::Host {

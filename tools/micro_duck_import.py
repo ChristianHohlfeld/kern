@@ -84,6 +84,7 @@ POLICY_ORDER = ["left_hip_yaw", "left_hip_roll", "left_hip_pitch", "left_knee", 
                 "right_hip_yaw", "right_hip_roll", "right_hip_pitch", "right_knee", "right_ankle"]
 SERVO_MESH = "xl330"
 SOLES = {"left_foot_collision", "right_foot_collision"}
+SENSOR_SITES = {"head_camera", "tof", "imu"}  # the robot's camera, ToF and trunk IMU
 
 
 def stl_extent(path):
@@ -150,9 +151,13 @@ def load_robot(xml_path, assets):
             # body-local centre and orientation of the box, then the joint's home rotation
             local_c = add(gpos, mvec(gR, c))
             boxes.append({"c": local_c, "R": gR, "size": size, "sole": sole})
+        sites = []
+        for st in body.findall("site"):
+            if st.get("name") in SENSOR_SITES:
+                sites.append({"name": st.get("name"), "pos": floats(st.get("pos", "0 0 0"), 3), "R": qmat(floats(st.get("quat", "1 0 0 0"), 4))})
         index = len(links)
         links.append({"name": body.get("name"), "joint": joint, "parent": parent, "origin": origin, "R": R,
-                      "mass": mass, "ipos": ipos, "I": I, "boxes": boxes})
+                      "mass": mass, "ipos": ipos, "I": I, "boxes": boxes, "sites": sites})
         for child in body.findall("body"):
             walk(child, index, origin, R)
 
@@ -349,6 +354,17 @@ def main():
             cw = mvec(l["R"], b["c"])
             e, s = box_rotation(Rw, b["size"])
             w("    {%d, %s, %s, %s, %s}," % (remap[i], vec(cw), vec(e), vec(s), "true" if b["sole"] else "false"))
+    w("};")
+    w("// Sensor sites: position relative to the link's origin and the site frame's axes, world-aligned in")
+    w("// the home pose (MJCF site frames; a MuJoCo camera looks along -Z with +Y up).")
+    w("const DuckSiteDef kDuckSites[] = {")
+    for i in order:
+        l = links[i]
+        for st in l["sites"]:
+            Rw = mmul(l["R"], st["R"])
+            pw = mvec(l["R"], st["pos"])
+            col = lambda k: [Rw[0][k], Rw[1][k], Rw[2][k]]
+            w('    {"%s", %d, %s, %s, %s, %s},' % (st["name"], remap[i], vec(pw), vec(col(0)), vec(col(1)), vec(col(2))))
     w("};")
     open(os.path.join(out, "micro_duck_model.inc"), "w").write("\n".join(lines) + "\n")
 

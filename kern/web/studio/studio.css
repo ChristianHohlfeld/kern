@@ -357,3 +357,6 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 @media (display-mode: fullscreen), (display-mode: standalone) {
   #app { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
 }
+
+#main.logic-open { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+#main.logic-open #side, #main.logic-open #sideSplit { display: none; }

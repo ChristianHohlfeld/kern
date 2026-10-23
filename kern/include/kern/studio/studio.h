@@ -396,6 +396,10 @@ class Studio {
   u32 logic_owner_ = 0;
   bool logic_open_ = false;
   std::string logic_view_ = "graph";
+  // Blueprint debugging: breakpoints (owner, node) pause the game after the step in which the node ran.
+  std::vector<std::pair<u32, u32>> logic_breakpoints_;
+  std::pair<u32, u32> logic_break_hit_{0, 0};
+  void check_logic_breakpoints();
   json::Value details_json() const;
   json::Value world_json() const;
   json::Value catalog_json() const;

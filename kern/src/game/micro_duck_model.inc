@@ -38,3 +38,10 @@ const DuckBoxDef kDuckBoxes[] = {
     {13, {0.0150989433f, -0.0087526236f, -0.0319047568f}, {5.55750174f, -25.8479961f, -2.42915912f}, {0.0199999996f, 0.0289999992f, 0.0339999991f}, false},
     {14, {0.00700000034f, 0.0162580806f, -0.0172213652f}, {5.0f, 9.54166404e-15f, 1.23246494e-14f}, {0.0539999995f, 0.0410987306f, 0.0129076056f}, true},
 };
+// Sensor sites: position relative to the link's origin and the site frame's axes, world-aligned in
+// the home pose (MJCF site frames; a MuJoCo camera looks along -Z with +Y up).
+const DuckSiteDef kDuckSites[] = {
+    {"imu", 0, {-0.021f, 6.64098e-5f, -0.0146984f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+    {"head_camera", 9, {0.0733f, -9.13778e-5f, 0.0155f}, {1.0f, 0.0f, 5.55111512e-17f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+    {"tof", 9, {0.0733f, 0.0224086f, 0.0135f}, {1.0f, 0.0f, 5.55111512e-17f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+};

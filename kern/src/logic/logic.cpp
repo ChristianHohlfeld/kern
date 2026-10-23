@@ -323,6 +323,21 @@ json::Value graph_to_json(const Graph& g) {
     machines.push(std::move(o));
   }
   root.set("machines", std::move(machines));
+  if (!g.comments.empty()) {
+    json::Value comments = json::Value::array();
+    for (const CommentBox& c : g.comments) {
+      json::Value x = json::Value::object();
+      x.set("id", c.id);
+      x.set("x", static_cast<f64>(std::round(c.x)));
+      x.set("y", static_cast<f64>(std::round(c.y)));
+      x.set("w", static_cast<f64>(std::round(c.w)));
+      x.set("h", static_cast<f64>(std::round(c.h)));
+      x.set("text", c.text);
+      if (c.color) x.set("color", c.color);
+      comments.push(std::move(x));
+    }
+    root.set("comments", std::move(comments));
+  }
   return root;
 }
 
@@ -414,6 +429,22 @@ bool graph_from_json(const json::Value& j, Graph& out, std::string* error) {
       m.transitions.push_back(std::move(tr));
     }
     g.machines.push_back(std::move(m));
+  }
+  for (const json::Value& v : j["comments"].items()) {
+    CommentBox c;
+    c.id = id_of(v["id"]);
+    if (!c.id) return bad("a comment box has no valid id");
+    auto coord = [](const json::Value& x, f32 fallback, f32 lo, f32 hi) {
+      const f64 n = x.as_number(fallback);
+      return std::isfinite(n) ? static_cast<f32>(clamp(n, static_cast<f64>(lo), static_cast<f64>(hi))) : fallback;
+    };
+    c.x = coord(v["x"], 0, -1e6f, 1e6f);
+    c.y = coord(v["y"], 0, -1e6f, 1e6f);
+    c.w = coord(v["w"], 400, 40, 1e5f);
+    c.h = coord(v["h"], 200, 40, 1e5f);
+    c.text = v["text"].is_string() ? v["text"].as_string() : std::string("Comment");
+    c.color = static_cast<u32>(clamp(v["color"].as_number(0), 0.0, 16777215.0));
+    g.comments.push_back(std::move(c));
   }
   g.next_id = max_of(max_id + 1, static_cast<u32>(j["nextId"].as_number(0)));
   out = std::move(g);
@@ -576,6 +607,7 @@ u64 graph_hash(const Graph& g) {
   // FNV-1a of the graph without positions and comments (moving a node keeps the code valid).
   Graph copy = g;
   for (Node& n : copy.nodes) { n.x = n.y = 0; n.comment.clear(); }
+  copy.comments.clear();
   for (StateMachine& m : copy.machines) for (State& st : m.states) st.x = st.y = 0;
   const std::string text = json::stringify(graph_to_json(copy));
   u64 h = 1469598103934665603ull;

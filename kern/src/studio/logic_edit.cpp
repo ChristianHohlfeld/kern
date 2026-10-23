@@ -131,6 +131,25 @@ std::string compatible_pin(const logic::Graph& g, const logic::Node& node, logic
   return {};
 }
 
+/// Blueprint draws some nodes compact: a variable getter is a pill with the variable's name, an
+/// operator a small box with its symbol. "" = a normal node with a title bar.
+std::string compact_symbol(const logic::Node& n) {
+  static const std::pair<const char*, const char*> kOps[] = {
+      {"math.add", "+"}, {"math.sub", "\u2212"}, {"math.mul", "\u00d7"}, {"math.div", "\u00f7"}, {"math.mod", "%"}, {"math.negate", "\u2212x"},
+      {"math.abs", "|x|"}, {"math.min", "MIN"}, {"math.max", "MAX"}, {"math.sqrt", "\u221a"}, {"math.pow", "x\u207f"}, {"logic.and", "AND"},
+      {"logic.or", "OR"}, {"logic.xor", "XOR"}, {"logic.not", "NOT"}, {"vector.dot", "\u00b7"}, {"vector.scale", "\u00d7"}, {"text.append", "&"},
+      {"text.equal", "=="}};
+  for (const auto& [t, sym] : kOps)
+    if (n.type == t) return sym;
+  if (n.type == "math.compare") {
+    const std::string op = n.param("op", "<");
+    return op == "!=" ? "\u2260" : op == "<=" ? "\u2264" : op == ">=" ? "\u2265" : op;
+  }
+  if (n.type == "var.get") return "get";
+  if (n.type == "flow.reroute" || n.type == "value.reroute") return "reroute";
+  return {};
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -143,6 +162,9 @@ json::Value Studio::logic_json() const {
   const game::Actor* owner = logic_owner_ ? level_.find(logic_owner_) : nullptr;
   o.set("ownerName", logic_owner_ ? (owner ? owner->name : std::string("?")) : std::string("Level"));
   o.set("view", logic_view_);
+  o.set("paused", paused_);
+  o.set("playing", play_ != PlayState::editing);
+  o.set("breakpoints", static_cast<u32>(logic_breakpoints_.size()));
   // Owners to switch between: the level and every actor with a graph.
   json::Value owners = json::Value::array();
   {
@@ -181,6 +203,10 @@ json::Value Studio::logic_json() const {
     x.set("x", static_cast<f64>(n.x));
     x.set("y", static_cast<f64>(n.y));
     if (!n.comment.empty()) x.set("comment", n.comment);
+    if (const std::string sym = compact_symbol(n); !sym.empty()) x.set("compact", sym);
+    for (const auto& bp : logic_breakpoints_)
+      if (bp.first == logic_owner_ && bp.second == n.id) x.set("breakpoint", true);
+    if (paused_ && logic_break_hit_.first == logic_owner_ && logic_break_hit_.second == n.id) x.set("hit", true);
     if (d) {
       x.set("kind", kind_name(d->kind));
       x.set("category", d->category);
@@ -283,6 +309,7 @@ json::Value Studio::logic_json() const {
   o.set("variables", std::move(vars));
   json::Value graph = logic::graph_to_json(*g);
   o.set("machines", graph["machines"]);
+  o.set("comments", graph["comments"].is_array() ? graph["comments"] : json::Value::array());
   json::Value iss = json::Value::array();
   for (const logic::Issue& i : issues) {
     json::Value x = json::Value::object();
@@ -318,6 +345,37 @@ json::Value Studio::logic_trace_json() const {
     o.set("tier", inst->tier());
   }
   return o;
+}
+
+// ---------------------------------------------------------------------------
+// debugging
+
+void Studio::check_logic_breakpoints() {
+  if (logic_breakpoints_.empty() || paused_ || play_ == PlayState::editing) return;
+  logic::Runtime* rt = world_->logic_runtime();
+  if (!rt) return;
+  rt->tracing = true;  // the runtime records which nodes ran (also in compiled code)
+  for (const auto& t : rt->trace())
+    for (const auto& [owner, node] : logic_breakpoints_) {
+      if (t.node != node) continue;
+      const game::Actor* a = owner ? level_.find(owner) : nullptr;
+      if (t.instance != (owner ? (a ? a->name : std::string()) : std::string("Level"))) continue;
+      toggle_pause();
+      logic_break_hit_ = {owner, node};
+      logic_owner_ = owner;
+      logic_open_ = true;
+      logic_view_ = "graph";
+      const logic::Graph* g = owner ? (a && a->logic ? &*a->logic : nullptr) : &level_.logic;
+      const logic::Node* n = g ? g->find(node) : nullptr;
+      report("Breakpoint: " + (n ? logic::library().title(*n) : std::string("node")) + " ran - the game is paused (Resume continues)", "warn");
+      json::Value ui = json::Value::object();
+      ui.set("action", "logicBreak");
+      ui.set("node", node);
+      push_ui(std::move(ui));
+      touch();
+      return;
+    }
+  if (!logic_open_) rt->clear_trace();  // the editor's live view clears it otherwise
 }
 
 // ---------------------------------------------------------------------------
@@ -366,12 +424,17 @@ json::Value Studio::logic_palette(const json::Value& c) const {
   };
   for (const auto& d : lib.all()) {
     if (d->type == "var.get" || d->type == "var.set" || d->type == "var.add") continue;  // per variable below
+    if (d->type == "flow.reroute" || d->type == "value.reroute") continue;               // from a wire, below
     Entry e{d->label, d->category, d->help, d->type, {}};
     if (d->type == "event.state_enter" || d->type == "event.state_exit" || d->type == "state.set" || d->type == "state.is" || d->type == "state.get") {
       if (g->machines.empty()) continue;
       e.params.push_back({"machine", g->machines.front().name});
     }
     consider(std::move(e));
+  }
+  if (from_pin) {
+    if (from_type == logic::PinType::exec) consider({"Add Reroute Node", "Flow", "A knot the wire passes through", "flow.reroute", {}});
+    else consider({"Add Reroute Node", "Flow", "A knot the wire passes through", "value.reroute", {{"type", logic::pin_type_name(from_type)}}});
   }
   for (const logic::Variable& v : g->variables) {
     consider({"Get " + v.name, "Variables", std::string("Reads ") + v.name, "var.get", {{"variable", v.name}}});
@@ -447,6 +510,20 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
     return ok_result();
   }
   if (name == "logicPalette") return logic_palette(c);
+  if (name == "logicBreakpoint") {
+    // F9 (Blueprint): a breakpoint on a node of the open graph; "on" omitted toggles.
+    const std::pair<u32, u32> key{logic_owner_, static_cast<u32>(num("node"))};
+    auto it = std::find(logic_breakpoints_.begin(), logic_breakpoints_.end(), key);
+    const bool on = c["on"].is_bool() ? c["on"].as_bool() : it == logic_breakpoints_.end();
+    if (on && it == logic_breakpoints_.end()) logic_breakpoints_.push_back(key);
+    if (!on && it != logic_breakpoints_.end()) logic_breakpoints_.erase(it);
+    if (c["clearAll"].as_bool()) logic_breakpoints_.clear();
+    touch();
+    json::Value r = ok_result();
+    r.set("on", on);
+    r.set("count", static_cast<u32>(logic_breakpoints_.size()));
+    return r;
+  }
   if (name == "logicTrace") {
     json::Value r = ok_result();
     r.set("trace", logic_trace_json());
@@ -459,6 +536,7 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
     std::vector<u32> ids;
     for (const json::Value& v : c["ids"].items()) ids.push_back(static_cast<u32>(v.as_number()));
     for (const logic::Node& n : g->nodes) if (std::find(ids.begin(), ids.end(), n.id) != ids.end()) part.nodes.push_back(n);
+    for (const logic::CommentBox& cb : g->comments) if (std::find(ids.begin(), ids.end(), cb.id) != ids.end()) part.comments.push_back(cb);
     for (const logic::Link& l : g->links)
       if (std::find(ids.begin(), ids.end(), l.from) != ids.end() && std::find(ids.begin(), ids.end(), l.to) != ids.end()) part.links.push_back(l);
     json::Value r = ok_result();
@@ -508,6 +586,12 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
   std::string error;
   json::Value result = ok_result();
   const u32 owner = logic_owner_;
+  // Several commands with the same "transaction" are one undo step (picking wires up and dropping
+  // them elsewhere, breaking all links of a node).
+  if (c["transaction"].is_string() && name != "logicMove") {
+    coalesce_ = "logic-tx:" + std::to_string(owner);
+    transaction_ = str("transaction");
+  }
   auto graph_edit = [&](const char* label, auto&& fn) {
     const bool done = edit(label, [&](game::Level& l) {
       logic::Graph* g = graph_of(l, owner, true);
@@ -568,9 +652,10 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
     logic::Graph part;
     if (!json::parse(str("text"), j) || !logic::graph_from_json(j, part, &error)) return fail_result(error.empty() ? "not logic nodes" : error);
     return graph_edit("Paste Nodes", [&](logic::Graph& g, game::Level&) {
-      if (part.nodes.empty()) return false;
+      if (part.nodes.empty() && part.comments.empty()) return false;
       f32 minx = 1e9f, miny = 1e9f;
       for (const logic::Node& n : part.nodes) { minx = min_of(minx, n.x); miny = min_of(miny, n.y); }
+      for (const logic::CommentBox& cb : part.comments) { minx = min_of(minx, cb.x); miny = min_of(miny, cb.y); }
       std::unordered_map<u32, u32> remap;
       json::Value ids = json::Value::array();
       for (logic::Node n : part.nodes) {
@@ -583,6 +668,13 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
       }
       for (const logic::Link& l : part.links)
         if (remap.count(l.from) && remap.count(l.to)) g.links.push_back({remap[l.from], l.out, remap[l.to], l.in});
+      for (logic::CommentBox cb : part.comments) {
+        cb.id = g.next_id++;
+        cb.x = cb.x - minx + static_cast<f32>(num("x"));
+        cb.y = cb.y - miny + static_cast<f32>(num("y"));
+        ids.push(cb.id);
+        g.comments.push_back(std::move(cb));
+      }
       result.set("ids", std::move(ids));
       return true;
     });
@@ -596,6 +688,16 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
         const u32 id = static_cast<u32>(m["id"].as_number());
         const f32 x = static_cast<f32>(std::round(m["x"].as_number() / 8) * 8), y = static_cast<f32>(std::round(m["y"].as_number() / 8) * 8);
         if (logic::Node* n = g.find(id)) { n->x = x; n->y = y; continue; }
+        bool comment = false;
+        for (logic::CommentBox& cb : g.comments)
+          if (cb.id == id) {
+            cb.x = x;
+            cb.y = y;
+            if (m["w"].is_number()) cb.w = static_cast<f32>(clamp(std::round(m["w"].as_number() / 8) * 8, 64.0, 1e5));
+            if (m["h"].is_number()) cb.h = static_cast<f32>(clamp(std::round(m["h"].as_number() / 8) * 8, 48.0, 1e5));
+            comment = true;
+          }
+        if (comment) continue;
         for (logic::StateMachine& sm : g.machines)
           for (logic::State& s : sm.states)
             if (s.id == id) { s.x = x; s.y = y; }
@@ -630,10 +732,11 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
       std::vector<u32> ids;
       for (const json::Value& v : c["ids"].items()) ids.push_back(static_cast<u32>(v.as_number()));
       auto gone = [&](u32 id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); };
-      const std::size_t before = g.nodes.size();
+      const std::size_t before = g.nodes.size() + g.comments.size();
+      g.comments.erase(std::remove_if(g.comments.begin(), g.comments.end(), [&](const logic::CommentBox& cb) { return gone(cb.id); }), g.comments.end());
       g.nodes.erase(std::remove_if(g.nodes.begin(), g.nodes.end(), [&](const logic::Node& n) { return gone(n.id); }), g.nodes.end());
       g.links.erase(std::remove_if(g.links.begin(), g.links.end(), [&](const logic::Link& l) { return gone(l.from) || gone(l.to); }), g.links.end());
-      return g.nodes.size() != before;
+      return g.nodes.size() + g.comments.size() != before;
     });
   }
   if (name == "logicValue") {
@@ -830,6 +933,89 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
       return false;
     });
   }
+  if (name == "logicCommentBox") {
+    const std::string op = str("op");
+    return graph_edit(op == "add" ? "Add Comment" : op == "remove" ? "Delete Comment" : "Edit Comment", [&](logic::Graph& g, game::Level&) {
+      if (op == "add") {
+        logic::CommentBox cb;
+        cb.id = g.next_id++;
+        cb.x = static_cast<f32>(std::round(num("x") / 8) * 8);
+        cb.y = static_cast<f32>(std::round(num("y") / 8) * 8);
+        cb.w = static_cast<f32>(clamp(num("w", 400), 64.0, 1e5));
+        cb.h = static_cast<f32>(clamp(num("h", 200), 48.0, 1e5));
+        if (c["text"].is_string()) cb.text = str("text");
+        cb.color = static_cast<u32>(clamp(num("color"), 0.0, 16777215.0));
+        g.comments.push_back(cb);
+        result.set("id", cb.id);
+        return true;
+      }
+      const u32 id = static_cast<u32>(num("id"));
+      auto it = std::find_if(g.comments.begin(), g.comments.end(), [&](const logic::CommentBox& x) { return x.id == id; });
+      if (it == g.comments.end()) { error = "no such comment"; return false; }
+      if (op == "remove") { g.comments.erase(it); return true; }
+      if (c["text"].is_string()) it->text = str("text").substr(0, 2000);
+      if (c["color"].is_number()) it->color = static_cast<u32>(clamp(num("color"), 0.0, 16777215.0));
+      return true;
+    });
+  }
+  if (name == "logicPromote") {
+    // Promote to Variable (Blueprint): a new variable of the pin's type, wired to the pin through a
+    // Get node (an input) or a Set node (an output).
+    return graph_edit("Promote to Variable", [&](logic::Graph& g, game::Level&) {
+      const u32 node = static_cast<u32>(num("node"));
+      const bool output = c["output"].as_bool();
+      logic::PinDef p;
+      const logic::Node* n = g.find(node);
+      if (!n || !pin_of(g, node, str("pin"), output, p) || p.type == logic::PinType::exec) { error = "only data pins can become variables"; return false; }
+      std::string base;
+      for (char ch : p.label.empty() ? p.id : p.label) if (std::isalnum(static_cast<unsigned char>(ch))) base += ch;
+      if (base.empty()) base = "NewVar";
+      std::string vname = base;
+      for (int i = 2; g.variable(vname); ++i) vname = base + std::to_string(i);
+      logic::Variable v{vname, p.type, logic::Value::zero(p.type).to_json(), {}};
+      if (!output)
+        if (const json::Value* lit = n->value(p.id)) v.value = logic::Value::from_json(*lit, p.type).to_json();
+      g.variables.push_back(v);
+      logic::Node vn;
+      vn.id = g.next_id++;
+      vn.type = output ? "var.set" : "var.get";
+      vn.set_param("variable", vname);
+      vn.x = n->x + (output ? 260.0f : -220.0f);
+      vn.y = n->y + 40;
+      g.nodes.push_back(vn);
+      std::string ignore;
+      if (output) connect(g, node, p.id, vn.id, "value", ignore);
+      else connect(g, vn.id, "value", node, p.id, ignore);
+      result.set("id", vn.id);
+      result.set("variable", vname);
+      return true;
+    });
+  }
+  if (name == "logicInsertReroute") {
+    // Double-click on a wire (Blueprint): a reroute knot splits it.
+    return graph_edit("Add Reroute Node", [&](logic::Graph& g, game::Level&) {
+      const json::Value& k = c["link"];
+      if (!k.is_array() || k.size() != 4) { error = "no wire"; return false; }
+      const logic::Link link{static_cast<u32>(k[0].as_number()), k[1].as_string(), static_cast<u32>(k[2].as_number()), k[3].as_string()};
+      auto it = std::find(g.links.begin(), g.links.end(), link);
+      if (it == g.links.end()) { error = "no such wire"; return false; }
+      logic::PinDef p;
+      if (!pin_of(g, link.from, link.out, true, p)) { error = "no such pin"; return false; }
+      g.links.erase(it);
+      logic::Node r;
+      r.id = g.next_id++;
+      r.x = static_cast<f32>(std::round(num("x") / 8) * 8);
+      r.y = static_cast<f32>(std::round(num("y") / 8) * 8);
+      const bool exec = p.type == logic::PinType::exec;
+      r.type = exec ? "flow.reroute" : "value.reroute";
+      if (!exec) r.set_param("type", logic::pin_type_name(p.type));
+      g.nodes.push_back(r);
+      g.links.push_back({link.from, link.out, r.id, exec ? "exec" : "in"});
+      g.links.push_back({r.id, exec ? "then" : "out", link.to, link.in});
+      result.set("id", r.id);
+      return true;
+    });
+  }
   if (name == "logicRemoveGraph") {
     if (!owner) return graph_edit("Clear Level Logic", [&](logic::Graph& g, game::Level&) { g = logic::Graph{}; return true; });
     const bool done = edit("Remove Logic", [&](game::Level& l) {
@@ -846,27 +1032,27 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
     const std::string which = str("template");
     std::string text;
     if (which == "door")
-      text = R"({"nodes":[{"id":1,"type":"game.interact","x":0,"y":0},{"id":2,"type":"flow.flip_flop","x":260,"y":0},
-        {"id":3,"type":"flow.tween","x":480,"y":-80,"params":{"ease":"smooth"},"values":{"duration":0.8}},
-        {"id":4,"type":"flow.tween","x":480,"y":120,"params":{"ease":"smooth"},"values":{"duration":0.8}},
-        {"id":5,"type":"actor.move_by","x":760,"y":-80,"values":{"offset":[0,0,0.05]}},{"id":6,"type":"actor.move_by","x":760,"y":120,"values":{"offset":[0,0,-0.05]}},
-        {"id":7,"type":"game.sound","x":480,"y":300,"params":{"sound":"builtin:confirm"}}],
+      text = R"({"nodes":[{"id":1,"type":"game.interact","x":0,"y":0},{"id":2,"type":"flow.flip_flop","x":320,"y":0},
+        {"id":3,"type":"flow.tween","x":576,"y":-128,"params":{"ease":"smooth"},"values":{"duration":0.8}},
+        {"id":4,"type":"flow.tween","x":576,"y":112,"params":{"ease":"smooth"},"values":{"duration":0.8}},
+        {"id":5,"type":"actor.move_by","x":896,"y":-128,"values":{"offset":[0,0,0.05]}},{"id":6,"type":"actor.move_by","x":896,"y":112,"values":{"offset":[0,0,-0.05]}},
+        {"id":7,"type":"game.sound","x":576,"y":352,"params":{"sound":"builtin:confirm"}}],
         "links":[[1,"then",2,"exec"],[2,"a",3,"play"],[2,"b",4,"play"],[3,"update",5,"exec"],[4,"update",6,"exec"],[1,"then",7,"exec"]]})";
     else if (which == "score_zone")
-      text = R"({"nodes":[{"id":1,"type":"game.overlap_begin","x":0,"y":0},{"id":2,"type":"game.add_score","x":300,"y":0,"values":{"points":10}},
-        {"id":3,"type":"game.message","x":560,"y":0,"values":{"text":"+10"}},{"id":4,"type":"game.sound","x":820,"y":0,"params":{"sound":"builtin:pickup"}}],
+      text = R"({"nodes":[{"id":1,"type":"game.overlap_begin","x":0,"y":0},{"id":2,"type":"game.add_score","x":320,"y":0,"values":{"points":10}},
+        {"id":3,"type":"game.message","x":640,"y":0,"values":{"text":"+10"}},{"id":4,"type":"game.sound","x":960,"y":0,"params":{"sound":"builtin:pickup"}}],
         "links":[[1,"then",2,"exec"],[2,"then",3,"exec"],[3,"then",4,"exec"]]})";
     else if (which == "spawner")
       text = R"({"variables":[{"name":"Spawned","type":"int","value":0}],"nodes":[{"id":1,"type":"event.every","x":0,"y":0,"params":{"seconds":"3"}},
-        {"id":2,"type":"flow.branch","x":260,"y":0},{"id":3,"type":"math.compare","x":20,"y":160,"params":{"op":"<"},"values":{"b":10}},
-        {"id":4,"type":"var.get","x":-220,"y":160,"params":{"variable":"Spawned"}},{"id":5,"type":"actor.spawn","x":480,"y":0,"params":{"template":"Physics Cube"},"values":{"location":[0,0,6]}},
-        {"id":6,"type":"var.add","x":760,"y":0,"params":{"variable":"Spawned"}}],
+        {"id":2,"type":"flow.branch","x":320,"y":0},{"id":3,"type":"math.compare","x":96,"y":176,"params":{"op":"<"},"values":{"b":10}},
+        {"id":4,"type":"var.get","x":-128,"y":192,"params":{"variable":"Spawned"}},{"id":5,"type":"actor.spawn","x":576,"y":0,"params":{"template":"Physics Cube"},"values":{"location":[0,0,6]}},
+        {"id":6,"type":"var.add","x":960,"y":0,"params":{"variable":"Spawned"}}],
         "links":[[1,"then",2,"exec"],[4,"value",3,"a"],[3,"result",2,"condition"],[2,"true",5,"exec"],[5,"then",6,"exec"]]})";
     else if (which == "traffic_light")
       text = R"({"machines":[{"id":20,"name":"Light","states":[{"id":21,"name":"Green","x":0,"y":0,"initial":true},{"id":22,"name":"Yellow","x":280,"y":0},{"id":23,"name":"Red","x":140,"y":200}],
         "transitions":[{"id":30,"from":21,"to":22,"trigger":"timer","seconds":4},{"id":31,"from":22,"to":23,"trigger":"timer","seconds":1.5},{"id":32,"from":23,"to":21,"trigger":"timer","seconds":4}]}],
-        "nodes":[{"id":1,"type":"event.state_enter","x":0,"y":0,"params":{"machine":"Light","state":"any"}},{"id":2,"type":"state.get","x":0,"y":160,"params":{"machine":"Light"}},
-        {"id":3,"type":"game.message","x":300,"y":0}],"links":[[1,"then",3,"exec"],[2,"state",3,"text"]]})";
+        "nodes":[{"id":1,"type":"event.state_enter","x":0,"y":0,"params":{"machine":"Light","state":"any"}},{"id":2,"type":"state.get","x":32,"y":192,"params":{"machine":"Light"}},
+        {"id":3,"type":"game.message","x":352,"y":0}],"links":[[1,"then",3,"exec"],[2,"state",3,"text"]]})";
     else return fail_result("unknown template");
     json::Value j;
     logic::Graph part;

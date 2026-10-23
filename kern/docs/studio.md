@@ -162,11 +162,60 @@ Jeder Actor und das Level können einen Logic-Graphen tragen: Events, Flow, Vari
 State Machines, Mathe und rund 60 Gameplay-Knoten. Geöffnet wird er über **Logic** in der Toolbar
 oder in Details.
 
-Der Editor funktioniert wie in Unreal:
-- Ein Draht ins Leere öffnet die gefilterte Knotensuche, der neue Knoten wird dabei gleich verdrahtet.
-- Alt+Klick trennt Drähte.
-- Vorlagen: Tür, Punktezone, Spawner, Ampel.
-- Beim Spielen zeigt der Editor live, welche Knoten laufen.
+Der Blueprint-Editor folgt Unreals Blueprint-Editor (`web/studio/logic.mjs`) und deckt das ganze Fenster ab:
+
+| Bereich | Inhalt |
+|---|---|
+| Toolbar | Viewport (zurück), **Compile** (F7, mit Status ✓ / ⚠ / ✖), Save, Find (Ctrl+F), welcher Blueprint (Level oder Actor), Vorlagen, C++-Export |
+| My Blueprint | Graphen (Event Graph, State Machines, +), Variablen (Typfarbe, Live-Wert beim Spielen, Get/Set, ziehen: Ctrl = Get, Alt = Set), Events (Custom Events: Event / Call) |
+| Graph | Tabs, Breadcrumb, Zoom-Stufen wie Unreal („Zoom 1:1“, „Zoom −2“), Wasserzeichen EVENT GRAPH |
+| Details | ausgewählter Knoten (Hilfe, Einstellungen, alle Eingänge, Kommentar), Variable (Name, Typ, Default, Referenzen), Kommentar (Text, Farbe), State, Transition |
+| Compiler Results / Find Results | Probleme und Suchtreffer, ein Klick springt zum Knoten |
+
+Im Graphen:
+- **Knoten:**
+  - Titelleisten nach Art: Event rot, Funktion blau, pure grün, Flow grau.
+  - Eingaben ohne Draht direkt am Pin.
+  - Variablen-Getter und Operatoren sind kompakte Knoten: Name bzw. Symbol (+, −, ×, ÷, <, AND …).
+- **Drähte:**
+  - Unreal-Splines, farbig nach Typ, Exec weiß und dicker.
+  - Drähte ausgewählter Knoten werden hervorgehoben.
+  - Beim Spielen laufen Impulse über die Exec-Drähte, die gerade feuerten.
+- **Verdrahten:**
+  - Einen Pin ziehen, passende Pins leuchten auf.
+  - Ins Leere fallen lassen: das kontextsensitive Aktionsmenü mit „Add Reroute Node“.
+  - Ctrl+Ziehen nimmt die Drähte eines Pins auf und hängt sie um.
+  - Alt+Klick trennt.
+  - Doppelklick auf einen Draht setzt einen Reroute-Knoten.
+- **Rechtsklick (Touch: langer Druck):**
+  - Leere Fläche: „All Actions for this Blueprint“ mit aufklappbaren Kategorien und Suche.
+  - Knoten: Ausschneiden/Kopieren/Duplizieren, Links trennen, Kommentar, Ausrichten/Verteilen, Breakpoint.
+  - Pin: Links trennen, „Promote to Variable“, Default zurücksetzen.
+- **Kommentare (C):**
+  - Ein Rahmen um die Auswahl; verschieben verschiebt den Inhalt mit.
+  - Ecke ziehen ändert die Größe, Doppelklick auf den Titel benennt um, die Farbe kommt aus Details.
+- **Tastatur:**
+
+  | Taste | Wirkung |
+  |---|---|
+  | Q | Verbindungen geraderichten |
+  | Shift+W/A/S/D | Ausrichten |
+  | B / S / D / N / O / G / L + Klick | Branch / Sequence / Delay / Do N / Do Once / Gate / For Loop |
+  | Ctrl+C/X/V/D/W | Kopieren / Ausschneiden / Einfügen / Duplizieren |
+  | F | Auswahl einrahmen |
+  | Home | alles einrahmen |
+  | Ctrl+Z | Rückgängig (jede Änderung ist ein Schritt) |
+- **Debugging:**
+  - F9 setzt einen Breakpoint (roter Punkt).
+  - Läuft der Knoten beim Spielen, hält das Spiel nach diesem Simulationsschritt an.
+  - Der Editor springt zum Knoten; Resume, Step und Clear Breakpoints stehen oben im Graphen.
+  - Variablen zeigen ihre Live-Werte.
+- **Handy:**
+  - Ein Finger verschiebt, zwei Finger zoomen, ein langer Druck ist der Rechtsklick.
+  - Ein Tipp auf einen Pin zeigt die passenden Knoten.
+  - Der +-Knopf öffnet das Aktionsmenü als Sheet.
+  - My Blueprint und Details sind Schubladen, ein Kasten-Knopf schaltet die Rechteckauswahl ein.
+- **Vorlagen:** Tür, Punktezone, Spawner, Ampel.
 
 Ausgeführt wird in drei Stufen, die dasselbe Ergebnis liefern (`kern/tests/logic_cases.h`):
 1. **Interpreter**, zum Bearbeiten.

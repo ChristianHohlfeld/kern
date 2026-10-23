@@ -205,6 +205,7 @@ class StudioPage {
         flushUi: () => this.flushUi(),
         openMenu: (entries, x, y) => this.openMenu(entries, x, y),
         toast: (text, actions, ms) => this.toast(text, actions, ms),
+        uiAction: a => this.uiAction(a),
       });
     }
     this.initToolbar();
@@ -233,6 +234,7 @@ class StudioPage {
       command: c => { const r = self.engine.command(c); self.flushUi(); return r; },
       get state() { return self.engine.state(); },
       get status() { return self.engine.status(); },
+      get logic() { return self.logic; },  // the Blueprint editor (tests)
       key: (code, opts = {}) => self.engine.key(opts.key ?? code, code, opts.down !== false, (opts.shift ? 1 : 0) | (opts.ctrl ? 2 : 0) | (opts.alt ? 4 : 0), false),
       pointer: (viewport, type, x, y, opts = {}) => self.engine.pointer(viewport, POINTER[type], x, y, opts),
       viewportRect: i => self.views[i].el.getBoundingClientRect().toJSON(),
@@ -349,6 +351,7 @@ class StudioPage {
         break;
       }
       case "dialog": this.openDialog(a.name, a.dialog); break;
+      case "logicBreak": this.logic.onBreak(a.node); break;
       case "save": this.save(false); break;
       case "saveAs": this.save(true); break;
       case "open": this.openFile(); break;
@@ -789,6 +792,7 @@ class StudioPage {
   render(s) {
     const logicOpen = !!s.logic?.open;
     $("#logicEditor").hidden = !logicOpen;
+    $("#main").classList.toggle("logic-open", logicOpen);  // the Blueprint editor has its own panels
     // Closing the editor must not leave the keyboard focus on a hidden control (keys would vanish).
     if (!logicOpen && document.activeElement?.closest?.("#logicEditor")) document.activeElement.blur();
     $("#logicBtn")?.classList.toggle("on", logicOpen);
@@ -1639,9 +1643,14 @@ class StudioPage {
       if (this.menuStack?.length && down && e.key === "Escape") { this.closeMenus(); e.preventDefault(); return; }
       if (editable(e.target)) return;
       // Inside the logic editor only undo / redo / save reach the level (Delete, letters... are the graph's).
-      if (e.target.closest?.("#logicEditor:not([hidden])")) {
+      if (this.state?.logic?.open && !e.target.closest?.("#logicEditor:not([hidden]) .lg-canvas")) {
+        // The Blueprint editor covers the level: keys with no focused control are the graph's.
+        this.logic.onKey(e, down);
+        if (e.defaultPrevented) return;
+      }
+      if (this.state?.logic?.open) {
         const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
-        if (!(mod && (k === "z" || k === "y" || k === "s"))) return;
+        if (!(mod && (k === "z" || k === "y" || k === "s")) && e.code !== "F1") return;
       }
       if (e.key === "Alt") e.preventDefault();  // keep the browser's menu bar out of Alt shortcuts
       if (down && e.code === "F1" && !e.shiftKey) { e.preventDefault(); this.engine.command({cmd: "dialog", name: "controls"}); this.flushUi(); return; }

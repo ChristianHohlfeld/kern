@@ -555,6 +555,7 @@ void Studio::frame(f64 now_ms) {
     const game::PlayInput main_in = main_has_input ? in : game::PlayInput{};
     if (net_) update_net(dt, in);
     else world_->step(dt, in);
+    check_logic_breakpoints();
     if (play_ == PlayState::playing && !ejected_) {
       Camera c = play_camera_valid_ ? play_camera_ : camera_of(views_[0]);
       play_camera_valid_ = world_->update_camera(c, dt, main_in);

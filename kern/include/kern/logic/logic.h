@@ -137,13 +137,22 @@ struct StateMachine {
   const State* find(std::string_view name) const;
 };
 
+/// A comment box (Blueprint "C"): a titled frame behind a group of nodes; moving it moves them.
+struct CommentBox {
+  u32 id = 0;
+  f32 x = 0, y = 0, w = 400, h = 200;  // canvas px
+  std::string text = "Comment";
+  u32 color = 0;                       // 0xRRGGBB, 0 = the default grey
+};
+
 struct Graph {
   std::vector<Node> nodes;
   std::vector<Link> links;
   std::vector<Variable> variables;
   std::vector<StateMachine> machines;
+  std::vector<CommentBox> comments;    // editor only: no effect on what runs
   u32 next_id = 1;
-  bool empty() const { return nodes.empty() && variables.empty() && machines.empty(); }
+  bool empty() const { return nodes.empty() && variables.empty() && machines.empty() && comments.empty(); }
   Node* find(u32 id);
   const Node* find(u32 id) const;
   const Variable* variable(std::string_view name) const;

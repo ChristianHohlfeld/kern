@@ -40,6 +40,13 @@ struct DuckBoxDef {
   bool sole;
 };
 
+struct DuckSiteDef {
+  const char* name;
+  i32 link;
+  Vec3 pos;              // relative to the link's pos (world axes, home pose)
+  Vec3 x, y, z;          // the site frame's axes (x = where the camera / ToF looks, z = up)
+};
+
 #include "micro_duck_model.inc"
 #include "micro_duck_velstand.inc"
 
@@ -66,7 +73,24 @@ constexpr f32 kServoTorque = 0.963f;     // N*m
 constexpr f32 kControlPeriod = 0.02f;     // the policy runs at 50 Hz
 constexpr f32 kActuatorDelay = 0.02f;     // command -> servo latency (training: 15-30 ms)
 // Commands (training ranges) and their smoothing on the robot: EMA 0.2 per control tick.
-constexpr f32 kMaxForward = 0.4f, kMaxTurn = 1.0f, kCommandAlpha = 0.2f;
+constexpr f32 kMaxForward = 0.4f, kMaxStrafe = 0.3f, kMaxTurn = 1.0f, kCommandAlpha = 0.2f;
+constexpr f32 kHeadRange[4] = {1.10f, 1.10f, 1.40f, 0.31f};  // head command limits (training)
+
+// Head sensors (microduck: kinematics/src/tof.rs, tof/, mediad/src/camera.rs).
+constexpr int kTofSide = 8;                 // 8 x 8 zones
+constexpr f32 kTofFov = 45 * rt::kDegree;   // per axis
+constexpr f32 kTofMaxRange = 4.0f;          // VL53L8CX, metres (real)
+constexpr f32 kTofRate = 15;                // frames per second (real)
+constexpr f32 kTofFloorSafety = 0.85f;      // Reprojector::FLOOR_SAFETY
+constexpr f32 kTofMinRange = 0.10f;         // Reprojector::MIN_RANGE_M (horizontal)
+constexpr f32 kCameraHfov = 62 * rt::kDegree;  // IMX219 behind its M12 lens, full width
+constexpr f32 kCameraAspect = 16.0f / 9.0f;
+
+const DuckSiteDef* site(const char* name) {
+  for (const DuckSiteDef& s : kDuckSites)
+    if (std::strcmp(s.name, name) == 0) return &s;
+  return nullptr;
+}
 
 const Vec3 kShell{.93f, .94f, .95f}, kDark{.16f, .17f, .19f}, kOrange{1.0f, .52f, .1f}, kEye{.03f, .03f, .035f};
 
@@ -276,6 +300,8 @@ void GameWorld::create_walkers() {
       const i32 link = link_of_joint(ja->name);
       if (link > 0 && !w->joint[link - 1]) { w->joint[link - 1] = sj.get(); ++found; }
     }
+    w->bodies[0] = w->trunk;
+    for (i32 j = 0; j < kJoints; ++j) if (w->joint[j]) w->bodies[j + 1] = w->joint[j]->b;
     if (found != kJoints) {
       events_.push_back("Walker \"" + a.name + "\" needs the Micro Duck's 14 servo joints - it stands still");
       continue;
@@ -290,6 +316,95 @@ void GameWorld::create_walkers() {
     w->pending.assign(static_cast<std::size_t>(w->delay + 1), std::vector<f32>(w->target, w->target + kJoints));
     walkers_.push_back(std::move(w));
   }
+}
+
+GameWorld::WalkerBrain* GameWorld::walker_brain(ActorId id) const {
+  for (const auto& w : walkers_)
+    if (!id || w->actor == id) return w.get();
+  return nullptr;
+}
+
+std::vector<ActorId> GameWorld::walkers() const {
+  std::vector<ActorId> out;
+  for (const auto& w : walkers_) out.push_back(w->actor);
+  return out;
+}
+
+bool GameWorld::walker_sensors(ActorId id, WalkerSensors& out) const {
+  const WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  out = w->sensors;
+  return true;
+}
+
+bool GameWorld::walker_camera(ActorId id, Camera& out) const {
+  const WalkerBrain* w = walker_brain(id);
+  const DuckSiteDef* cam = site("head_camera");
+  if (!w || !cam || !w->joint[8]) return false;
+  const physics::Pose head = physics_.pose(w->joint[8]->b);
+  out = Camera{};
+  out.eye = head.position + head.rotation.rotate(cam->pos * kDuckScale);
+  out.target = out.eye + head.rotation.rotate(cam->x);
+  out.up = head.rotation.rotate(cam->z);
+  out.fov = 2 * std::atan(std::tan(kCameraHfov / 2) / kCameraAspect);
+  out.near = 0.01f * kDuckScale;
+  out.far = 400;
+  return true;
+}
+
+/// One frame of the head ToF: 64 beams from the sensor (Box3D ray casts that skip the robot's own
+/// links), classified like the robot does it (kinematics/src/tof.rs): floor, too close, obstacle.
+void GameWorld::sense_walker(WalkerBrain& w) {
+  const f32 S = kDuckScale;
+  WalkerSensors& out = w.sensors;
+  const physics::Pose tp = physics_.pose(w.trunk);
+  const Quat qi{-tp.rotation.x, -tp.rotation.y, -tp.rotation.z, tp.rotation.w};
+  out.gravity = qi.rotate({0, 0, -1});
+  out.fallen = out.gravity.z > -0.5f;
+  const Vec3 v = physics_.linear_velocity(w.trunk);
+  out.speed = std::hypot(v.x, v.y);
+  if (sim_time_ + 1e-6 < w.next_tof) return;
+  w.next_tof = sim_time_ + 1.0 / (kTofRate / std::sqrt(S));  // 15 Hz real
+  out.tof_time = sim_time_;
+  const DuckSiteDef* tof = site("tof");
+  if (!tof || !w.joint[8]) return;
+  const physics::Pose head = physics_.pose(w.joint[8]->b);
+  const Vec3 origin = head.position + head.rotation.rotate(tof->pos * S);
+  const Vec3 ax = head.rotation.rotate(tof->x), ay = head.rotation.rotate(tof->y), az = head.rotation.rotate(tof->z);
+  // The floor under the robot: the lower of its two soles.
+  f32 ground = 1e9f;
+  for (const DuckBoxDef& b : kDuckBoxes) {
+    if (!b.sole || !w.joint[b.link - 1]) continue;
+    const physics::Pose fp = physics_.pose(w.joint[b.link - 1]->b);
+    ground = min_of(ground, (fp.position + fp.rotation.rotate(b.center * S)).z - b.size.z * S * 0.5f);
+  }
+  const f32 above_floor = origin.z - ground;
+  const f32 half = kTofFov / 2 - kTofFov / kTofSide / 2, step = 2 * half / (kTofSide - 1);
+  const Vec3 fwd = tp.rotation.rotate({1, 0, 0});
+  const f32 heading = std::atan2(fwd.y, fwd.x);
+  out.nearest = -1;
+  int blocked_left = 0, blocked_right = 0;
+  for (int i = 0; i < WalkerSensors::kZones; ++i) {
+    const f32 elevation = half - static_cast<f32>(i / kTofSide) * step, azimuth = half - static_cast<f32>(i % kTofSide) * step;
+    const Vec3 beam{std::cos(elevation) * std::cos(azimuth), std::cos(elevation) * std::sin(azimuth), std::sin(elevation)};
+    const Vec3 dir = ax * beam.x + ay * beam.y + az * beam.z;
+    const physics::RayHit hit = physics_.cast_ray_ignoring(origin, dir * (kTofMaxRange * S), Span<const physics::Body>(w.bodies, 15));
+    if (!hit.hit) { out.range[i] = -1; out.zone[i] = 0; continue; }
+    const f32 r = hit.fraction * kTofMaxRange * S;
+    out.range[i] = r;
+    const f32 downward = -dir.z;
+    if (above_floor > 0 && downward > 0 && r * downward >= above_floor * kTofFloorSafety) { out.zone[i] = 2; continue; }
+    const f32 horizontal = r * std::hypot(dir.x, dir.y);
+    if (horizontal < kTofMinRange * S) { out.zone[i] = 1; continue; }
+    out.zone[i] = 3;
+    if (out.nearest < 0 || horizontal < out.nearest) {
+      out.nearest = horizontal;
+      out.nearest_bearing = rt::wrap180((std::atan2(dir.y, dir.x) - heading) / rt::kDegree) * rt::kDegree;
+    }
+    if (horizontal < 1.0f * S) ((i % kTofSide) < kTofSide / 2 ? blocked_left : blocked_right)++;
+  }
+  out.free_left = 1 - static_cast<f32>(blocked_left) / (WalkerSensors::kZones / 2);
+  out.free_right = 1 - static_cast<f32>(blocked_right) / (WalkerSensors::kZones / 2);
 }
 
 void GameWorld::drive_walker(const PlayInput& in, f32 dt) {

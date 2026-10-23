@@ -634,6 +634,42 @@ void World::contact_points(Body body, std::vector<ContactPoint>& out) const {
   }
 }
 
+RayHit World::cast_ray_ignoring(Vec3 origin, Vec3 translation, Span<const Body> ignore, u64 mask_bits) const {
+  RayHit hit;
+  if (!valid() || !finite_vec(origin) || !finite_vec(translation)) return hit;
+  b3QueryFilter filter = b3DefaultQueryFilter();
+  filter.maskBits = mask_bits;
+  struct Closest {
+    Span<const Body> ignore;
+    b3ShapeId shape = b3_nullShapeId;
+    b3Pos point{};
+    b3Vec3 normal{};
+    f32 fraction = 1;
+  } closest;
+  closest.ignore = ignore;
+  auto callback = [](b3ShapeId shape, b3Pos point, b3Vec3 normal, float fraction, uint64_t, int, int, void* context) -> float {
+    Closest* c = static_cast<Closest*>(context);
+    if (b3Shape_IsSensor(shape)) return -1.0f;
+    const u64 body = b3StoreBodyId(b3Shape_GetBody(shape));
+    for (const Body& b : c->ignore)
+      if (b.id == body) return -1.0f;
+    c->shape = shape;
+    c->point = point;
+    c->normal = normal;
+    c->fraction = fraction;
+    return fraction;
+  };
+  b3World_CastRay(world_id(world_), bv(origin), bv(translation), filter, callback, &closest);
+  if (B3_IS_NULL(closest.shape)) return hit;
+  hit.hit = true;
+  hit.shape = shape_of(closest.shape);
+  hit.body = shape_body_checked(closest.shape);
+  hit.point = kv(closest.point);
+  hit.normal = kv(closest.normal);
+  hit.fraction = closest.fraction;
+  return hit;
+}
+
 RayHit World::cast_ray(Vec3 origin, Vec3 translation, u64 mask_bits, Body ignore) const {
   RayHit hit;
   if (!valid() || !finite_vec(origin) || !finite_vec(translation)) return hit;

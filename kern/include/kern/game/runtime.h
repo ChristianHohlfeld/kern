@@ -319,6 +319,36 @@ class GameWorld {
   /// Calls a logic Custom Event by name (Studio console, other systems).
   void call_logic_event(const std::string& name, ActorId target = 0);
 
+  // ---- walkers (articulated robots on their policies; src/game/walker.cpp) ----
+  /// What a walker's sensors report, like the real Micro Duck's: the head ToF (VL53L8CX, 8 x 8
+  /// zones over 45 x 45 degrees) classified as the robot does (kinematics/src/tof.rs), the trunk IMU.
+  struct WalkerSensors {
+    static constexpr int kZones = 64;
+    f32 range[kZones] = {};           // slant range per zone, metres in the robot's own scale; < 0 = no return
+    u8 zone[kZones] = {};             // 0 empty, 1 too close, 2 floor, 3 obstacle
+    f32 nearest = -1;                 // closest obstacle, horizontal metres (robot scale), < 0 = none
+    f32 nearest_bearing = 0;          // its direction relative to the trunk heading, radians (+ = left)
+    f32 free_left = 0, free_right = 0;  // how open the left / right halves are (0 blocked .. 1 free)
+    Vec3 gravity{0, 0, -1};           // trunk frame
+    bool fallen = false;
+    f32 speed = 0;                    // horizontal, robot scale m/s
+    f64 tof_time = -1;                // simulation time of the last ToF frame
+  };
+  /// The walker `id` (0 = the first one): its sensors; false when there is no such walker.
+  bool walker_sensors(ActorId id, WalkerSensors& out) const;
+  /// The head camera of walker `id` (0 = the first): the robot's IMX219, 62 degrees wide, 16:9.
+  bool walker_camera(ActorId id, Camera& out) const;
+  /// Commands for walker `id` (0 = all): twist in the robot's real units (m/s, rad/s), head deltas
+  /// (radians). They override autonomy for `hold` seconds (0 = until the next command).
+  bool walker_command(ActorId id, f32 forward, f32 strafe, f32 turn, f32 hold);
+  bool walker_look(ActorId id, f32 yaw, f32 pitch, f32 hold);
+  /// Autonomy on / off (on: it roams on its own whenever nobody drives it).
+  bool walker_set_autonomous(ActorId id, bool on);
+  /// The current behaviour of walker `id` ("Wander", "Chill"... "" = none).
+  std::string walker_state(ActorId id) const;
+  /// Every walker actor of the running world.
+  std::vector<ActorId> walkers() const;
+
  private:
   struct Visual;
   struct CityVisual;
@@ -342,6 +372,8 @@ class GameWorld {
   void drive_walker(const PlayInput& input, f32 dt);
   void create_walkers();
   void drive_walkers(f32 h);
+  void sense_walker(WalkerBrain& w);
+  WalkerBrain* walker_brain(ActorId id) const;
   void drive_servos(f32 dt);
   void drive_traffic(f32 dt);
   void handle_events();

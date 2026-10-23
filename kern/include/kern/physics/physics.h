@@ -237,6 +237,8 @@ class World {
   /// Closest hit along origin + translation (non-sensor shapes whose category matches
   /// mask_bits; shapes of `ignore` are skipped, e.g. the body the ray starts in).
   RayHit cast_ray(Vec3 origin, Vec3 translation, u64 mask_bits = ~0ull, Body ignore = {}) const;
+  /// Closest hit that is not on any of `ignore` (a robot's sensor does not see its own links).
+  RayHit cast_ray_ignoring(Vec3 origin, Vec3 translation, Span<const Body> ignore, u64 mask_bits = ~0ull) const;
   /// Closest hit of a sphere swept along translation (a fat ray: ground probes that do not miss ledges).
   RayHit cast_sphere(Vec3 origin, f32 radius, Vec3 translation, u64 mask_bits = ~0ull, Body ignore = {}) const;
   /// Character mover queries (Box3D "Character Mover"): how far the capsule can travel (0..1) and
