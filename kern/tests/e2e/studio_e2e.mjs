@@ -496,6 +496,30 @@ const vpCenter = async (page, i = 0) => {
   const s = await state(page);
   check(s.level.name === "Orb Run", "module build starts with Orb Run");
   check(await ink(page) > 40, "module build renders");
+  // The colour picker stays open while you drag through colours: the panel is not rebuilt under it,
+  // every colour applies live, the whole session is one undo step. (The browser's picker itself cannot
+  // be driven here; the swatch gets the events the picker would send.)
+  {
+    await cmd(page, {cmd: "spawn", item: "cube", at: [40, 40, 120]});
+    const sel = '#details input[type="color"][data-path="components.mesh.material.color"]';
+    check(await until(() => page.locator(sel).count()), "color: the cube's colour swatch is in the details panel");
+    const colorOf = () => page.evaluate(() => window.KernStudio.state.details.sections.flatMap(s => s.fields).find(f => f.path === "components.mesh.material.color")?.value);
+    const histBefore = (await state(page)).history?.index;
+    await page.evaluate(sel => { window.__swatch = document.querySelector(sel); window.__swatch.dispatchEvent(new MouseEvent("click", {bubbles: true})); }, sel);
+    let live = true;
+    for (const c of ["#ff0000", "#00ff00", "#0000ff"]) {
+      await page.evaluate(([sel, c]) => { const el = document.querySelector(sel); el.value = c; el.dispatchEvent(new Event("input", {bubbles: true})); }, [sel, c]);
+      live &&= !!(await until(async () => (await colorOf()) === c, 10000));
+      const f = await page.evaluate(() => window.KernStudio.frames());
+      await until(() => page.evaluate(n => window.KernStudio.frames() > n + 2, f));  // panels had their chance to rebuild
+      live &&= await page.evaluate(() => window.__swatch.isConnected);
+    }
+    check(live, "color: every colour applies live and the swatch (its picker) stays in place");
+    await page.evaluate(() => window.__swatch.dispatchEvent(new Event("change", {bubbles: true})));
+    check(await until(async () => (await state(page)).history?.index === histBefore + 1), "color: the picker session is one undo step");
+    await cmd(page, {cmd: "undo"});
+    check(await until(async () => (await colorOf()) !== "#0000ff"), "color: undo takes the whole session back");
+  }
   check(errors.length === 0, "no page errors in the module build" + (errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""));
   await ctx.close();
 }

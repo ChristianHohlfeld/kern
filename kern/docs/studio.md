@@ -34,7 +34,7 @@ Die Seite enthält keine Editorlogik. Sie zeichnet die Panels aus dem JSON von `
 | Toolbar | Speichern, Undo/Redo, **+ Add** (Place Actors), Werkzeuge Select/Move/Rotate/Scale, Welt-/lokale Achsen, Grid-, Rotations- und Skalierungsraster, Kamerageschwindigkeit, Play/Simulate/Pause/Frame/Stop/Eject, Layout, Package Game |
 | Viewports | 1, 2 oder 4 (Perspektive, Top, Front, Side). Pro Viewport: Optionen, Ansichtstyp, View Mode (Lit, Unlit, Wireframe, Player Collision), Show-Flags, Maximieren |
 | Outliner | Ordner, Hierarchie, Suche, Sichtbarkeit (Auge), Sperren, Drag-and-drop zum Anhängen, in Ordner verschieben oder Lösen; Doppelklick fokussiert, F2 benennt um |
-| Details | Name, alle Komponenten der Auswahl (Mehrfachauswahl zeigt „Multiple“), **+ Add** für Komponenten, Suche, Zurücksetzen. Zahlenfelder lassen sich ziehen (Label oder Feld seitwärts ziehen, Shift ×10, Ctrl ×0,1) und rechnen (`2*3`) |
+| Details | Name, alle Komponenten der Auswahl (Mehrfachauswahl zeigt „Multiple“), **+ Add** für Komponenten, Suche, Zurücksetzen. Zahlenfelder lassen sich ziehen (Label oder Feld seitwärts ziehen, Shift ×10, Ctrl ×0,1) und rechnen (`2*3`). Der Farbwähler bleibt offen, solange man darin klickt und zieht: jede Farbe wirkt sofort, die ganze Sitzung ist ein Undo-Schritt |
 | World Settings | Spieltitel, Siegbedingung, Zeitlimit, Kill-Z, Tageszeit, Tageslänge, Sonne, Nebel, Belichtung, Wolken, Boden, Schwerkraft, Substeps, Schrittrate |
 | Content Drawer (Ctrl+Space) | Place Actors (Klick oder Ziehen in einen Viewport), Texturen, Output Log |
 | Statusleiste | Konsole (`help`), Statusmeldung, Physik-Statistik, Auswahl |
@@ -197,7 +197,7 @@ ungespeicherte Änderungen zeigt nichts an.
 ## Tests
 
 - `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave (nur bei ungespeicherten Änderungen, Löschen nach Speichern und Undo, `restore`), Packaging, Player-Modus
-- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Level öffnen auf Android über den Dateidialog, Modul-Version und schmales Fenster
+- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Level öffnen auf Android über den Dateidialog, Farbwähler bleibt beim Ziehen offen, Modul-Version und schmales Fenster
 
 ## Logic: Blueprints, die C++ sind
 

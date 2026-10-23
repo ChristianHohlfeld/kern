@@ -777,6 +777,8 @@ class StudioPage {
     // Details editors (delegated).
     this.initProps($("#details"));
     this.initProps($("#worldSettings"));
+    // A press anywhere but the swatch means its picker is closed (cancelled, or closed without a change).
+    addEventListener("pointerdown", e => { if (this.colorPicker && e.target !== this.colorPicker) this.endColorPick(); }, true);
     // Console.
     const con = $("#console");
     con.addEventListener("keydown", e => {
@@ -1026,8 +1028,8 @@ class StudioPage {
     const key = JSON.stringify([d, s.actors.length, s.textures, s.sounds?.imported, this.detailsFilter]);
     if (key === this.panelKeys.details) return;
     const host = $("#details");
-    if (host.contains(document.activeElement) && document.activeElement.matches("input:not([type=checkbox]):not([type=color]), textarea")) {
-      // Do not rebuild under the cursor; refresh when the field loses focus.
+    if ((host.contains(document.activeElement) && document.activeElement.matches("input:not([type=checkbox]):not([type=color]), textarea")) || this.pickingColor(host)) {
+      // Do not rebuild under the cursor (or under an open colour picker); refresh when it is done.
       this.pendingDetails = true;
       return;
     }
@@ -1061,7 +1063,7 @@ class StudioPage {
     const key = JSON.stringify([w, this.state.textures, this.state.sounds?.imported]);
     if (key === this.panelKeys.world) return;
     const host = $("#worldSettings");
-    if (host.contains(document.activeElement) && document.activeElement.matches("input:not([type=checkbox]):not([type=color])")) { this.pendingWorld = true; return; }
+    if ((host.contains(document.activeElement) && document.activeElement.matches("input:not([type=checkbox]):not([type=color])")) || this.pickingColor(host)) { this.pendingWorld = true; return; }
     this.panelKeys.world = key;
     this.pendingWorld = false;
     host.innerHTML = w.sections.map(sec => this.sectionHtml(sec, sec.fields, {actors: [], textures: [], sounds: this.state.sounds}, false)).join("");
@@ -1158,6 +1160,23 @@ class StudioPage {
     return `<div class="f"><label class="${scrub ? "scrub" : ""}" data-scrub="${scrub ? p : ""}" title="${esc(f.label)}${f.unit ? ` (${esc(f.unit)})` : ""}">${esc(f.label)}${unit}</label><div class="v">${editor}</div>${reset}</div>`;
   }
 
+  // The browser's colour picker belongs to its <input type=color>: rebuilding the panel replaces that
+  // element and closes the picker after the first colour. While a picker is open (from the click on
+  // the swatch until it reports its final colour, or the next press anywhere else) the panel holding
+  // it is not rebuilt; every colour on the way still applies live, as one undo step.
+  pickingColor(host) {
+    const el = this.colorPicker;
+    return !!el && el.isConnected && host.contains(el);
+  }
+
+  endColorPick() {
+    if (!this.colorPicker) return;
+    this.colorPicker = null;
+    this.endTxn?.();
+    if (this.state && this.pendingDetails) { this.panelKeys.details = ""; this.renderDetails(this.state); }
+    if (this.state && this.pendingWorld) { this.panelKeys.world = ""; this.renderWorld(this.state.world); }
+  }
+
   initProps(host) {
     // One continuous interaction (scrub, slider drag, colour picker) carries one transaction token:
     // the engine merges its edits into a single undo step. Typed values and clicks are steps of their own.
@@ -1208,12 +1227,16 @@ class StudioPage {
       if (el.matches("[data-filter]")) return;
       if (el.type === "range") { const n = el.closest(".slider-row").querySelector(".num"); n.value = fmtNum(+el.value); }
       commit(el);
-      if (el.type === "range" || el.type === "color") endTxn();  // the drag / picker session is over
+      if (el.type === "range") endTxn();  // the drag is over
+      if (el.type === "color") { endTxn(); this.endColorPick(); }  // the picker reported its final colour
+    });
+    host.addEventListener("click", e => {
+      if (e.target.matches?.('input[type="color"]')) { this.endColorPick(); this.colorPicker = e.target; }
     });
     host.addEventListener("input", e => {
       const el = e.target;
       if (el.type === "range") { beginTxn("slider"); el.closest(".slider-row").querySelector(".num").value = fmtNum(+el.value); commit(el); }
-      if (el.type === "color") { beginTxn("color"); const t = el.closest(".color").querySelector("[data-hex]"); t.value = el.value; commit(el); }
+      if (el.type === "color") { this.colorPicker = el; beginTxn("color"); const t = el.closest(".color").querySelector("[data-hex]"); t.value = el.value; commit(el); }
     });
     host.addEventListener("keydown", e => {
       const el = e.target;
