@@ -65,6 +65,9 @@ struct MeshComponent {
   i32 segments = 24;
   std::string asset;            // mesh: a built-in mesh ("duck/xl330", kern/game/builtin_meshes.h), scaled by size
   bool collision = true;        // generates a fitted collider when the actor has no explicit one
+  // The physical material of that fitted collider (Box3D surface material; touching materials
+  // combine friction as sqrt(a x b)): beside the render material, as the object's physics.
+  f32 friction = 0.6f, restitution = 0, rolling_resistance = 0;
   MaterialDesc material;
 };
 
@@ -325,6 +328,11 @@ struct WorldSettings {
   bool clouds = true;
   Vec3 ground_color{0.19f, 0.27f, 0.15f};  // the endless ground plane under everything
   bool ground = true;
+  // Contact physics (Box3D): the endless ground's material (two touching materials combine as
+  // sqrt(a x b), Box3D's rule) and the contact softness - stiffness (Hz), damping ratio, push-out
+  // speed cap (m/s), Box3D's world definition.
+  f32 ground_friction = 0.7f, ground_restitution = 0;
+  f32 contact_hertz = 30, contact_damping = 10, contact_speed = 3;
   f32 kill_z = -50;             // a player below this height respawns / loses
   std::string title;
   GameGoal goal = GameGoal::none;

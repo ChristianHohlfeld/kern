@@ -4556,6 +4556,42 @@ TEST(micro_duck_camera_sees_the_floor_in_front_when_looking_down) {
   }
 }
 
+TEST(physics_materials_of_meshes_and_the_ground) {
+  // Friction, restitution and rolling resistance of an object's fitted collider sit in its Physics
+  // settings (beside the render material); the endless ground and Box3D's contact softness in the
+  // World Settings. All round-trip through the level file and reach the Box3D shapes.
+  game::Level l;
+  game::Actor floor;
+  floor.name = "Floor";
+  floor.mesh = game::MeshComponent{};
+  floor.mesh->size = {10, 10, 0.2f};
+  floor.mesh->friction = 1.0f;
+  floor.mesh->restitution = 0.3f;
+  floor.mesh->rolling_resistance = 0.05f;
+  const game::ActorId fid = l.add(floor).id;
+  l.world.ground = true;
+  l.world.ground_friction = 0.9f;
+  l.world.ground_restitution = 0.1f;
+  l.world.contact_hertz = 60;
+  l.world.contact_damping = 5;
+  l.world.contact_speed = 2;
+  game::Level back;
+  std::string error;
+  CHECK(game::from_json(game::to_json(l), back, &error));
+  const game::Actor* f = back.find(fid);
+  CHECK(f && f->mesh && f->mesh->friction == 1.0f && f->mesh->restitution == 0.3f && f->mesh->rolling_resistance == 0.05f);
+  CHECK(back.world.ground_friction == 0.9f && back.world.ground_restitution == 0.1f);
+  CHECK(back.world.contact_hertz == 60 && back.world.contact_damping == 5 && back.world.contact_speed == 2);
+  bool floor_ok = false, ground_ok = false;
+  for (const game::BodyPlan& p : game::plan_bodies(back))
+    for (const game::ShapePlan& sp : p.shapes) {
+      if (p.owner == fid) floor_ok = sp.source.friction == 1.0f && sp.source.restitution == 0.3f && sp.source.rolling_resistance == 0.05f;
+      if (p.owner == 0) ground_ok = sp.source.friction == 0.9f && sp.source.restitution == 0.1f;
+    }
+  CHECK(floor_ok);
+  CHECK(ground_ok);
+}
+
 TEST(micro_duck_plays_with_a_ball_on_its_own) {
   // Autonomous: a ball 30 cm (real) away, a little to the side. The duck sees it with its head
   // camera, walks up until the ball lies in front of its left foot and kicks it.

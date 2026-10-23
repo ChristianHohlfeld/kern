@@ -206,9 +206,13 @@ Level micro_duck_level() {
   l.world.substeps = 16;
   l.world.reverb = 0.2f;
   l.world.ground = false;  // the floor is the ground (no z-fighting with the ground plane)
+  l.world.ground_friction = 1.0f;
   Actor floor = make("Floor", {0, 0, -0.1f});
   floor.mesh = box_mesh({60, 60, 0.2f}, {0.62f, 0.55f, 0.46f}, 0.85f);  // a wooden floor
   floor.mesh->material.tiling = 0.5f;
+  // Its friction is the reference's: Pollen's training floor and the duck's soles both 1.0, so the
+  // soles grip at 1.0 here too (Box3D: sqrt(1.0 x 1.0)).
+  floor.mesh->friction = 1.0f;
   l.add(floor);
   const f32 half = 1.25f * S, h = 0.25f * S;
   const struct { const char* name; Vec3 at, size; } walls[] = {

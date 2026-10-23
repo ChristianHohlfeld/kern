@@ -35,7 +35,7 @@ Die Seite enthält keine Editorlogik. Sie zeichnet die Panels aus dem JSON von `
 | Viewports | 1, 2 oder 4 (Perspektive, Top, Front, Side). Pro Viewport: Optionen, Ansichtstyp, View Mode (Lit, Unlit, Wireframe, Player Collision), Show-Flags, Maximieren |
 | Outliner | Ordner, Hierarchie, Suche, Sichtbarkeit (Auge), Sperren, Drag-and-drop zum Anhängen, in Ordner verschieben oder Lösen; Doppelklick fokussiert, F2 benennt um |
 | Details | Name, alle Komponenten der Auswahl (Mehrfachauswahl zeigt „Multiple“), **+ Add** für Komponenten, Suche, Zurücksetzen. Zahlenfelder lassen sich ziehen (Label oder Feld seitwärts ziehen, Shift ×10, Ctrl ×0,1) und rechnen (`2*3`). Der Farbwähler bleibt offen, solange man darin klickt und zieht: jede Farbe wirkt sofort, die ganze Sitzung ist ein Undo-Schritt |
-| World Settings | Spieltitel, Siegbedingung, Zeitlimit, Kill-Z, Tageszeit, Tageslänge, Sonne, Nebel, Belichtung, Wolken, Boden, Schwerkraft, Substeps, Schrittrate |
+| World Settings | Spieltitel, Siegbedingung, Zeitlimit, Kill-Z, Tageszeit, Tageslänge, Sonne, Nebel, Belichtung, Wolken, Boden (mit Reibung und Restitution), Schwerkraft, Substeps, Schrittrate, Kontakt-Steifigkeit, -Dämpfung und -Ausstoßgeschwindigkeit |
 | Content Drawer (Ctrl+Space) | Place Actors (Klick oder Ziehen in einen Viewport), Texturen, Output Log |
 | Statusleiste | Konsole (`help`), Statusmeldung, Physik-Statistik, Auswahl |
 

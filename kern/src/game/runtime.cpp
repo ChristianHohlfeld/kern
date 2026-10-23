@@ -336,6 +336,9 @@ std::vector<BodyPlan> plan_bodies(const Level& level) {
       }
     } else if (a.mesh && (a.mesh->collision || trigger_like)) {
       ColliderComponent fit = fit_collider(*a.mesh);
+      fit.friction = a.mesh->friction;
+      fit.restitution = a.mesh->restitution;
+      fit.rolling_resistance = a.mesh->rolling_resistance;
       if (trigger_like) fit.sensor = true;
       add_shape(b, a.id, fit, rel, &*a.mesh, true);
     } else if (trigger_like) {
@@ -377,7 +380,8 @@ std::vector<BodyPlan> plan_bodies(const Level& level) {
     s.kind = physics::ShapeKind::box;
     s.center = {0, 0, -1};
     s.size = {20000, 20000, 2};
-    s.source.friction = 0.7f;
+    s.source.friction = level.world.ground_friction;
+    s.source.restitution = level.world.ground_restitution;
     g.shapes.push_back(s);
     plans.push_back(std::move(g));
   }
@@ -1190,6 +1194,9 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   edit_level_ = level;
   physics::WorldSettings ws;
   ws.gravity = level.world.gravity;
+  ws.contact_hertz = level.world.contact_hertz;
+  ws.contact_damping_ratio = level.world.contact_damping;
+  ws.contact_speed = level.world.contact_speed;
   // Box3D reports hits from this approach speed on. Logic and camera shake use kHitSpeed; impact
   // sounds may ask for softer touches (a small robot's plastic taps and steps).
   ws.hit_event_threshold = kHitSpeed;

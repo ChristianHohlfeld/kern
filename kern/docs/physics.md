@@ -131,6 +131,12 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
   (`box3d:docs/simulation.md:1431-1434`). Erins Ragdoll nutzt 5 N·m × einen Faktor pro Gelenk
   (`box3d:shared/human.c:347-393`).
 - **Kontaktreibung** ist pro Shape eingestellt (`ColliderComponent::friction`, Standard 0,6).
+  - Im Editor: Details › Mesh › **Physics** (Reibung, Restitution, Rollwiderstand des automatisch
+    erzeugten Colliders, direkt über dem Render-Material) oder Details › Collider bei eigenen
+    Collidern. Der endlose Boden: World Settings › Physics › Ground friction / Ground bounciness.
+  - Zwei Materialien kombiniert Box3D als √(a · b) (Reibung) und max (Restitution).
+  - Kontakt-Weichheit (Box3D World Definition): World Settings › Contact stiffness (30 Hz),
+    Contact damping ratio (10), Contact push-out speed (3 m/s).
   - Rollwiderstand wirkt nur auf Kugeln und Kapseln.
   - Roboterfüße sind breite flache Quader mit hoher Reibung.
 - Einen Körper weich aufrecht halten: Erin nimmt dafür einen **Parallel-Joint** (Hertz, Dämpfung,

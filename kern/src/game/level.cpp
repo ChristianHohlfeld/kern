@@ -395,6 +395,9 @@ json::Value actor_to_json(const Actor& a) {
     x.set("segments", m.segments);
     if (!m.asset.empty()) x.set("asset", m.asset);
     x.set("collision", m.collision);
+    x.set("friction", num(m.friction));
+    x.set("restitution", num(m.restitution));
+    x.set("rollingResistance", num(m.rolling_resistance));
     x.set("material", material_json(m.material));
     c.set("mesh", std::move(x));
   }
@@ -662,6 +665,9 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       mr.integer("segments", m.segments, 3, 128);
       if (x->find("asset")) mr.string("asset", m.asset);
       mr.boolean("collision", m.collision);
+      mr.number("friction", m.friction, 0, 10);
+      mr.number("restitution", m.restitution, 0, 1);
+      mr.number("rollingResistance", m.rolling_resistance, 0, 10);
       if (!mr.ok || !read_material((*x)["material"], m.material, error)) return false;
       a.mesh = m;
     }
@@ -921,6 +927,11 @@ json::Value world_to_json(const WorldSettings& w) {
   o.set("clouds", w.clouds);
   o.set("ground", w.ground);
   o.set("groundColor", hex_color(w.ground_color));
+  o.set("groundFriction", num(w.ground_friction));
+  o.set("groundRestitution", num(w.ground_restitution));
+  o.set("contactHertz", num(w.contact_hertz));
+  o.set("contactDamping", num(w.contact_damping));
+  o.set("contactSpeed", num(w.contact_speed));
   o.set("killZ", num(w.kill_z));
   o.set("title", w.title);
   o.set("goal", game_goal_name(w.goal));
@@ -952,6 +963,11 @@ bool world_from_json(const json::Value& v, WorldSettings& w, std::string* error)
   r.boolean("clouds", w.clouds);
   r.boolean("ground", w.ground);
   r.color("groundColor", w.ground_color);
+  r.number("groundFriction", w.ground_friction, 0, 10);
+  r.number("groundRestitution", w.ground_restitution, 0, 1);
+  r.number("contactHertz", w.contact_hertz, 1, 1000);
+  r.number("contactDamping", w.contact_damping, 0, 1000);
+  r.number("contactSpeed", w.contact_speed, 0.01f, 100);
   r.number("killZ", w.kill_z, -1e5, 1e5);
   r.string("title", w.title);
   r.enumeration("goal", kGoalNames, w.goal);
