@@ -103,6 +103,13 @@ struct GameWorld::WalkerBrain {
   std::shared_ptr<Idle> idle;
   f32 head_age = 0;                // real seconds since something last steered the head
   f32 auto_cmd[3] = {}, auto_head[4] = {};
+  f32 auto_head_alpha = 0.2f;            // the head's slew rate the brain asks for (autod: robot.head alpha)
+  f32 auto_body[3] = {};                 // body pose z, roll, pitch (real m, rad), while auto_body_active
+  bool auto_body_active = false, auto_wheee = false;
+  f32 auto_mouth = 0;
+  f32 body[3] = {};                      // the smoothed body pose command (observation 57..59)
+  f64 petted_until = -1;                 // walker_pet: a hand on it until this simulation time
+  i32 heard = 0;                         // walker_hear: 1 a noise, 2 a voice, this tick
   std::string state = "";
 };
 

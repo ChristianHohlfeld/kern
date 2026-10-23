@@ -779,6 +779,28 @@ bool GameWorld::walker_servo_load(ActorId id, f32& strain, f32& drive, f32& spee
   return true;
 }
 
+GameWorld::PolicyStatus GameWorld::walker_abilities(const WalkerBrain& w) const {
+  const PolicySet& set = policy_set();
+  PolicyStatus out;
+  out.ground_pick = !w.rollers && walker_policy(set.pick.file) != nullptr;
+  out.sit_stand = !w.rollers && walker_policy(set.sitstand) != nullptr;
+  return out;
+}
+
+bool GameWorld::walker_pet(ActorId id, f32 seconds) {
+  WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  w->petted_until = seconds > 0 ? sim_time_ + seconds * std::sqrt(kDuckScale) : -1;
+  return true;
+}
+
+bool GameWorld::walker_hear(ActorId id, bool voice) {
+  WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  w->heard = voice ? 2 : 1;
+  return true;
+}
+
 bool GameWorld::walker_holding(ActorId id) const {
   // The mouth servo's own encoder: told to shut, it stops short of its pads - something is in the beak.
   const WalkerBrain* w = walker_brain(id);
@@ -832,15 +854,26 @@ void GameWorld::sense_walker(WalkerBrain& w) {
   const Vec3 fwd = tp.rotation.rotate({1, 0, 0});
   const f32 heading = std::atan2(fwd.y, fwd.x);
   out.nearest = -1;
+  out.hits = 0;
+  out.forward_observed = 0;
   int blocked_left = 0, blocked_right = 0;
   for (int i = 0; i < WalkerSensors::kZones; ++i) {
     const f32 elevation = half - static_cast<f32>(i / kTofSide) * step, azimuth = half - static_cast<f32>(i % kTofSide) * step;
     const Vec3 beam{std::cos(elevation) * std::cos(azimuth), std::cos(elevation) * std::sin(azimuth), std::sin(elevation)};
     const Vec3 dir = ax * beam.x + ay * beam.y + az * beam.z;
     const physics::RayHit hit = physics_.cast_ray_ignoring(origin, dir * (kTofMaxRange * S), Span<const physics::Body>(w.bodies, WalkerBrain::kBodies));
+    // A beam within 0.3 rad of the trunk's heading observes the walking path (obstacle.rs: a range,
+    // the floor, or "nothing there" all say something).
+    if (std::fabs(rt::wrap180((std::atan2(dir.y, dir.x) - heading) / rt::kDegree) * rt::kDegree) < 0.3f && dir.x * fwd.x + dir.y * fwd.y > 0) ++out.forward_observed;
     if (!hit.hit) { out.range[i] = -1; out.zone[i] = 0; continue; }
     const f32 r = hit.fraction * kTofMaxRange * S;
     out.range[i] = r;
+    {  // obstacle.rs: returns above the floor, at most 0.35 m high and 1.5 m away (real)
+      const Vec3 p = origin + dir * r;
+      const f32 height = p.z - ground, flat = r * std::hypot(dir.x, dir.y);
+      const bool floor = above_floor > 0 && -dir.z > 0 && r * -dir.z >= above_floor * kTofFloorSafety;
+      if (!floor && height <= 0.35f * S && flat <= 1.5f * S && out.hits < WalkerSensors::kZones) out.hit[out.hits++] = {p.x, p.y, height};
+    }
     const f32 downward = -dir.z;
     if (above_floor > 0 && downward > 0 && r * downward >= above_floor * kTofFloorSafety) { out.zone[i] = 2; continue; }
     const f32 horizontal = r * std::hypot(dir.x, dir.y);
@@ -992,7 +1025,7 @@ void GameWorld::drive_walkers(f32 h) {
         const bool chirp = (in.robot & 64) || in.jump;
         if (chirp && !w.chirp_held) walker_say(w, "chirp");
         w.chirp_held = chirp;
-        walker_wheee(w, (in.robot & 128) != 0);
+        walker_wheee(w, (in.robot & 128) != 0 || (w.autonomous && w.manual_left <= 0 && w.drive_left == 0 && w.auto_wheee));
         w.beak_trigger = chirp || (in.robot & 128) ? 1.0f : 0.0f;
       }
       if (w.has_input || in.robot) {
@@ -1018,17 +1051,28 @@ void GameWorld::drive_walkers(f32 h) {
         std::memcpy(cmd, w.auto_cmd, sizeof cmd);
       }
       bool steered = false;  // something asks the head for a pose this tick
+      f32 head_alpha = kCommandAlpha, body_target[3] = {0, 0, 0};
+      bool body_active = false;
+      const bool brain = w.autonomous && w.manual_left <= 0 && w.drive_left == 0;
       if (w.look_left != 0) { head[2] = w.look_cmd[0]; head[1] = w.look_cmd[1]; steered = true; }
       else if (w.autonomous && w.manual_left <= 0) {
         std::memcpy(head, w.auto_head, sizeof head);
+        head_alpha = w.auto_head_alpha;  // autod sends its own rate with robot.head
         for (f32 v : head) steered = steered || v != 0;
+      }
+      if (brain && w.auto_body_active) {  // robot.pose: the twist is zeroed while the body poses
+        body_active = true;
+        std::memcpy(body_target, w.auto_body, sizeof body_target);
+        cmd[0] = cmd[1] = cmd[2] = 0;
       }
       cmd[0] = clamp(cmd[0], -kMaxForward, kMaxForward);
       cmd[1] = clamp(cmd[1], -kMaxStrafe, kMaxStrafe);
       cmd[2] = clamp(cmd[2], -kMaxTurn, kMaxTurn);
       for (int i = 0; i < 4; ++i) head[i] = clamp(head[i], -kHeadRange[i], kHeadRange[i]);
       for (int i = 0; i < 3; ++i) w.command[i] += kCommandAlpha * (cmd[i] - w.command[i]);
-      for (int i = 0; i < 4; ++i) w.head[i] += kCommandAlpha * (head[i] - w.head[i]);
+      for (int i = 0; i < 4; ++i) w.head[i] += head_alpha * (head[i] - w.head[i]);
+      // Body pose (robotd: glides at the command rate while held, snaps back when let go).
+      for (int i = 0; i < 3; ++i) w.body[i] = body_active ? w.body[i] + kCommandAlpha * (body_target[i] - w.body[i]) : 0.0f;
       // Still, as robotd decides it: nothing asks it to move or is moving it, nobody has steered the
       // head lately, it is upright. Then the idle look-around rides on the smoothed head command.
       w.head_age = steered ? 0.0f : w.head_age + kControlPeriod;
@@ -1040,7 +1084,8 @@ void GameWorld::drive_walkers(f32 h) {
       for (int i = 0; i < 4; ++i) head_cmd[i] = clamp(w.head[i] + idle[i], -kHeadRange[i], kHeadRange[i]);
       // The mouth (robotd: not part of any policy): what was asked, or the idle yawn.
       // -5..30 deg (pressed shut at the limit): asked for, the call, the trigger held, the yawn.
-      if (w.mouth) w.mouth->servo_target = mouth_target(max_of(max_of(w.mouth_open, w.idle_mouth), max_of(w.beak_trigger, w.beak_open > 0 ? 1.0f : 0.0f)));
+      const f32 auto_mouth = w.autonomous && w.manual_left <= 0 ? w.auto_mouth : 0.0f;
+      if (w.mouth) w.mouth->servo_target = mouth_target(max_of(max_of(max_of(w.mouth_open, w.idle_mouth), auto_mouth), max_of(w.beak_trigger, w.beak_open > 0 ? 1.0f : 0.0f)));
       w.beak_open = max_of(0.0f, w.beak_open - kControlPeriod);
       w.manual_left = max_of(0.0f, w.manual_left - kControlPeriod);
       if (w.drive_left > 0) w.drive_left = max_of(0.0f, w.drive_left - kControlPeriod);  // < 0 holds until the next command
@@ -1077,7 +1122,10 @@ void GameWorld::drive_walkers(f32 h) {
       }
       for (int i = 0; i < 3; ++i) obs[48 + i] = w.command[i];
       for (int i = 0; i < 4; ++i) obs[51 + i] = head_cmd[i];
-      // body command (x, y, z, roll, pitch, yaw) stays 0: the stand pose
+      // body command: x, y, yaw stay 0 (unbound in training); z, roll, pitch carry the pose
+      obs[57] = w.body[0];
+      obs[58] = w.body[1];
+      obs[59] = w.body[2];
       run_controller(w, obs);
     }
     // ---- every physics step: the servos get the command sent `delay` steps ago ------------------

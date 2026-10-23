@@ -203,39 +203,71 @@ nicht.
 ## 9. Autonomes Verhalten
 
 Fährt niemand die Ente, entscheidet sie selbst (`src/game/walker_brain.cpp`). Die Zustände geben
-dieselben Kommandos wie ein Gamepad: Twist und Kopfpose für die Policy.
+dieselben Kommandos wie ein Gamepad: Twist, Kopfpose (mit eigener Glättungsrate), Körperpose, Mund
+und Laute.
 
-**Quellenlage, ehrlich:** Die Verhaltensmaschine des echten Roboters steht in `autonomous.rs` im
-Repository `apirrone/microduck_runtime`. Der Zugriff darauf wurde in dieser Sitzung verweigert, und
-das öffentliche `pollen-robotics/microduck` hat sie noch nicht portiert (dort „the biggest untracked
-gap“). Deshalb gilt:
+**Quelle:** Pollens eigener Port von `autonomous.rs`, der Daemon `autod`
+(github.com/pollen-robotics/microduck, Branch `autonomous-mode`, Commit `df9a750` vom 01.10.2026,
+Apache-2.0; `autod/src/brain.rs`, `obstacle.rs`, `docs/design/autonomous.md`). Kern übernimmt ihn
+originalgetreu, mit seinen Zahlen:
 
-- **Original:** die Zustandsnamen, die Sensoren und ihre Filter (Abschnitt 8), das Sturzurteil,
-  die Glättung und die Grenzen der Kommandos sowie der Blick in die Runde im Stehen (unten,
-  portiert aus `robotd/src/idle_head.rs`).
-- **Kerns eigene Werte:** Dauern, Wahrscheinlichkeiten, Geschwindigkeiten, Energie,
-  Erkundungsraster und Ausweich-Abstände. Sie werden ersetzt, sobald `autonomous.rs` lesbar ist.
-
-| Zustand | Was die Ente tut |
+| Zustand | Was die Ente tut (Dauer) |
 |---|---|
-| Chill | steht; nach 2 s Ruhe schaut sie sich um (Idle-Look-around, unten) |
-| LookAround | wie Chill, für kürzere Pausen zwischen zwei Erkundungen |
-| Wander | läuft mit 0,3 m/s auf die am wenigsten besuchte freie Richtung zu; der Kopf schaut in die Kurve und leicht nach unten |
-| TurnInPlace | dreht auf der Stelle zur gewählten Richtung |
-| BackOff | etwas zu nah: kurz rückwärts und weg |
-| Zoomies | selten, ausgeruht: ein kurzer schneller Lauf |
-| GetUp | gestürzt: wartet, bis die Policy aufgestanden ist |
+| Chill | steht, kleine langsame Kopfdrifts, atmender Schnabel (3–7 s) |
+| LookAround | große Blicke, schief gelegter Kopf (3,5–7 s) |
+| Wander | läuft zu einem Ziel 1–3 m entfernt (16 Richtungen), dorthin, wo sie am wenigsten war; dreht erst, wenn das Ziel über 0,7 rad daneben liegt; bremst unter 0,4 m; Ende bei 0,25 m oder nach 8 s ohne 10 cm Fortschritt (höchstens 90 s); kurze Seitenblicke |
+| TurnInPlace | dreht mit 80–100 % von 1,5 rad/s, meist zur unbesuchtesten Richtung, der Kopf voraus |
+| Zoomies | volle Geschwindigkeit, ruckige Kurven, das Wheee (2,5–5 s); nur mit frischem ToF und über 1,2 m frei |
+| Stretch | streckt sich nach oben und hinten, gähnt, gurrt, schüttelt den Kopf (5,5–6,5 s) |
+| Ruffle | schnelles Federschütteln mit 4,5 Hz (1,4–2 s) |
+| Dance | Groove mit der Körperpose, der Kopf tanzt mit (5–8 s) |
+| Sneeze | einatmen, stocken, HATSCHI mit Chirp, benommen umschauen (2,6–3,2 s) |
+| GroundPick | die Ground-Pick-Bewegung, danach ein fröhlicher Quak (Gewicht 5 %) |
+| Nap | setzt sich: döst (Kopf sinkt, schreckt hoch, Traumzucken) oder ruht sitzend (12–40 s), steht danach meist mit Stretch auf |
+| Petted | gestreichelt: zerfließt, wackelt aufgeregt mit Chirps oder schmilzt schläfrig bis zum Nap, je nach Energie |
 
-Die Steuerung dahinter:
+Darüber, wie im Original:
 
-- **Energie:** sinkt beim Laufen, steigt beim Stehen. Sie entscheidet zwischen Ruhe und Erkunden.
-- **Erkundungsgedächtnis:** ein Raster aus Zellen von 0,5 m. Gezählt werden Besuche, die langsam
-  vergessen werden, und Zellen, in denen der ToF ein Hindernis sah. Das wählt die nächste Richtung.
-- **Hindernisse** liest sie nur aus frischen ToF-Bildern (jünger als 0,4 s, wie `TOF_STALE` im
-  Monitor des Roboters):
-  - unter 0,7 m voraus: langsamer werden und ausweichen;
-  - unter 0,32 m: anhalten und zur freieren Seite drehen;
-  - unter 0,16 m: zurücksetzen.
+- **Energie 0–1:** Laufen und Zoomies verbrauchen, Chill, Nap und Streicheln füllen auf. Sie gewichtet
+  den nächsten Zustand, das Tempo und wie gesprächig die Ente ist.
+- **Neuheitsraster:** Verweildauer je 0,5-m-Zelle der Odometrie, nach etwa 15 min vergessen.
+- **Quak-Salven:** 1–4 Chirps (45/30/18/7 %), alle 6–20 s × (1,8 − Energie), mit Schnabel und
+  Kopfwurf. Beim Laufen wippt der Kopf.
+- **Hören:** Eine Stimme bekommt ein aufmerksames Aufhorchen und nach 0,35–0,8 s eine Antwort. Ein
+  Geräusch weckt eine dösende Ente kurz, ohne sie aufzuwecken. Eigene Laute zählen 1,5 s lang nicht.
+- **Hindernisse** (`obstacle.rs`): bestätigte ToF-Treffer (ein zweiter innerhalb 8 cm), bis 0,35 m
+  hoch und 1,5 m weit, im Odometrie-Rahmen 1,5 s gemerkt. Gefragt wird der Korridor voraus
+  (halbe Breite 0,12 m), gemessen ab dem Schnabel (0,18 m vor dem Rumpf):
+
+  | Weg voraus | Folge |
+  |---|---|
+  | frisch gesehen (≤ 0,9 s) | volle Geschwindigkeit |
+  | älter, unter 1,5 s | halbe Geschwindigkeit |
+  | nicht gesehen | nicht vorwärts, nur drehen |
+  | Treffer unter 0,45 m | langsamer, ausweichen |
+  | Treffer unter 0,15 m | wegdrehen; die Stelle ist 5 min für Ziele gesperrt |
+  | drei harte Stopps kurz hintereinander | eingekesselt: Quak-Salve und schnelle Drehung |
+
+- **Mindesttempo:** nie unter 0,15 m/s vorwärts, jeder Start 0,6 s mit vollem Tempo. Darunter
+  bleibt die Gangart stehen.
+
+**Was Kern anders hat:** Kern hat kein Mikrofon und keinen Berührungssensor. Hören und Streicheln
+kommen deshalb über `walker_hear` und `walker_pet`. Die Odometrie ist die Rumpfpose; `autod` hält
+seine Odometrie ebenfalls für perfekt.
+
+**Kern-Verhalten, nicht im Original** (Pollens Gehirn hat keinen Ball- oder Sockendetektor; hier
+ist der Detektor das Bild der Kopfkamera, `walker_sees`):
+
+- **BallPlay:** Sieht sie einen Ball, läuft sie hin, bis er dort liegt, wo das Kick-Training ihn
+  hinlegt (`microduck_ball_kick_env_cfg.py`: 9 cm vor, 4,2 cm neben dem Kickfuß, ±1,5 cm),
+  hebt den Kopf (der Kick wurde mit dem Kopf in Grundstellung trainiert) und kickt mit links.
+  Der rechte Kick kippt sie in Kern um (Abschnitt 12).
+- **Fetch / Carry:** Sieht sie eine Socke, läuft sie hin, bis die Socke 5,9 cm vor dem Rumpf liegt,
+  hebt den Kopf, hebt die Socke auf (Ground Pick, der Mund-Encoder sagt, ob sie sie hat; sonst
+  bis zu vier Versuche), trägt sie 1,5 m weit und legt sie ab.
+
+*[gemessen]* Tests `micro_duck_roams_on_its_own_with_its_tof`, `micro_duck_plays_with_a_ball_on_its_own`
+(der Ball rollt danach 4,5 m in Weltmaß), `micro_duck_fetches_a_sock_on_its_own`.
 
 ### Blick in die Runde (Idle-Look-around)
 
@@ -267,7 +299,8 @@ In dieser Reihenfolge, wie beim echten Roboter:
 1. Der Stick des Spielers. Die Autonomie pausiert, bis 2 s lang keine Eingabe kam.
 2. Ein Logic-Kommando (**Walk**, **Look**).
 3. Das autonome Verhalten (an/aus: Details › Walker › Autonomous oder der Knoten
-   **Set Autonomous**).
+   **Set Autonomous**). Wie `autod` hält es still, solange eine Bewegung läuft, die Ente sich
+   setzt oder aufsteht oder gestürzt ist.
 
 Zufall kommt aus einem Generator mit dem Actor als Seed, daher läuft die Ente deterministisch.
 

@@ -61,6 +61,18 @@ Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Changes: translated t
 Kern's control step instead of the wall clock, seeded from the actor id, the beak and the breath
 computed but not applied.
 
+## Micro Duck autonomous brain (port in `kern/src/game/walker_brain.cpp`)
+
+The autonomous behaviour (`GameWorld::think_walker`, `GameWorld::WalkerBrain::Brain`) is a C++ port
+of `autod/src/brain.rs` and `autod/src/obstacle.rs` from Pollen Robotics' microduck
+(https://github.com/pollen-robotics/microduck, branch `autonomous-mode`, commit df9a750, author
+Antoine Pirrone, 2026-10-01), Copyright Pollen Robotics, licensed under the Apache License,
+Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Changes: translated to C++, ticked from
+Kern's control step, seeded from the actor id; the obstacle model reads Kern's simulated ToF frame
+instead of `kinematics::tof::Reprojector`; hearing and petting come from API calls (Kern has no
+microphone or touch sensor). Added by Kern, not part of the original: ball play and sock fetching
+(the Fetch / Kick / Carry states).
+
 ## Micro Duck voice (port in `kern/src/audio/duck_voice.cpp`)
 
 The duck's voice synthesiser is a C++ port of the `sounds` crate (lib.rs, personality.rs, rng.rs,

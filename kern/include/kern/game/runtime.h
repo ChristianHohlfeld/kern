@@ -337,6 +337,12 @@ class GameWorld {
     bool fallen = false;
     f32 speed = 0;                    // horizontal, robot scale m/s
     f64 tof_time = -1;                // simulation time of the last ToF frame
+    // The last frame's returns for the obstacle model (autod obstacle.rs): world x, y (robot scale)
+    // and height above the floor (z), within 1.5 m (real) and 0.35 m high; and how many beams
+    // within 0.3 rad of straight ahead said something (a return, the floor, or nothing in range).
+    i32 hits = 0;
+    Vec3 hit[kZones];
+    i32 forward_observed = 0;
   };
   /// The walker `id` (0 = the first one): its sensors; false when there is no such walker.
   bool walker_sensors(ActorId id, WalkerSensors& out) const;
@@ -358,6 +364,11 @@ class GameWorld {
   /// Whether walker `id` holds something in its beak: told to shut, the mouth servo's encoder reads
   /// it open by more than 2 degrees.
   bool walker_holding(ActorId id) const;
+  /// A hand on walker `id` for `seconds` (its brain's Petted state; the robot senses it, Kern has
+  /// no touch sensor). 0 lifts it.
+  bool walker_pet(ActorId id, f32 seconds);
+  /// Walker `id` hears something: a voice (it answers) or a noise (it stirs from a doze).
+  bool walker_hear(ActorId id, bool voice);
   /// How hard walker `id`'s servos work (each control tick): strain = mean torque as a share of the
   /// stall torque (0 idle .. 1 stalled), drive = sum of share x speed (rad/s real, the mechanical
   /// work), speed = sum of joint speeds (rad/s real). Its servo sound follows these.
@@ -401,6 +412,8 @@ class GameWorld {
   void drive_walkers(f32 h);
   void sense_walker(WalkerBrain& w);
   void think_walker(WalkerBrain& w, f32 dt);  // the autonomous behaviour (walker_brain.cpp)
+  struct PolicyStatus { bool ground_pick = false, sit_stand = false; };
+  PolicyStatus walker_abilities(const WalkerBrain& w) const;  // which of its moves are loaded
   void run_controller(WalkerBrain& w, f32 obs[61]);  // robotd's controller: network, scale, low-pass
   void walker_say(WalkerBrain& w, const char* tag);   // the duck's voice (one call, cutting the last)
   void walker_wheee(WalkerBrain& w, bool held);
