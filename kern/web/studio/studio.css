@@ -346,6 +346,22 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 #app.compact #detailsPanel, #app.compact #outlinerPanel { min-height: 0; }
 #app.compact #main.logic-open #side { display: none; }
 #app.compact #drawer { height: min(var(--drawer, 230px), 48vh); }
+/* Phones: Play / Simulate (Pause / Stop / Eject while running) and the panels button sit in a dock
+   pinned to the toolbar's right edge (initCompact moves them there); the rest of the toolbar scrolls
+   beneath it. Buttons that do nothing in the current state are left out, the rest are touch-sized. */
+#toolDock { display: none; }
+#app.compact { grid-template-rows: 30px 44px 1fr auto 24px; }
+#app.compact #toolbar { padding-right: 0; }
+#app.compact #toolbar .spacer { display: none; }
+#app.compact #toolDock { display: flex; align-items: center; gap: 4px; flex: none; position: sticky; right: 0; z-index: 3; margin-left: auto;
+  align-self: stretch; padding: 0 6px 0 8px; background: var(--bg2); box-shadow: -12px 0 10px -6px var(--bg2), -1px 0 0 var(--line2); }
+#app.compact #toolDock #playGroup { padding: 2px; gap: 2px; }
+#app.compact #toolDock .tb { height: 38px; min-width: 40px; }
+#app.compact #toolDock .playbtn { min-width: 48px; }
+#app.compact #toolDock .tb svg { width: 20px; height: 20px; }
+#app.compact #toolDock .playbtn svg { width: 22px; height: 22px; }
+#app.compact #playGroup .tb:disabled { display: none; }
+#app.compact #panelsBtn { width: 40px; height: 38px; }
 @media (max-width: 900px) {
   .snap:not(:last-child), #spaceBtn, .cmdline, #simStats { display: none; }
   #toolbar { overflow-x: auto; }
@@ -357,11 +373,14 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .tb.logic.on{background:var(--accent-soft);color:var(--text-hi)}
 
 /* ---- Play on touch devices: the game fills the screen ---- */
-#touchExit { display: none; }
+#touchExit, #touchPause { display: none; }
 #app.touch-play #viewArea { position: fixed; inset: 0; z-index: 60; }
 #app.touch-play .vp-bar, #app.touch-play .vp-info, #app.touch-play .vp-hint { display: none !important; }
 #app.touch-play #touchExit { display: block; position: absolute; z-index: 8; left: max(8px, env(safe-area-inset-left)); top: max(8px, env(safe-area-inset-top));
   height: 36px; min-width: 56px; padding: 0 10px; border-radius: 10px; border: 1.5px solid #ff8a6a99; background: #2a1410e0; color: #fff;
+  font: 800 10px Inter, system-ui, sans-serif; letter-spacing: .06em; touch-action: none; }
+#app.touch-play #touchPause { display: block; position: absolute; z-index: 8; left: calc(max(8px, env(safe-area-inset-left)) + 84px); top: max(8px, env(safe-area-inset-top));
+  height: 36px; min-width: 56px; padding: 0 10px; border-radius: 10px; border: 1.5px solid #ffffff55; background: #141418e0; color: #fff;
   font: 800 10px Inter, system-ui, sans-serif; letter-spacing: .06em; touch-action: none; }
 #toolbar::-webkit-scrollbar { display: none; }
 /* Narrower windows: the toolbar keeps the play group and drops the snap labels first. */

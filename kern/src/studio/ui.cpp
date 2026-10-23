@@ -425,6 +425,7 @@ json::Value Studio::menu_json(std::string_view name) const {
     m.push(entry("Snap to Floor", cmd("snapToFloor"), "End", editing && sel));
     m.push(separator());
     m.push(entry("Preferences...", cmd("dialog", "name", "preferences")));
+    m.push(entry("Reset Settings to Defaults...", cmd("dialog", "name", "resetSettings")));
   } else if (name == "window" || name == "view") {
     const Viewport& v = views_[active_view_];
     json::Value layouts = json::Value::array();
@@ -655,6 +656,12 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
     ss.set("max", 100);
     fields.push(std::move(ss));
     buttons("Apply");
+    d.set("text", "Your settings are kept in this browser. Edit > Reset Settings to Defaults puts all of them back.");
+  } else if (name == "resetSettings") {
+    d.set("title", "Reset Settings to Defaults");
+    d.set("text", "Puts every editor setting back to its default: preferences, snapping, sound, viewport layout, "
+                  "view types and modes, show flags (Constraints off) and the panel sizes. Your levels are not touched.");
+    buttons("Reset");
   } else if (name == "export") {
     d.set("title", "Package Game");
     d.set("text", "Builds one self-contained HTML file with the Kern runtime and this level. It plays full screen in any browser - no editor, no server.");
@@ -783,6 +790,14 @@ json::Value Studio::submit_dialog(std::string_view name, const json::Value& valu
     if (values["scaleStep"].is_number()) snap_.scale_step = clamp(static_cast<f32>(values["scaleStep"].as_number()), 0.001f, 100.0f);
     for (Viewport& v : views_) v.grid_key = 0;
     touch();
+    return ok();
+  }
+  if (name == "resetSettings") {
+    reset_settings();
+    json::Value a = json::Value::object();
+    a.set("action", "settingsReset");  // the page resets what it keeps itself (panel sizes, drawer)
+    push_ui(std::move(a));
+    report("Settings reset to defaults");
     return ok();
   }
   if (name == "export") {
@@ -1564,6 +1579,28 @@ json::Value Studio::run(const json::Value& c) {
     if (c["scaleStep"].is_number()) snap_.scale_step = clamp(static_cast<f32>(num("scaleStep")), 0.001f, 100.0f);
     for (Viewport& v : views_) v.grid_key = 0;
     touch();
+    return ok();
+  }
+  // ---- user settings (settings.cpp) ----
+  if (name == "settings") {
+    json::Value r = ok();
+    r.set("values", settings_json());
+    r.set("defaults", default_settings_json());
+    return r;
+  }
+  if (name == "applySettings") {
+    json::Value r = ok();
+    r.set("applied", apply_settings(c["values"]));
+    return r;
+  }
+  if (name == "takeSettings") {
+    json::Value r = ok();
+    r.set("values", take_settings());
+    return r;
+  }
+  if (name == "resetSettings") {
+    reset_settings();
+    report("Settings reset to defaults");
     return ok();
   }
   if (name == "cameraSpeed") { prefs_.camera_speed = clamp(static_cast<i32>(num("speed", 4)), 1, 8); touch(); return ok(); }

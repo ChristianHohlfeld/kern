@@ -5268,6 +5268,84 @@ TEST(studio_autosave_only_while_unsaved) {
   CHECK(!f.s->command(broken)["ok"].as_bool());
   CHECK(!f.s->dirty());
 }
+// User settings (docs/studio.md, "Einstellungen"): defaults, only the user's own choices are
+// handed to the host, stored choices come back, and Reset puts everything back to the defaults.
+TEST(studio_user_settings) {
+  StudioFixture f;
+  f.frames(2);
+  // Constraints (joint debug lines) are off by default in every viewport.
+  const json::Value defaults = studio::Studio::default_settings_json();
+  for (u32 i = 0; i < 4; ++i) {
+    CHECK(!f.s->viewport(i).flags.joints);
+    CHECK(defaults["viewport" + std::to_string(i) + ".show.joints"].is_bool() && !defaults["viewport" + std::to_string(i) + ".show.joints"].as_bool());
+  }
+  CHECK(f.s->settings_json() == defaults);
+  CHECK(f.cmd(R"({"cmd":"settings"})")["values"] == defaults);
+  // Nothing chosen yet: nothing to store (old defaults never get frozen into storage).
+  CHECK(f.s->take_settings().is_null());
+  f.cmd(R"({"cmd":"select","ids":[]})");
+  f.frames(2);
+  CHECK(f.s->take_settings().is_null());
+  // A choice: only that key, once.
+  CHECK(f.cmd(R"({"cmd":"showFlag","viewport":0,"flag":"joints","value":true})")["ok"].as_bool());
+  json::Value t = f.s->take_settings();
+  CHECK(t.is_object() && t.size() == 1 && t["viewport0.show.joints"].as_bool());
+  CHECK(f.s->take_settings().is_null());
+  // Shortcuts and dialogs count too; a choice set back to the default stays a choice.
+  f.s->key("]", "BracketRight", true, 0, false);
+  f.s->key("]", "BracketRight", false, 0, false);
+  CHECK(f.cmd(R"({"cmd":"submitDialog","name":"preferences","values":{"cameraSpeed":6,"invertY":true}})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"showFlag","viewport":0,"flag":"joints","value":false})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"mute","muted":true})")["ok"].as_bool());
+  t = f.cmd(R"({"cmd":"takeSettings"})")["values"];
+  CHECK(t.is_object() && t.size() == 5);
+  CHECK(t.has("viewport0.show.joints") && !t["viewport0.show.joints"].as_bool());
+  CHECK(t["snap.gridSize"].as_number() > 0.5 && t["cameraSpeed"].as_number() == 6 && t["invertY"].as_bool() && t["muted"].as_bool());
+  CHECK(!t.has("mouseSensitivity") && !t.has("viewport1.type"));  // unchanged by Apply: not a choice
+  const std::string stored = json::stringify(t);
+
+  // The next session: the stored choices come back; unknown keys and invalid values are skipped.
+  StudioFixture g;
+  json::Value back;
+  CHECK(json::parse(stored, back));
+  back.set("viewport2.show.colliders", true);
+  back.set("viewport9.show.grid", false);
+  back.set("cameraSpeed", "fast");
+  back.set("layout", "quad");
+  back.set("viewport1.type", "left");
+  back.set("bogus", 1);
+  CHECK(g.cmd((R"({"cmd":"applySettings","values":)" + json::stringify(back) + "}").c_str())["applied"].as_number() == 7);
+  CHECK(g.s->viewport(2).flags.colliders && !g.s->viewport(0).flags.joints && g.s->muted());
+  CHECK(g.s->prefs().camera_speed == 4 && g.s->prefs().invert_y && g.s->prefs().layout == studio::Layout::quad);
+  CHECK(g.s->viewport(1).type == studio::ViewType::left && g.s->snap().grid_size > 0.5f);
+  CHECK(g.s->take_settings().is_null());  // loading is no news
+  CHECK(g.cmd(R"({"cmd":"space"})")["ok"].as_bool());
+  t = g.s->take_settings();
+  CHECK(t.size() == 8 && t["space"].as_string() == "local" && t["viewport2.show.colliders"].as_bool());
+  g.frames(2);
+
+  // Reset to defaults: an Edit menu entry opens the Studio's own confirmation dialog.
+  bool entry = false;
+  const json::Value edit_menu = g.cmd(R"({"cmd":"menu","name":"edit"})");
+  for (const json::Value& e : edit_menu["entries"].items())
+    entry |= e["label"].as_string() == "Reset Settings to Defaults..." && e["cmd"]["name"].as_string() == "resetSettings";
+  CHECK(entry);
+  const json::Value dlg = g.cmd(R"({"cmd":"dialog","name":"resetSettings"})")["dialog"];
+  CHECK(dlg.is_object() && dlg["buttons"].size() == 2);
+  g.s->take_ui();
+  CHECK(g.cmd(R"({"cmd":"submitDialog","name":"resetSettings","values":{}})")["ok"].as_bool());
+  CHECK(g.s->settings_json() == defaults);
+  CHECK(!g.s->muted() && g.s->prefs().layout == studio::Layout::single && g.s->viewport(1).type == studio::ViewType::top);
+  t = g.s->take_settings();
+  CHECK(t.is_object() && t.size() == 0);  // the host drops what it stored
+  bool action = false;
+  const json::Value ui_actions = g.s->take_ui();
+  for (const json::Value& a : ui_actions.items()) action |= a["action"].as_string() == "settingsReset";
+  CHECK(action);
+  CHECK(g.s->take_settings().is_null());
+  g.frames(2);
+}
+
 TEST(studio_player_only) {
   StudioFixture f(true);
   CHECK(f.s->level().actors.empty());

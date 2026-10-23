@@ -13,6 +13,9 @@ import {StudioEngine, POINTER, modifiers, toBase64, escHtml, hudHtml, HUD_STYLE,
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = escHtml;
 const AUTOSAVE_KEY = "kern-studio.autosave.v1", LAYOUT_KEY = "kern-studio.layout.v1";
+// User settings (docs/studio.md, "Einstellungen"): only the user's own choices, as the engine reports
+// them (settings.cpp). A setting never changed is not stored and follows the defaults of the build.
+const SETTINGS_KEY = "kern-studio.settings.v1", SETTINGS_VERSION = 1;
 const MAX_TEXTURE_SIDE = 2048;
 const MAX_SOUND_BYTES = 24 * 1024 * 1024;
 
@@ -177,6 +180,7 @@ class StudioPage {
     this.restoreLayout();
     this.resizeCanvas();
     if (!this.engine.init(this.canvas.width, this.canvas.height, false)) throw Error(this.kern.lastError());
+    this.loadSettings();
     this.audio = startAudio(this.engine);
     this.net = new KernNet(this.engine);
     this.net.onstatus = text => this.toast(text);
@@ -190,6 +194,9 @@ class StudioPage {
     document.head.append(style);
     watchInputDevice(this.engine);
     $("#touchExit").addEventListener("click", () => { this.engine.command({cmd: "stop"}); this.flushUi(); });
+    $("#touchPause").addEventListener("click", () => { this.engine.command({cmd: "pause"}); this.flushUi(); });
+    addEventListener("pagehide", () => this.saveSettings());
+    document.addEventListener("visibilitychange", () => { if (document.hidden) this.saveSettings(); });
     fillIcons();
     this.buildViewports();
     // The logic editor covers the viewports while it is open (like a Blueprint editor tab).
@@ -292,7 +299,7 @@ class StudioPage {
       else if (this.netSeen) { this.netSeen = false; if (this.net.active) this.net.close(); }
       this.renderStatus(this.status);
       if (time - this.lastTexturePoll > 200) { this.lastTexturePoll = time; this.engine.pollTextures(MAX_TEXTURE_SIDE); this.engine.pollSounds(this.audio); this.engine.loadPolicies().catch(() => {}); }
-      if (time - this.lastSavePoll > 500) { this.lastSavePoll = time; this.autosave(time); }
+      if (time - this.lastSavePoll > 500) { this.lastSavePoll = time; this.autosave(time); this.saveSettings(); }
     } catch (error) {
       console.error(error);
       $("#engineNotice").style.display = "block";
@@ -337,6 +344,39 @@ class StudioPage {
     try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({name: this.state?.level?.name || "Untitled", text, time: Date.now()})); } catch { /* full or unavailable */ }
   }
 
+  // ---- user settings -------------------------------------------------------------
+  loadSettings() {
+    let stored = null;
+    try { stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null"); } catch { /* storage unavailable or broken */ }
+    if (stored?.version === SETTINGS_VERSION && stored.values && typeof stored.values === "object")
+      this.engine.command({cmd: "applySettings", values: stored.values});
+  }
+
+  /** Stores the user's choices when the engine reports a change (nothing at all while none was made). */
+  saveSettings() {
+    const values = this.engine.command({cmd: "takeSettings"})?.values;
+    if (!values) return;
+    try {
+      if (Object.keys(values).length) localStorage.setItem(SETTINGS_KEY, JSON.stringify({version: SETTINGS_VERSION, values}));
+      else localStorage.removeItem(SETTINGS_KEY);
+    } catch { /* full or unavailable */ }
+  }
+
+  /** Edit > Reset Settings to Defaults: the engine reset its settings; the page resets its own (panels, drawer). */
+  resetPageSettings() {
+    try { localStorage.removeItem(LAYOUT_KEY); } catch { /* unavailable */ }
+    const root = document.documentElement.style;
+    root.removeProperty("--side");
+    root.removeProperty("--outliner");
+    this.drawerTab("place");
+    $("#drawer").hidden = true;
+    $("#drawerBtn").classList.remove("on");
+    $("#logBtn").classList.remove("on");
+    this.saveSettings();
+    this.rectKeys = [];
+    this.toast("Settings reset to defaults");
+  }
+
   // ---- UI actions from the engine ----------------------------------------------
   flushUi() {
     for (const a of this.engine.takeUi()) this.uiAction(a);
@@ -364,6 +404,7 @@ class StudioPage {
         break;
       }
       case "dialog": this.openDialog(a.name, a.dialog); break;
+      case "settingsReset": this.resetPageSettings(); break;
       case "logicBreak": this.logic.onBreak(a.node); break;
       case "save": this.save(false); break;
       case "saveAs": this.save(true); break;
@@ -739,6 +780,8 @@ class StudioPage {
     $("#pauseBtn").classList.toggle("on", s.play.paused);
     $("#pauseBtn").innerHTML = icon(s.play.paused ? "play" : "pause");
     $("#stepBtn").disabled = editing || !s.play.paused;
+    const tp = $("#touchPause"), tpText = s.play.paused ? "▶ RESUME" : "❚❚ PAUSE";
+    if (tp.textContent !== tpText) { tp.textContent = tpText; tp.setAttribute("aria-label", s.play.paused ? "Resume" : "Pause"); }
     $("#stopBtn").disabled = editing;
     $("#ejectBtn").disabled = editing;
     $("#ejectBtn").title = playing ? "Eject from the player (F8)" : "Possess the player (F8)";
@@ -1825,8 +1868,18 @@ class StudioPage {
     const app = $("#app"), main = $("#main"), side = $("#side");
     const small = matchMedia("(max-width: 900px), (pointer: coarse) and (max-height: 600px)");
     const wide = matchMedia("(orientation: landscape)");
+    // Play / Simulate (Pause / Stop while running) and the panels button stay one tap away on
+    // phones: in the compact layout they move into a dock pinned to the toolbar's right edge,
+    // which never scrolls away with the rest of the toolbar (docs/studio.md, "Handy").
+    const dock = document.createElement("div");
+    dock.id = "toolDock";
+    dock.className = "dock";
+    $("#toolbar").append(dock);
+    const homes = ["#playGroup", "#panelsBtn"].map(sel => { const el = $(sel), mark = document.createComment(sel); el.before(mark); return [el, mark]; });
     const apply = () => {
       app.classList.toggle("compact", small.matches);
+      if (small.matches) dock.append(...homes.map(([el]) => el));
+      else for (const [el, mark] of homes) mark.after(el);
       app.classList.toggle("landscape", wide.matches);
       if (!small.matches) main.classList.remove("panels-open");
       $("#panelsBtn").classList.toggle("on", main.classList.contains("panels-open"));

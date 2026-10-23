@@ -546,6 +546,58 @@ const vpCenter = async (page, i = 0) => {
   await ctx.close();
 }
 
+// ---- user settings: defaults, kept across reloads, reset to defaults ----------------------------
+// docs/studio.md, "Einstellungen": only the user's own choices are stored; Reset puts everything back.
+{
+  const {ctx, page, errors} = await openStudio(base + "/generated/studio.html");
+  const KEY = "kern-studio.settings.v1";
+  const stored = () => page.evaluate(k => JSON.parse(localStorage.getItem(k) || "null"), KEY);
+  const reload = async () => {
+    await page.reload();
+    await page.waitForFunction(() => window.KernStudio && window.KernStudio.frames() > 3, null, {timeout: 90000});
+  };
+  let s = await state(page);
+  check(s.viewports.every(v => v.flags.joints === false), "settings: Constraints are off by default in every viewport");
+  await page.waitForTimeout(800);
+  check(await stored() === null, "settings: nothing is stored while the user chose nothing");
+  await cmd(page, {cmd: "showFlag", viewport: 0, flag: "joints", value: true});
+  await cmd(page, {cmd: "showFlag", viewport: 0, flag: "colliders", value: true});
+  await cmd(page, {cmd: "layout", layout: "quad"});
+  await cmd(page, {cmd: "snap", gridSize: 2, grid: true});
+  await cmd(page, {cmd: "mute", muted: true});
+  check(await until(async () => (await stored())?.values?.["viewport0.show.joints"] === true), "settings: a choice is stored");
+  const keys = Object.keys((await stored()).values).sort();
+  check(JSON.stringify(keys) === JSON.stringify(["layout", "muted", "snap.gridSize", "viewport0.show.colliders", "viewport0.show.joints"]),
+        "settings: only the user's choices are stored (" + keys.join(", ") + ")");
+  await reload();
+  s = await state(page);
+  check(s.viewports[0].flags.joints && s.viewports[0].flags.colliders && s.prefs.layout === "quad" && s.snap.gridSize === 2 && s.sounds?.muted === true,
+        "settings: the choices come back after a reload");
+  check(s.viewports[1].flags.joints === false, "settings: settings not chosen keep their defaults");
+  // Edit > Reset Settings to Defaults: the Studio's own confirmation, no browser dialog.
+  let browserDialog = false;
+  page.on("dialog", d => { browserDialog = true; d.dismiss().catch(() => {}); });
+  await page.click('#menubar .mb[data-menu="edit"]');
+  await until(() => page.locator(".menu .mi", {hasText: "Reset Settings to Defaults"}).isVisible());
+  await page.locator(".menu .mi", {hasText: "Reset Settings to Defaults"}).click();
+  check(await until(() => page.locator(".dialog .btn.primary", {hasText: "Reset"}).isVisible()), "settings: Reset asks in the Studio's own dialog");
+  await page.locator(".dialog .btn.primary", {hasText: "Reset"}).click();
+  check(await until(async () => { const v = await state(page); return v.prefs.layout === "single" && !v.viewports[0].flags.joints && !v.viewports[0].flags.colliders && v.snap.gridSize === 0.5 && !v.sounds?.muted; }),
+        "settings: Reset puts every setting back to its default");
+  check(await until(async () => (await stored()) === null), "settings: Reset drops the stored choices");
+  check(!browserDialog, "settings: no window.confirm / alert");
+  await reload();
+  s = await state(page);
+  check(s.prefs.layout === "single" && !s.viewports[0].flags.joints, "settings: the defaults stay after a reload");
+  // A store from an older build with one choice: everything else follows today's defaults.
+  await page.evaluate(k => localStorage.setItem(k, JSON.stringify({version: 1, values: {cameraSpeed: 6}})), KEY);
+  await reload();
+  s = await state(page);
+  check(s.prefs.cameraSpeed === 6 && s.viewports.every(v => !v.flags.joints), "settings: a stored choice applies, new defaults reach everything else");
+  check(errors.length === 0, "no page errors around settings" + (errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""));
+  await ctx.close();
+}
+
 // ---- narrow window ----------------------------------------------------------------------
 {
   const {ctx, page, errors} = await openStudio(base + "/generated/studio.html", {width: 820, height: 900});
@@ -579,6 +631,71 @@ const vpCenter = async (page, i = 0) => {
   await page.locator(".menu .mi", {hasText: "Micro Duck"}).tap();
   check(await until(async () => (await state(page)).level.name === "Micro Duck"), "phone: File > Example Levels > Micro Duck opens");
   check(errors.length === 0, "no page errors on the phone studio" + (errors.length ? ": " + errors.join(" | ") : ""));
+  await ctx.close();
+}
+
+// ---- phone: Play / Simulate (and Pause / Stop while running) one tap away in every state ----------
+for (const viewport of [{width: 390, height: 844}, {width: 844, height: 390}]) {
+  const tag = `phone ${viewport.width}x${viewport.height}`;
+  const ctx = await browser.newContext({viewport, hasTouch: true, isMobile: true});
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  await page.goto(base + "/generated/studio.html");
+  await page.waitForFunction(() => window.KernStudio && window.KernStudio.frames() > 3, null, {timeout: 120000});
+  // On screen, not covered, touch-sized: a tap at its centre reaches it.
+  const tappable = sels => page.evaluate(sels => sels.map(sel => {
+    const el = document.querySelector(sel), r = el?.getBoundingClientRect();
+    if (!r || r.width < 1 || r.left < 0 || r.top < 0 || r.right > innerWidth + 0.5 || r.bottom > innerHeight + 0.5) return sel + " off screen";
+    if (r.width < 36 || r.height < 36) return `${sel} too small (${r.width}x${r.height})`;
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return hit && hit.closest(sel) ? "" : sel + " covered";
+  }).filter(Boolean), sels);
+  const expect = async (sels, what) => {
+    let bad = [];
+    await until(async () => (bad = await tappable(sels)).length === 0, 8000);
+    check(bad.length === 0, `${tag}: ${what}` + (bad.length ? ` (${bad.join(", ")})` : ""));
+  };
+  await expect(["#playBtn", "#simBtn", "#panelsBtn"], "Play, Simulate and the panels button are one tap away");
+  // The toolbar scrolled to its start: the dock stays.
+  await page.evaluate(() => { document.getElementById("toolbar").scrollLeft = 0; });
+  await expect(["#playBtn", "#simBtn"], "Play and Simulate stay put when the toolbar scrolls");
+  await page.tap("#panelsBtn");
+  await until(() => page.locator("#side").isVisible());
+  for (const pane of ["outliner", "details", "world"]) {
+    await page.tap(`#sideTabs .tab[data-pane="${pane}"]`);
+    await expect(["#playBtn", "#simBtn", "#sideClose"], `Play and Simulate with the ${pane} sheet open`);
+  }
+  await page.tap('#menubar .mb[data-menu="window"]');
+  await until(() => page.locator(".menu").isVisible());
+  await page.locator(".menu .mi", {hasText: "Content Drawer"}).tap();
+  await expect(["#playBtn", "#simBtn"], "Play and Simulate with the content drawer open");
+  await page.tap("#sideClose");
+  await cmd(page, {cmd: "logicOpen", owner: 0});
+  await expect(["#playBtn", "#simBtn", "#panelsBtn"], "Play and Simulate with the Logic editor open");
+  await cmd(page, {cmd: "logicClose"});
+  await page.tap("#simBtn");
+  check(await until(async () => (await state(page)).play.state === "simulating"), `${tag}: one tap on Simulate simulates`);
+  await expect(["#pauseBtn", "#stopBtn", "#playBtn"], "Pause, Stop and Play while simulating");
+  await page.tap("#pauseBtn");
+  check(await until(async () => (await state(page)).play.paused), `${tag}: one tap on Pause pauses`);
+  await page.tap("#stopBtn");
+  check(await until(async () => (await state(page)).play.state === "editing"), `${tag}: one tap on Stop stops`);
+  await page.tap("#playBtn");
+  check(await until(async () => (await state(page)).play.state === "playing"), `${tag}: one tap on Play plays`);
+  // Playing on a touch device: the game fills the screen with EXIT and PAUSE.
+  await expect(["#touchExit", "#touchPause"], "EXIT and PAUSE while playing full screen");
+  await page.tap("#touchPause");
+  check(await until(async () => (await state(page)).play.paused), `${tag}: PAUSE pauses the game`);
+  await page.tap("#touchPause");
+  check(await until(async () => !(await state(page)).play.paused), `${tag}: RESUME resumes it`);
+  await shot(page, `phone-play-${viewport.width}.png`);
+  await page.tap("#touchExit");
+  check(await until(async () => (await state(page)).play.state === "editing"), `${tag}: EXIT stops`);
+  await expect(["#playBtn", "#simBtn", "#panelsBtn"], "Play and Simulate again after stopping");
+  check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${tag}: no horizontal page scroll`);
+  await shot(page, `phone-dock-${viewport.width}.png`);
+  check(errors.length === 0, `no page errors on the ${tag}` + (errors.length ? ": " + errors.join(" | ") : ""));
   await ctx.close();
 }
 
