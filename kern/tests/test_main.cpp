@@ -3999,6 +3999,39 @@ TEST(micro_duck_runs_every_move_of_its_set) {
   }
 }
 
+TEST(micro_duck_joints_stay_in_their_ranges) {
+  // Thrown on its back, on its side, spun: every servo joint keeps its MJCF range (Box3D's hard
+  // limit) and never turns round (the angle is tracked unwrapped).
+  for (const Vec3 euler : {Vec3{0, 90, 0}, Vec3{0, -90, 0}, Vec3{90, 0, 0}, Vec3{180, 0, 30}}) {
+    GameFixture f;
+    game::Level l = game::basic_level();
+    for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+    const game::ActorId duck = add_duck(l, {0, 0, 0.6f}, true);
+    l.find(duck)->transform.rotation = euler;
+    l.find(duck)->body->angular_velocity = {300, 200, 500};  // degrees per second: tumbling
+    f.world->sync(l);
+    CHECK(f.world->start(l, game::SimMode::simulate));
+    std::vector<f32> last, travelled;
+    f32 worst = -1, turn = 0;
+    for (int i = 0; i < 100 * 12; ++i) {
+      f.world->step(1.0f / 100, {});
+      const auto joints = f.world->walker_joints(duck);
+      if (last.empty()) { last.assign(joints.size(), 0); travelled.assign(joints.size(), 0); for (std::size_t k = 0; k < joints.size(); ++k) last[k] = joints[k].angle; }
+      for (std::size_t k = 0; k < joints.size(); ++k) {
+        f32 d = joints[k].angle - last[k];
+        d = std::atan2(std::sin(d), std::cos(d));
+        travelled[k] += d;  // unwrapped: a full turn would show as 2 pi
+        last[k] = joints[k].angle;
+        worst = max_of(worst, max_of(joints[k].angle - joints[k].upper, joints[k].lower - joints[k].angle));
+        turn = max_of(turn, std::fabs(travelled[k]));
+      }
+    }
+    if (std::getenv("KERN_DUCK_PRINT")) std::printf("tumble %.0f %.0f %.0f: worst overshoot %.4f rad, net turn %.2f rad\n", euler.x, euler.y, euler.z, worst, turn);
+    CHECK(worst < 0.02f);
+    CHECK(turn < 6.0f);  // no joint ever goes round
+  }
+}
+
 TEST(micro_duck_roams_on_its_own_with_its_tof) {
   // A 6 x 6 m room (real 1.5 x 1.5 m: the duck is built 4x) with a box in it: the duck walks around on
   // its own, sees the walls with its ToF, turns away and never falls.

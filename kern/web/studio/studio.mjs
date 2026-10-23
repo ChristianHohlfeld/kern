@@ -283,7 +283,7 @@ class StudioPage {
       if (this.status.net) this.netSeen = true;
       else if (this.netSeen) { this.netSeen = false; if (this.net.active) this.net.close(); }
       this.renderStatus(this.status);
-      if (time - this.lastTexturePoll > 200) { this.lastTexturePoll = time; this.engine.pollTextures(MAX_TEXTURE_SIDE); this.engine.pollSounds(this.audio); }
+      if (time - this.lastTexturePoll > 200) { this.lastTexturePoll = time; this.engine.pollTextures(MAX_TEXTURE_SIDE); this.engine.pollSounds(this.audio); this.engine.loadPolicies().catch(() => {}); }
       if (time - this.lastSavePoll > 500) { this.lastSavePoll = time; this.autosave(time); }
     } catch (error) {
       console.error(error);

@@ -804,7 +804,9 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
   for (i32 j = 0; j < kJoints; ++j) {
     const f32 a = std::isfinite(w.action[j]) ? w.action[j] : 0.0f;
     w.action[j] = a;  // raw: the observation feeds the policy its own output back
-    f32 t = kDuckLinks[j + 1].home + scale * a;
+    // The servo's goal stays inside the joint's range (the MJCF range; Box3D holds the same as a
+    // hard limit).
+    f32 t = clamp(kDuckLinks[j + 1].home + scale * a, kDuckLinks[j + 1].lower, kDuckLinks[j + 1].upper);
     if (w.has_previous) {
       const f32 alpha = j >= 5 && j < 9 ? kHeadLowpass : kLegsLowpass;
       t = alpha * t + (1 - alpha) * w.previous_target[j];
@@ -884,7 +886,7 @@ void GameWorld::drive_walkers(f32 h) {
       f32 head_cmd[4];
       for (int i = 0; i < 4; ++i) head_cmd[i] = clamp(w.head[i] + idle[i], -kHeadRange[i], kHeadRange[i]);
       // The mouth (robotd: not part of any policy): what was asked, or the idle yawn.
-      if (w.mouth) w.mouth->servo_target = mouth_target(max_of(w.mouth_open, w.idle_mouth));
+      if (w.mouth) w.mouth->servo_target = mouth_target(max_of(w.mouth_open, w.idle_mouth));  // -5..30 deg: pressed shut at the limit
       w.quack = max_of(0.0f, w.quack - kControlPeriod);
       w.manual_left = max_of(0.0f, w.manual_left - kControlPeriod);
       if (w.drive_left > 0) w.drive_left = max_of(0.0f, w.drive_left - kControlPeriod);  // < 0 holds until the next command

@@ -65,9 +65,11 @@ export class StudioEngine {
   }
   /** Loads the robot's policy set (microduck/<file>.onnx next to the page; the dev page reads the
    *  repository's copy). Once; a missing file leaves that move unavailable. */
-  async loadPolicies(bases = ["microduck/", "../../third_party/microduck/"]) {
+  async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/microduck/"] : ["microduck/"]) {
     if (this.policiesLoading) return this.policiesLoading;
-    const files = this.result(this.e.kern_studio_pending_policies()) || [];
+    const files = (this.result(this.e.kern_studio_pending_policies()) || []).filter(f => !(this.policiesTried ??= new Set()).has(f));
+    if (!files.length) return;
+    for (const f of files) this.policiesTried.add(f);
     this.policiesLoading = Promise.all(files.map(async file => {
       for (const base of bases) {
         try {
@@ -85,7 +87,7 @@ export class StudioEngine {
       }
       console.warn("Kern: robot policy " + file + " not found");
       return false;
-    }));
+    })).finally(() => { this.policiesLoading = null; });
     return this.policiesLoading;
   }
   /** Decodes the level's texture images (data URLs) into RGBA for the engine. */
@@ -881,7 +883,7 @@ export async function startGame({levelText = null, template = null, bytes = null
     engine.takeUi();
     audio?.pump();
     net?.flush();
-    if (time - lastTextures > 250) { lastTextures = time; engine.pollTextures(); engine.pollSounds(audio); }
+    if (time - lastTextures > 250) { lastTextures = time; engine.pollTextures(); engine.pollSounds(audio); engine.loadPolicies().catch(() => {}); }
     gamepad.poll();
     const st = engine.status();
     const html = hudHtml(st?.hud) + (st?.paused ? `<div class="k-hud-banner k-paused"><div>Paused</div><small>Click to continue</small></div>` : "");
