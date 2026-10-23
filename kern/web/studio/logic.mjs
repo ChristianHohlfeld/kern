@@ -963,7 +963,7 @@ export class LogicEditor {
     const v = this.view;
     const fit = Math.min((r.width - 100) / (x1 - x0 + 1), (r.height - 100) / (y1 - y0 + 1));
     // On a phone a readable zoom wins over seeing everything: start at the graph's top left.
-    v.zoom = Math.max(this.phone ? 0.5 : 0.2, Math.min(1, fit));
+    v.zoom = Math.max(this.phone ? 0.75 : 0.2, Math.min(1, fit));
     const w = (x1 - x0) * v.zoom, h = (y1 - y0) * v.zoom;
     v.x = w <= r.width - 40 ? (r.width - w) / 2 - x0 * v.zoom : 24 - x0 * v.zoom;
     v.y = h <= r.height - 40 ? (r.height - h) / 2 - y0 * v.zoom : 48 - y0 * v.zoom;
