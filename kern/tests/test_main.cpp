@@ -10,6 +10,7 @@
 #include "kern/physics/physics.h"
 #include "kern/core/json.h"
 #include "kern/game/demos.h"
+#include "kern/game/walker_policy.h"
 #include "kern/game/runtime.h"
 #include "kern/game/walker.h"
 #include "kern/studio/studio.h"
@@ -3706,8 +3707,8 @@ TEST(micro_duck_policy_matches_the_onnx_reference) {
 
 namespace {
 /// A level with a Micro Duck on the floor (the catalog's insertion: ids = index + 1 + offset).
-game::ActorId add_duck(game::Level& l, Vec3 at, bool autonomous = false) {
-  std::vector<game::Actor> parts = game::micro_duck_actors();
+game::ActorId add_duck(game::Level& l, Vec3 at, bool autonomous = false, bool rollers = false) {
+  std::vector<game::Actor> parts = game::micro_duck_actors(rollers);
   parts[0].controller->autonomous = autonomous;
   const game::ActorId base = l.next_id;
   for (std::size_t i = 0; i < parts.size(); ++i) {
@@ -3854,11 +3855,148 @@ DuckSteadiness duck_steadiness() {
 }
 }  // namespace
 
+TEST(micro_duck_stands_on_the_floor) {
+  // The soles rest on the floor: neither hovering nor sunk in (Box3D's contact slop allowed).
+  for (int floor_box = 0; floor_box < 2; ++floor_box) {
+    GameFixture f;
+    game::Level l = game::basic_level();
+    for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+    if (!floor_box) l.actors.erase(std::remove_if(l.actors.begin(), l.actors.end(), [](const game::Actor& a) { return a.name == "Floor"; }), l.actors.end());
+    const game::ActorId duck = add_duck(l, {0, 0, 0}, false);
+    f.world->sync(l);
+    CHECK(f.world->start(l, game::SimMode::simulate));
+    for (int i = 0; i < 100 * 4; ++i) f.world->step(1.0f / 100, {});
+    // Lowest point of each sole box (world), via the foot links' matrices and the sole collider.
+    f32 lowest = 1e9f;
+    for (const game::Actor& a : l.actors)
+      for (const game::ColliderComponent& c : a.colliders) {
+        if (a.id <= duck || a.name.find("ankle") == std::string::npos || c.points.empty()) continue;
+        Mat4 m;
+        f.world->actor_matrix(a.id, m);
+        f32 low = 1e9f;
+        for (const Vec3& p : c.points) low = min_of(low, m.transform_point(p).z);
+        if (std::getenv("KERN_DUCK_PRINT")) std::printf("  %s collider friction %.1f lowest %.4f\n", a.name.c_str(), c.friction, low);
+        if (c.friction > 0.99f) lowest = min_of(lowest, low);
+      }
+    if (std::getenv("KERN_DUCK_PRINT")) std::printf("%s: lowest sole corner %.4f m (world)\n", floor_box ? "floor box" : "ground plane", lowest);
+    CHECK(std::fabs(lowest) < 0.006f);  // within Box3D's linear slop (5 mm)
+  }
+}
+
 TEST(micro_duck_holds_itself_steady) {
   const DuckSteadiness s = duck_steadiness();
   if (std::getenv("KERN_DUCK_PRINT"))
     std::printf("steadiness rad/s RMS: stand trunk %.4f head %.4f, walk trunk %.4f head %.4f\n", s.trunk_stand, s.head_stand, s.trunk_walk, s.head_walk);
   CHECK(s.trunk_stand < 1e9f);
+}
+
+namespace {
+/// The duck's policy set from the repository (the page fetches the same files).
+void load_duck_policies() {
+  std::string dir = __FILE__;
+  dir = dir.substr(0, dir.find_last_of('/')) + "/../third_party/microduck/";
+  json::Value m;
+  CHECK(json::parse(game::micro_duck_manifest(), m));
+  for (const json::Value& p : m["policies"].items()) {
+    const std::string file = p["file"].as_string();
+    if (game::walker_policy(file)) continue;
+    std::vector<u8> bytes;
+    if (FILE* f = std::fopen((dir + file).c_str(), "rb")) {
+      u8 buf[65536];
+      std::size_t n;
+      while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) bytes.insert(bytes.end(), buf, buf + n);
+      std::fclose(f);
+    }
+    auto pol = std::make_shared<game::WalkerPolicy>();
+    std::string error;
+    CHECK(game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), *pol, &error));
+    pol->file = file;
+    game::register_walker_policy(pol);
+  }
+}
+}  // namespace
+
+TEST(micro_duck_policy_loader_reads_the_onnx_files) {
+  load_duck_policies();
+  CHECK(game::walker_policy_files().size() >= 10);
+  // The loader reads velstand.onnx exactly as the importer did (the built-in copy).
+  std::string dir = __FILE__;
+  dir = dir.substr(0, dir.find_last_of('/')) + "/../third_party/microduck/velstand.onnx";
+  std::vector<u8> bytes;
+  if (FILE* f = std::fopen(dir.c_str(), "rb")) {
+    u8 buf[65536];
+    std::size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) bytes.insert(bytes.end(), buf, buf + n);
+    std::fclose(f);
+  }
+  game::WalkerPolicy p;
+  CHECK(game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), p));
+  f32 obs[61], a[14], b[14];
+  for (int i = 0; i < 61; ++i) obs[i] = 0.01f * static_cast<f32>(i % 7) - 0.02f;
+  p.run(obs, a);
+  game::micro_duck_policy(obs, b);
+  for (int i = 0; i < 14; ++i) CHECK(a[i] == b[i]);
+  CHECK(p.meta("joint_names").rfind("left_hip_yaw", 0) == 0);
+}
+
+TEST(micro_duck_runs_every_move_of_its_set) {
+  // Each move as robotd schedules it: the network named in the manifest drives for its window,
+  // then the walk takes over again; the duck stands at the end.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  struct Case { const char* move; bool rollers; f32 seconds; const char* label; };
+  const Case cases[] = {{"sit", false, 6, "sit"},      {"pick", false, 6, "ground_pick"}, {"kick_left", false, 4, "kick_left"},
+                        {"kick_right", false, 4, "kick_right"}, {"roulade", false, 8, "roulade"}, {"pick", true, 7, "crouch"}};
+  for (const Case& c : cases) {
+    GameFixture f;
+    game::Level l = game::basic_level();
+    for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+    if (std::string(c.move).rfind("kick", 0) == 0) {
+      // As in training: a 70 mm, 15 g ball just in front of the kicking foot (real size, x4 here).
+      game::Actor ball;
+      ball.name = "Ball";
+      ball.transform.position = {0.32f, std::string(c.move) == "kick_left" ? 0.2f : -0.2f, 0.14f};
+      ball.mesh = game::MeshComponent{};
+      ball.mesh->shape = game::Shape::sphere;
+      ball.mesh->radius = 0.14f;
+      ball.body = game::BodyComponent{};
+      ball.body->mass = 0.015f * 64;
+      l.add(ball);
+    }
+    const game::ActorId duck = add_duck(l, {0, 0, 0}, false, c.rollers);
+    f.world->sync(l);
+    CHECK(f.world->start(l, game::SimMode::simulate));
+    for (int i = 0; i < 100; ++i) f.world->step(1.0f / 100, {});
+    const std::string why = f.world->walker_skill(duck, c.move);
+    CHECK(why.empty());
+    bool saw = false;
+    f32 min_up = 1, worst = -1;
+    Mat4 m;
+    std::string sit_answer;
+    for (int i = 0; i < static_cast<int>(c.seconds * 100); ++i) {
+      f.world->step(1.0f / 100, {});
+      saw = saw || f.world->walker_driving(duck) == c.label;
+      for (const auto& j : f.world->walker_joints(duck))
+        worst = max_of(worst, max_of(j.angle - j.upper, j.lower - j.angle));
+      f.world->actor_matrix(duck, m);
+      min_up = min_of(min_up, m.m[10]);
+      if (std::string(c.move) == "sit" && i == 500) sit_answer = f.world->walker_skill(duck, "sit");  // stand up again
+    }
+    for (int i = 0; i < 600; ++i) {  // 3 s real: time to get up, if it fell
+      f.world->step(1.0f / 100, {});
+      if (print && i % 50 == 0) { f.world->actor_matrix(duck, m); std::printf("    t+%.1f up %.2f z %.2f %s\n", i / 100.0, m.m[10], m.translation().z, f.world->walker_state(duck).c_str()); }
+    }
+    f.world->actor_matrix(duck, m);
+    for (const game::Actor& a : l.actors)
+      if (a.name == "Ball" && print) { Mat4 bm; f.world->actor_matrix(a.id, bm); std::printf("  ball at %.2f %.2f %.2f, duck at %.2f %.2f %.2f\n", bm.translation().x, bm.translation().y, bm.translation().z, m.translation().x, m.translation().y, m.translation().z); }
+    if (print) std::printf("%s%s: drove %d, min up %.2f, end up %.2f, driving %s %s\n", c.move, c.rollers ? " (rollers)" : "", saw, min_up, m.m[10],
+                           f.world->walker_driving(duck).c_str(), sit_answer.c_str());
+    if (print) std::printf("  worst joint overshoot %.4f rad\n", worst);
+    CHECK(worst < 0.02f);  // no joint leaves its range (Box3D's limit, its slop)
+    CHECK(saw);
+    CHECK(f.world->walker_driving(duck) == "walk");
+    CHECK(m.m[10] > 0.5f);  // on its feet (a hard kick can leave it leaning a while)
+  }
 }
 
 TEST(micro_duck_roams_on_its_own_with_its_tof) {

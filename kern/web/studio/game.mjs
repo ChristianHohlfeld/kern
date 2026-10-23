@@ -63,6 +63,31 @@ export class StudioEngine {
       this.e.kern_free(ptr);
     }
   }
+  /** Loads the robot's policy set (microduck/<file>.onnx next to the page; the dev page reads the
+   *  repository's copy). Once; a missing file leaves that move unavailable. */
+  async loadPolicies(bases = ["microduck/", "../../third_party/microduck/"]) {
+    if (this.policiesLoading) return this.policiesLoading;
+    const files = this.result(this.e.kern_studio_pending_policies()) || [];
+    this.policiesLoading = Promise.all(files.map(async file => {
+      for (const base of bases) {
+        try {
+          const r = await fetch(base + file);
+          if (!r.ok) continue;
+          const bytes = new Uint8Array(await r.arrayBuffer());
+          const ptr = this.e.kern_alloc(Math.max(4, bytes.length));
+          try {
+            this.kern.u8.set(bytes, ptr);
+            if (this.withStrings([file], (p, n) => this.e.kern_studio_load_policy(p, n, ptr, bytes.length)) === 1) return true;
+          } finally {
+            this.e.kern_free(ptr);
+          }
+        } catch { /* next base */ }
+      }
+      console.warn("Kern: robot policy " + file + " not found");
+      return false;
+    }));
+    return this.policiesLoading;
+  }
   /** Decodes the level's texture images (data URLs) into RGBA for the engine. */
   pollTextures(maxSide = 2048) {
     this.decoding ??= new Set();
@@ -770,6 +795,7 @@ export async function startGame({levelText = null, template = null, bytes = null
   if (!engine.init(canvas.width, canvas.height, true)) throw Error(kern.lastError());
   const audio = startAudio(engine);
   const opened = template ? engine.command({cmd: "new", template}) : engine.command({cmd: "open", text: levelText, name: "game.klevel"});
+  engine.loadPolicies().catch(() => {});
   if (!opened?.ok) throw Error(engine.state()?.statusText || "the level could not be loaded");
   const params = new URLSearchParams(location.search);
   const online = params.get("host") ?? params.get("join");

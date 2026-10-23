@@ -77,6 +77,7 @@ std::vector<BodyPlan> plan_bodies(const Level& level);
 struct PlayInput {
   f32 move_x = 0, move_y = 0, up = 0;  // -1..1 (right, forward, up)
   bool jump = false, boost = false;
+  u32 robot = 0;                       // robot moves held (walker): 1 sit/stand, 2 pick, 4 kick left, 8 kick right, 16 roulade, 32 beak
   f32 look_x = 0, look_y = 0;          // camera orbit in degrees since the last frame
   f32 zoom = 0;                        // camera distance change (wheel)
   // Remote players: the direction their camera looks (degrees) for camera-relative movement.
@@ -345,6 +346,17 @@ class GameWorld {
   /// Autonomy on / off (on: it roams on its own whenever nobody drives it).
   bool walker_set_autonomous(ActorId id, bool on);
   bool walker_quack(ActorId id);
+  /// One of the robot's moves, as its daemon schedules them (robotd control.rs): "sit" (toggles
+  /// sit / stand), "pick" (ground pick; the crouch on rollers), "kick_left", "kick_right",
+  /// "roulade" (asked again while it runs, it rolls on). Returns "" when it started, else why not.
+  std::string walker_skill(ActorId id, std::string_view skill);
+  /// Opens (1) or closes (0) the beak.
+  bool walker_mouth(ActorId id, f32 open);
+  /// The network driving the robot now: "walk", "stand", "sit", "rise", "ground_pick", a skill.
+  std::string walker_driving(ActorId id) const;
+  /// Its servo joints now (radians, the MJCF angle) with their ranges: the policy's 14, the mouth.
+  struct WalkerJoint { std::string name; f32 angle = 0, lower = 0, upper = 0; };
+  std::vector<WalkerJoint> walker_joints(ActorId id) const;
   /// Head camera of walker `id`: is `target` in its picture with nothing in between?
   bool walker_sees(ActorId id, ActorId target, bool& visible, f32& bearing, f32& distance) const;
   /// The current behaviour of walker `id` ("Wander", "Chill"... "" = none).
@@ -377,6 +389,7 @@ class GameWorld {
   void drive_walkers(f32 h);
   void sense_walker(WalkerBrain& w);
   void think_walker(WalkerBrain& w, f32 dt);  // the autonomous behaviour (walker_brain.cpp)
+  void run_controller(WalkerBrain& w, f32 obs[61]);  // robotd's controller: network, scale, low-pass
   void idle_walker(WalkerBrain& w, bool still, f32 dt, f32 head[4]);  // the idle look-around (walker_brain.cpp)
   WalkerBrain* walker_brain(ActorId id) const;
   void drive_servos(f32 dt);

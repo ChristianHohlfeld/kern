@@ -56,7 +56,7 @@ self.addEventListener("fetch", event => {
     return;
   }
   if (req.mode === "navigate") { event.respondWith(pageFirst(req)); return; }
-  if (/\.(png|webmanifest)$/.test(url.pathname)) event.respondWith(staleWhileRevalidate(req));
+  if (/\.(png|webmanifest|onnx)$/.test(url.pathname)) event.respondWith(staleWhileRevalidate(req));
 });
 
 self.addEventListener("message", event => { if (event.data === "skip-waiting") self.skipWaiting(); });

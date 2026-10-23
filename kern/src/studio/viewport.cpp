@@ -159,6 +159,11 @@ game::PlayInput Studio::play_input() const {
   in.reload = held("KeyR") || touch_.reload;
   in.crouch = held("KeyC") || held("ControlLeft") || touch_.crouch;
   in.interact = held("KeyF") || touch_.interact;
+  // Robot moves (walker): 1 sit / stand, 2 pick, 3 kick left, 4 kick right, 5 roll (hold), 6 beak.
+  for (u32 k = 0; k < 6; ++k) {
+    const char code[] = {'D', 'i', 'g', 'i', 't', static_cast<char>('1' + k), 0};
+    if (held(code)) in.robot |= 1u << k;
+  }
   // Engine touch controls (sticks, look drag, buttons; see game/touch.h).
   const game::PlayInput& t = touch_ctl_in_;
   in.move_x = clamp(in.move_x + t.move_x, -1.0f, 1.0f);
@@ -171,6 +176,7 @@ game::PlayInput Studio::play_input() const {
   in.reload = in.reload || t.reload;
   in.crouch = in.crouch || t.crouch;
   in.interact = in.interact || t.interact;
+  in.robot |= t.robot;
   in.look_x += t.look_x * prefs_.mouse_sensitivity;
   in.look_y += t.look_y * prefs_.mouse_sensitivity * (prefs_.invert_y ? -1.0f : 1.0f);
   in.look_x += touch_look_x_ * prefs_.mouse_sensitivity;
@@ -199,6 +205,12 @@ game::PlayInput Studio::play_input() const {
     in.reload = in.reload || pad_.reload;
     in.interact = in.interact || pad_.interact;
     in.boost = in.boost || pad_.boost;
+    // Robot moves on a pad: crouch (B) sits / stands, use (X) picks, the triggers kick, reload (Y) rolls.
+    if (pad_.crouch) in.robot |= 1;
+    if (pad_.interact) in.robot |= 2;
+    if (pad_.aim) in.robot |= 4;
+    if (pad_.fire) in.robot |= 8;
+    if (pad_.reload) in.robot |= 16;
     in.up = clamp(in.up + pad_.up, -1.0f, 1.0f);
   }
   return in;

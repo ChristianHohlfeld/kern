@@ -442,6 +442,11 @@ json::Value actor_to_json(const Actor& a) {
       x.set("size", vec(k.size));
       x.set("radius", num(k.radius));
       x.set("length", num(k.length));
+      if (!k.points.empty()) {
+        json::Value pts = json::Value::array();
+        for (const Vec3& p : k.points) pts.push(vec(p));
+        x.set("points", std::move(pts));
+      }
       x.set("density", num(k.density));
       x.set("friction", num(k.friction));
       x.set("restitution", num(k.restitution));
@@ -492,7 +497,11 @@ json::Value actor_to_json(const Actor& a) {
     const ControllerComponent& k = *a.controller;
     json::Value x = json::Value::object();
     x.set("mode", control_mode_name(k.mode));
-    if (k.mode == ControlMode::walker) x.set("autonomous", k.autonomous);
+    if (k.mode == ControlMode::walker) {
+      x.set("autonomous", k.autonomous);
+      x.set("gait", k.gait);
+      if (k.rollers) x.set("rollers", true);
+    }
     x.set("maxSpeed", num(k.max_speed));
     x.set("acceleration", num(k.acceleration));
     x.set("turnRate", num(k.turn_rate));
@@ -696,6 +705,11 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
         kr.vector("size", k.size);
         kr.number("radius", k.radius, 0.001, 1e5);
         kr.number("length", k.length, 0, 1e5);
+        if (const json::Value* pts = x.find("points"); pts && pts->is_array())
+          for (const json::Value& q : pts->items()) {
+            Vec3 p;
+            if (q.is_array() && q.size() == 3) { p = {static_cast<f32>(q[0].as_number()), static_cast<f32>(q[1].as_number()), static_cast<f32>(q[2].as_number())}; k.points.push_back(p); }
+          }
         kr.number("density", k.density, 0, 1e6);
         kr.number("friction", k.friction, 0, 10);
         kr.number("restitution", k.restitution, 0, 1);
@@ -743,6 +757,9 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       Reader kr{*x, error};
       kr.enumeration("mode", kControlNames, k.mode);
       kr.boolean("autonomous", k.autonomous);
+      kr.string("gait", k.gait);
+      if (k.gait != "velstand" && k.gait != "alpha") k.gait = "velstand";
+      kr.boolean("rollers", k.rollers);
       kr.number("maxSpeed", k.max_speed, 0, 1000);
       kr.number("acceleration", k.acceleration, 0, 1000);
       kr.number("turnRate", k.turn_rate, 0, 3600);

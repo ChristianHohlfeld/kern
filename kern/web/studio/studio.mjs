@@ -137,6 +137,7 @@ export async function startStudio({url = null, base64 = null, bytes = null} = {}
   const page = new StudioPage(kern, engine, () => base64 ?? toBase64(bytes));
   page.start();
   window.KernStudio = page.api();
+  engine.loadPolicies().catch(() => {});  // the robot's moves (sit, pick, kicks, roll, rollers)
   return page;
 }
 

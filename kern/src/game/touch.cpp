@@ -165,7 +165,14 @@ void TouchControls::layout() {
       upper.push_back(make_button("interact", "USE", 54, blue));
       break;
     case ControlMode::walker:
+      // The robot's moves (robotd's skills): one tap starts one; ROLL held keeps rolling.
       low.push_back(make_button("jump", "QUACK", 64, amber));
+      low.push_back(make_button("robot_pick", "PICK", 56, green));
+      upper.push_back(make_button("robot_sit", "SIT", 50, dark));
+      upper.push_back(make_button("robot_kick_left", "KICK L", 54, blue));
+      upper.push_back(make_button("robot_kick_right", "KICK R", 54, blue));
+      upper.push_back(make_button("robot_roll", "ROLL", 50, dark));
+      upper.push_back(make_button("robot_beak", "BEAK", 50, amber));
       break;
     case ControlMode::character:
       if (jump_) low.push_back(make_button("jump", "JUMP", 64, dark));
@@ -403,6 +410,8 @@ void TouchControls::update(f32 dt, PlayInput& in, f32 vfov_deg) {
   in.aim = aim_on_;
   in.crouch = crouch_on_;
   in.fire = view_.fire;
+  in.robot = (held("robot_sit") ? 1u : 0u) | (held("robot_pick") ? 2u : 0u) | (held("robot_kick_left") ? 4u : 0u) |
+             (held("robot_kick_right") ? 8u : 0u) | (held("robot_roll") ? 16u : 0u) | (held("robot_beak") ? 32u : 0u);
 }
 
 }  // namespace kern::game

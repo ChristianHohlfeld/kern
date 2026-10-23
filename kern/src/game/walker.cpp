@@ -15,6 +15,8 @@
 
 #include "kern/game/runtime.h"
 #include "kern/game/walker.h"
+#include "kern/game/walker_policy.h"
+#include "kern/core/json.h"
 #include "runtime_internal.h"
 
 namespace kern::game {
@@ -33,13 +35,24 @@ struct DuckLinkDef {
   Vec3 com;              // centre of mass relative to pos (world axes)
   f32 inertia[6];        // about the centre of mass, world axes: xx yy zz xy xz yz
 };
-struct DuckBoxDef {
+struct DuckHullDef {
   i32 link;
-  Vec3 center;           // relative to the link's pos (world axes)
-  Vec3 rotation;         // Euler degrees
-  Vec3 size;
-  bool sole;
   f32 friction;          // soles 1, housings 0 (training), the beak's pads 1
+  bool sole;
+  i32 first, count;      // points in kDuckHullPoints (x, y, z), relative to the link's pos (world axes)
+};
+
+struct DuckRollerDef {
+  const char* body;      // MJCF body (the ankle with its blade) or the wheel's joint
+  const char* joint;     // "" for an ankle replacement, else the free wheel's joint
+  i32 ankle;             // the ankle link (kDuckLinks index) it replaces / hangs off
+  i32 kind;              // -1 ankle replacement, 0 wheel
+  Vec3 pos;              // wheel: its joint relative to the ankle's pos (world axes, home pose)
+  Vec3 axis;             // wheel: its axle
+  f32 mass;
+  Vec3 com;              // relative to its pos (world axes)
+  f32 inertia[6];
+  i32 first, count;      // wheel: its tyre's hull in kDuckRollerHullPoints
 };
 
 struct DuckSiteDef {
@@ -72,6 +85,7 @@ constexpr f32 kServoDamping = 0.053f;     // N*m*s/rad
 constexpr f32 kServoFriction = 0.0048f;   // N*m
 constexpr f32 kServoTorque = 0.963f;     // N*m
 constexpr f32 kArmature = 0.0018f;       // kg*m^2: rotor inertia through the gearbox (MJCF chosen_actuator)
+constexpr f32 kWheelArmature = 0.0001f;  // kg*m^2: a roller wheel's bearing (MJCF passive_joint)
 
 // Timing in real (unscaled) seconds; Kern's simulation runs sqrt(S) slower.
 constexpr f32 kControlPeriod = 0.02f;     // the policy runs at 50 Hz
@@ -117,7 +131,10 @@ std::vector<Actor> scaled(std::vector<Actor> v) {
   for (Actor& a : v) {
     a.transform.position = a.transform.position * s;
     if (a.mesh) { a.mesh->size = a.mesh->size * s; a.mesh->radius *= s; a.mesh->height *= s; }
-    for (ColliderComponent& c : a.colliders) { c.center = c.center * s; c.size = c.size * s; c.radius *= s; c.length *= s; }
+    for (ColliderComponent& c : a.colliders) {
+      c.center = c.center * s; c.size = c.size * s; c.radius *= s; c.length *= s;
+      for (Vec3& p : c.points) p = p * s;
+    }
     if (a.body) {
       a.body->mass *= s3;
       a.body->center_of_mass = a.body->center_of_mass * s;
@@ -140,19 +157,26 @@ std::vector<Actor> scaled(std::vector<Actor> v) {
 
 }  // namespace
 
-std::vector<Actor> micro_duck_actors() {
+std::vector<Actor> micro_duck_actors(bool rollers) {
   std::vector<Actor> out;  // parent / joint target = index + 1 (the catalog's convention)
   const Vec3 root = kDuckLinks[0].pos;
+  auto roller_ankle = [&](i32 link) -> const DuckRollerDef* {
+    if (!rollers) return nullptr;
+    for (const DuckRollerDef& r : kDuckRollers)
+      if (r.kind < 0 && r.ankle == link) return &r;
+    return nullptr;
+  };
   for (i32 i = 0; i < kLinkCount; ++i) {
     const DuckLinkDef& l = kDuckLinks[i];
+    const DuckRollerDef* blade = roller_ankle(i);  // on rollers the ankle carries the blade
     Actor a;
     a.name = i == 0 ? "Micro Duck" : l.joint;  // links are named after their servo joint
-    a.transform.position = i == 0 ? l.pos : l.pos - root;
+    a.transform.position = i == 0 ? l.pos + Vec3{0, 0, rollers ? kDuckRollerRaise : 0.0f} : l.pos - root;
     a.parent = i == 0 ? 0 : 1;  // the links are children of the trunk in the outliner
     a.body = BodyComponent{};
-    a.body->mass = l.mass;
-    a.body->center_of_mass = l.com;
-    std::memcpy(a.body->inertia, l.inertia, sizeof l.inertia);
+    a.body->mass = blade ? blade->mass : l.mass;
+    a.body->center_of_mass = blade ? blade->com : l.com;
+    std::memcpy(a.body->inertia, blade ? blade->inertia : l.inertia, sizeof l.inertia);
     if (i > 0 && kArmature > 0) {
       // The servo's rotor (armature): MuJoCo adds it to the joint's diagonal; here it is a thin
       // disc on the joint axis that the link carries: kArmature about the axis, half of it across
@@ -200,7 +224,7 @@ std::vector<Actor> micro_duck_actors() {
     // mesh "duck/<MJCF body>", vertex colours from the MJCF materials).
     a.mesh = MeshComponent{};
     a.mesh->shape = Shape::mesh;
-    a.mesh->asset = std::string("duck/") + l.body;
+    a.mesh->asset = blade ? std::string("duck/roller/") + blade->body : std::string("duck/") + l.body;
     a.mesh->size = {1, 1, 1};
     a.mesh->collision = false;
     a.mesh->material.color = {1, 1, 1};
@@ -208,14 +232,15 @@ std::vector<Actor> micro_duck_actors() {
     // What collides: the soles (friction 1) and the XL330 housings (frictionless) as in training,
     // the beak's soft pads (what grips), and the trunk's and head's shells (they enclose the
     // servos: what a fallen duck lies and slides on).
-    for (const DuckBoxDef& b : kDuckBoxes) {
-      if (b.link != i) continue;
+    for (const DuckHullDef& h : kDuckHulls) {
+      if (h.link != i || (blade && h.sole)) continue;  // the blade has no sole: its wheels touch
       ColliderComponent c;
-      c.shape = ColliderShape::box;
-      c.center = b.center;
-      c.rotation = b.rotation;
-      c.size = b.size;
-      c.friction = b.friction;
+      c.shape = ColliderShape::hull;  // MuJoCo collides a mesh geom as its convex hull
+      for (i32 k = 0; k < h.count; ++k) {
+        const f32* p = kDuckHullPoints + 3 * (h.first + k);
+        c.points.push_back({p[0], p[1], p[2]});
+      }
+      c.friction = h.friction;
       a.colliders.push_back(c);
     }
     for (const char* shell : kDuckShellBodies)
@@ -234,6 +259,48 @@ std::vector<Actor> micro_duck_actors() {
         }
       }
     out.push_back(std::move(a));
+  }
+  if (rollers) {
+    // The four free wheels (rollers model): a hinge with nothing driving it (bearing armature
+    // 0.0001 kg m^2), the tyre's hull touching the floor (MuJoCo default friction 1).
+    for (const DuckRollerDef& r : kDuckRollers) {
+      if (r.kind != 0) continue;
+      Actor wa;
+      wa.name = r.joint;
+      wa.transform.position = kDuckLinks[r.ankle].pos + r.pos - root;
+      wa.parent = 1;
+      wa.body = BodyComponent{};
+      wa.body->mass = r.mass;
+      wa.body->center_of_mass = r.com;
+      std::memcpy(wa.body->inertia, r.inertia, sizeof r.inertia);
+      const Vec3 ax = r.axis;
+      const f32 add[6] = {1 + ax.x * ax.x, 1 + ax.y * ax.y, 1 + ax.z * ax.z, ax.x * ax.y, ax.x * ax.z, ax.y * ax.z};
+      for (int k = 0; k < 6; ++k) wa.body->inertia[k] += 0.5f * kWheelArmature * add[k];
+      wa.body->allow_sleep = false;
+      wa.body->angular_damping = 0;
+      wa.body->impact_sound = "";
+      wa.mesh = MeshComponent{};
+      wa.mesh->shape = Shape::mesh;
+      wa.mesh->asset = std::string("duck/roller/") + r.joint;
+      wa.mesh->collision = false;
+      wa.mesh->material.roughness = .6f;
+      JointComponent j;
+      j.kind = JointKind::hinge;
+      j.target = static_cast<ActorId>(r.ankle + 1);
+      j.axis = r.axis;
+      wa.joints.push_back(j);
+      ColliderComponent c;
+      c.shape = ColliderShape::hull;
+      for (i32 k = 0; k < r.count; ++k) {
+        const f32* p = kDuckRollerHullPoints + 3 * (r.first + k);
+        c.points.push_back({p[0], p[1], p[2]});
+      }
+      c.friction = 1.0f;
+      wa.colliders.push_back(c);
+      out.push_back(std::move(wa));
+    }
+    out[0].controller->rollers = true;
+    out[0].name = "Micro Duck (Rollers)";
   }
   return scaled(std::move(out));
 }
@@ -263,6 +330,169 @@ void micro_duck_policy(const f32 observation[61], f32 action[14]) {
     std::swap(in, out);
   }
   for (int i = 0; i < 14; ++i) action[i] = in[i];
+}
+
+WalkerPolicy builtin_velstand_policy() {
+  WalkerPolicy p;
+  p.file = "velstand.onnx";
+  p.dims.assign(std::begin(kVelstandDims), std::end(kVelstandDims));
+  p.mean.assign(std::begin(kVelstandMean), std::end(kVelstandMean));
+  p.div.assign(std::begin(kVelstandDiv), std::end(kVelstandDiv));
+  p.weights = {{std::begin(kVelstandW0), std::end(kVelstandW0)}, {std::begin(kVelstandW1), std::end(kVelstandW1)},
+               {std::begin(kVelstandW2), std::end(kVelstandW2)}, {std::begin(kVelstandW3), std::end(kVelstandW3)}};
+  p.biases = {{std::begin(kVelstandB0), std::end(kVelstandB0)}, {std::begin(kVelstandB1), std::end(kVelstandB1)},
+              {std::begin(kVelstandB2), std::end(kVelstandB2)}, {std::begin(kVelstandB3), std::end(kVelstandB3)}};
+  return p;
+}
+
+namespace {
+
+// ---------------------------------------------------------------------------
+// the robot's policy set and its daemon's controller (pollen-robotics/microduck robotd/src/control.rs,
+// robotd-params): which network drives, with which command, at which action scale
+
+// Action scale and target filter. robotd runs the real robot at 0.9 (0.8 on rollers) with a first-
+// order low-pass on the targets (head 0.5, legs 0.7): sim-to-real tuning for the hardware. Kern
+// simulates the training physics, so it runs each network as it was trained (mjlab
+// JointPositionAction scale 1, no filter) and keeps the set's own action_scale (roller, crouch:
+// 0.8). Measured: the kicks fall over at 0.9 + low-pass and stand at 1.0 without it.
+constexpr f32 kActionScaleWalk = 1.0f, kActionScaleRoller = 0.8f;
+constexpr f32 kStandingActionScale = 1.0f;
+constexpr f32 kHeadLowpass = 1.0f, kLegsLowpass = 1.0f;            // 1 = pass-through
+constexpr f32 kStandingThreshold = 0.05f;                          // DEFAULT_STANDING_THRESHOLD (twist)
+constexpr f32 kChainWindow = 0.15f;                                // CHAIN_WINDOW
+constexpr f32 kPickClose = 0.42f;                                  // Kern: the beak shuts here (phase)
+
+struct SkillDef {
+  std::string name, file;
+  f32 duration = 0;
+  bool chain = false;
+  f32 command[3] = {0, 0, 0}, unwind[3] = {0, 0, 0};
+  f32 unwind_s = 0;
+  f32 action_scale = -1;  // < 0: the gait's
+};
+struct PhaseDef {
+  std::string file;
+  f32 period = 4, end_phase = 0.7f, action_scale = 1;
+};
+struct PolicySet {
+  std::vector<SkillDef> skills;   // episodic, constant command, in the manifest's order (priority)
+  PhaseDef pick, crouch;          // phase-encoded: the ground pick, and the crouch on rollers
+  std::string sitstand = "alpha_sitstand.onnx";
+  f32 ramp_s = 2, rise_s = 1;     // DEFAULT_SITSTAND_RAMP_S / RISE_S, or the set's
+};
+
+const PolicySet& policy_set() {
+  static const PolicySet set = [] {
+    PolicySet out;
+    out.pick = {"alpha_ground_pick.onnx", 4, 0.7f, 1.0f};
+    out.crouch = {"roller_crouch.onnx", 3, 0.7f, 0.8f};
+    json::Value m;
+    if (!json::parse(micro_duck_manifest(), m)) return out;
+    for (const json::Value& p : m["policies"].items()) {
+      const std::string file = p["file"].as_string(), kind = p["kind"].as_string(), mode = p["mode"].as_string();
+      const json::Value& cmd = p["command"];
+      std::string name = p["name"].is_string() ? p["name"].as_string() : file.substr(0, file.rfind('.'));
+      if (kind == "scripted" && cmd["encoding"].as_string() == "posture_flag") {
+        out.sitstand = file;
+        if (p["ramp_s"].is_number()) out.ramp_s = static_cast<f32>(p["ramp_s"].as_number());
+        if (p["unwind_s"].is_number()) out.rise_s = static_cast<f32>(p["unwind_s"].as_number());
+      } else if (kind == "episodic" && cmd["encoding"].as_string() == "phase") {
+        PhaseDef d{file, static_cast<f32>(cmd["period_s"].as_number(4)), static_cast<f32>(cmd["end_phase"].as_number(0.7)),
+                   static_cast<f32>(p["action_scale"].as_number(mode == "roller" ? 0.8 : 1.0))};
+        (mode == "roller" ? out.crouch : out.pick) = d;
+      } else if (kind == "episodic" && p["duration_s"].is_number()) {
+        SkillDef d;
+        d.name = name;
+        d.file = file;
+        d.duration = static_cast<f32>(p["duration_s"].as_number());
+        d.chain = p["chain"].as_bool();
+        if (p["action_scale"].is_number()) d.action_scale = static_cast<f32>(p["action_scale"].as_number());
+        out.skills.push_back(std::move(d));
+      }
+    }
+    return out;
+  }();
+  return set;
+}
+
+i32 skill_index(std::string_view name) {
+  const PolicySet& set = policy_set();
+  for (std::size_t i = 0; i < set.skills.size(); ++i)
+    if (set.skills[i].name == name) return static_cast<i32>(i);
+  return -1;
+}
+
+template <class W>
+const char* move_blocked(const W& w) {
+  using Sit = decltype(w.sit);
+  if (w.pick_phase >= 0) return "a ground pick is running";
+  if (w.skill >= 0) return "a scripted move is already running";
+  if (w.sit == Sit::sitting) return "the robot is sitting - stand it up first";
+  if (w.sit == Sit::rising) return "the robot is standing up";
+  return nullptr;
+}
+
+}  // namespace
+
+std::string GameWorld::walker_skill(ActorId id, std::string_view name) {
+  WalkerBrain* w = walker_brain(id);
+  if (!w) return "no such robot";
+  using Sit = WalkerBrain::Sit;
+  const PolicySet& set = policy_set();
+  if (name == "sit") {  // Controller::sit_toggle
+    if (w->pick_phase >= 0) return "a ground pick is running";
+    if (w->skill >= 0) return "a scripted move is already running";
+    if (!walker_policy(set.sitstand)) return set.sitstand + " is not loaded";
+    if (w->sit == Sit::up) { w->sit = Sit::sitting; w->sit_settle = set.ramp_s; return ""; }
+    if (w->sit == Sit::sitting && w->sit_settle > 0) return "still sitting down";
+    if (w->sit == Sit::sitting) { w->sit = Sit::rising; w->sit_remaining = set.rise_s; return ""; }
+    return "already standing up";
+  }
+  if (name == "pick" || name == "ground_pick" || name == "crouch") {  // Controller::start_ground_pick
+    const PhaseDef& d = w->rollers ? set.crouch : set.pick;
+    if (!walker_policy(d.file)) return d.file + " is not loaded";
+    if (const char* why = move_blocked(*w)) return why;
+    w->pick_phase = 0;
+    if (!w->rollers) w->mouth_open = 1;  // the beak opens on the way down and shuts at the bottom
+    return "";
+  }
+  const i32 index = skill_index(name);  // Controller::start_skill
+  if (index < 0) return "no such move";
+  const SkillDef& d = set.skills[static_cast<std::size_t>(index)];
+  if (!walker_policy(d.file)) return d.file + " is not loaded";
+  if (w->skill == index && d.chain && !w->skill_unwinding) { w->skill_chain = kChainWindow; return ""; }
+  if (const char* why = move_blocked(*w)) return why;
+  w->skill = index;
+  w->skill_unwinding = false;
+  w->skill_remaining = d.duration;
+  w->skill_chain = 0;
+  return "";
+}
+
+bool GameWorld::walker_mouth(ActorId id, f32 open) {
+  bool any = false;
+  for (auto& w : walkers_)
+    if (!id || w->actor == id) { w->mouth_open = clamp(open, 0.0f, 1.0f); any = true; }
+  return any;
+}
+
+std::vector<GameWorld::WalkerJoint> GameWorld::walker_joints(ActorId id) const {
+  std::vector<WalkerJoint> out;
+  const WalkerBrain* w = walker_brain(id);
+  if (!w) return out;
+  for (i32 j = 0; j <= kJoints; ++j) {
+    const SimJoint* sj = j < kJoints ? w->joint[j] : w->mouth;
+    if (!sj) continue;
+    const DuckLinkDef& l = kDuckLinks[j + 1];
+    out.push_back({l.joint, physics_.joint_angle(sj->joint), l.lower, l.upper});
+  }
+  return out;
+}
+
+std::string GameWorld::walker_driving(ActorId id) const {
+  const WalkerBrain* w = walker_brain(id);
+  return w ? w->driving : std::string();
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +527,8 @@ void GameWorld::create_walkers() {
     }
     const f32 hz = clamp(level_.world.step_hz, 15.0f, 480.0f), slow = std::sqrt(kDuckScale);
     w->autonomous = a.controller->autonomous;
+    w->rollers = a.controller->rollers;
+    w->alpha_gait = a.controller->gait == "alpha";
     w->decimation = max_of(1, static_cast<i32>(std::lround(kControlPeriod * slow * hz)));
     w->delay = max_of(0, static_cast<i32>(std::lround(kActuatorDelay * slow * hz)));
     if (std::fabs(static_cast<f32>(w->decimation) / hz - kControlPeriod * slow) > 1e-4f)
@@ -446,10 +678,13 @@ void GameWorld::sense_walker(WalkerBrain& w) {
   const Vec3 ax = head.rotation.rotate(tof->x), ay = head.rotation.rotate(tof->y), az = head.rotation.rotate(tof->z);
   // The floor under the robot: the lower of its two soles.
   f32 ground = 1e9f;
-  for (const DuckBoxDef& b : kDuckBoxes) {
-    if (!b.sole || !w.joint[b.link - 1]) continue;
-    const physics::Pose fp = physics_.pose(w.joint[b.link - 1]->b);
-    ground = min_of(ground, (fp.position + fp.rotation.rotate(b.center * S)).z - b.size.z * S * 0.5f);
+  for (const DuckHullDef& h : kDuckHulls) {
+    if (!h.sole || !w.joint[h.link - 1]) continue;
+    const physics::Pose fp = physics_.pose(w.joint[h.link - 1]->b);
+    for (i32 k = 0; k < h.count; ++k) {
+      const f32* p = kDuckHullPoints + 3 * (h.first + k);
+      ground = min_of(ground, (fp.position + fp.rotation.rotate(Vec3{p[0], p[1], p[2]} * S)).z);
+    }
   }
   const f32 above_floor = origin.z - ground;
   const f32 half = kTofFov / 2 - kTofFov / kTofSide / 2, step = 2 * half / (kTofSide - 1);
@@ -501,6 +736,98 @@ void GameWorld::drive_walker(const PlayInput& in, f32 dt) {
   }
 }
 
+/// robotd's Controller::step after the observation is built: expire the windows, pick the network
+/// and re-encode the command for it, infer, scale, low-pass (control.rs, in that order).
+void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
+  using Sit = WalkerBrain::Sit;
+  const PolicySet& set = policy_set();
+  // Windows first: a tick after a deadline runs the next thing.
+  if (w.skill >= 0 && w.skill_remaining <= 0) {
+    const SkillDef& d = set.skills[static_cast<std::size_t>(w.skill)];
+    if (!w.skill_unwinding && d.unwind_s > 0) {
+      w.skill_unwinding = true;
+      w.skill_remaining = d.unwind_s;
+    } else if (!w.skill_unwinding && d.chain && w.skill_chain > 0) {
+      w.skill_remaining = d.duration;  // the button still held: another one
+      w.skill_chain = 0;
+    } else {
+      w.skill = -1;
+    }
+  }
+  if (w.sit == Sit::rising && w.sit_remaining <= 0) w.sit = Sit::up;
+  // The command each network is trained on, and which network drives.
+  std::shared_ptr<const WalkerPolicy> net;
+  f32 scale = w.rollers ? kActionScaleRoller : kActionScaleWalk;
+  const f32 twist = std::sqrt(obs[48] * obs[48] + obs[49] * obs[49] + obs[50] * obs[50]);
+  if (w.skill >= 0) {
+    const SkillDef& d = set.skills[static_cast<std::size_t>(w.skill)];
+    const f32* c = w.skill_unwinding ? d.unwind : d.command;
+    for (int i = 0; i < 3; ++i) obs[48 + i] = c[i];
+    for (int i = 51; i < 61; ++i) obs[i] = 0;  // head and body zero-padded, as trained
+    net = walker_policy(d.file);
+    if (d.action_scale >= 0) scale = d.action_scale;
+    w.driving = w.skill_unwinding ? d.name + ":unwind" : d.name;
+  } else if (w.pick_phase >= 0) {
+    const PhaseDef& d = w.rollers ? set.crouch : set.pick;
+    const f32 a = 2 * 3.14159265f * w.pick_phase;
+    obs[48] = std::cos(a);
+    obs[49] = std::sin(a);
+    obs[50] = 0;
+    for (int i = 51; i < 61; ++i) obs[i] = 0;
+    net = walker_policy(d.file);
+    scale = d.action_scale;
+    w.driving = w.rollers ? "crouch" : "ground_pick";
+  } else if (w.sit != Sit::up) {
+    // The posture flag rides the twist vx slot: 1 sit, 0 stand; head and body stay live.
+    obs[48] = w.sit == Sit::sitting ? 1.0f : 0.0f;
+    obs[49] = obs[50] = 0;
+    net = walker_policy(set.sitstand);
+    scale = 1.0f;  // the sit/rise cycle runs at scale 1
+    w.driving = w.sit == Sit::sitting ? "sit" : "rise";
+  } else if (w.rollers) {
+    net = walker_policy("roller.onnx");
+    w.driving = "walk";
+  } else if (w.alpha_gait && twist <= kStandingThreshold && walker_policy("alpha_stand.onnx")) {
+    net = walker_policy("alpha_stand.onnx");
+    scale = kStandingActionScale;
+    w.driving = "stand";
+  } else {
+    net = walker_policy(w.alpha_gait ? "alpha_walking.onnx" : "velstand.onnx");
+    w.driving = "walk";
+  }
+  if (!net) {  // the set is still loading (the page fetches it): walk meanwhile
+    net = walker_policy("velstand.onnx");
+    scale = kActionScaleWalk;
+    w.driving = "walk";
+  }
+  net->run(obs, w.action);
+  for (i32 j = 0; j < kJoints; ++j) {
+    const f32 a = std::isfinite(w.action[j]) ? w.action[j] : 0.0f;
+    w.action[j] = a;  // raw: the observation feeds the policy its own output back
+    f32 t = kDuckLinks[j + 1].home + scale * a;
+    if (w.has_previous) {
+      const f32 alpha = j >= 5 && j < 9 ? kHeadLowpass : kLegsLowpass;
+      t = alpha * t + (1 - alpha) * w.previous_target[j];
+    }
+    w.previous_target[j] = w.target[j] = t;
+  }
+  w.has_previous = true;
+  // Advance the windows after the tick that used them.
+  if (w.pick_phase >= 0) {
+    const PhaseDef& d = w.rollers ? set.crouch : set.pick;
+    const f32 before = w.pick_phase;
+    w.pick_phase += kControlPeriod / d.period;
+    if (!w.rollers && before < kPickClose && w.pick_phase >= kPickClose) w.mouth_open = 0;  // bite
+    if (w.pick_phase >= d.end_phase) w.pick_phase = -1;
+  }
+  if (w.skill >= 0) {
+    w.skill_remaining -= kControlPeriod;
+    w.skill_chain = max_of(0.0f, w.skill_chain - kControlPeriod);
+  }
+  if (w.sit == Sit::rising) w.sit_remaining -= kControlPeriod;
+  w.sit_settle = max_of(0.0f, w.sit_settle - kControlPeriod);
+}
+
 void GameWorld::drive_walkers(f32 h) {
   (void)h;
   const f32 slow = std::sqrt(kDuckScale);  // simulated time runs this much slower than real time
@@ -512,6 +839,17 @@ void GameWorld::drive_walkers(f32 h) {
       const PlayInput in = w.has_input ? w.input : PlayInput{};
       const bool touched = std::fabs(in.move_x) > 0.05f || std::fabs(in.move_y) > 0.05f;
       if (touched) w.manual_left = 2.0f;  // like the real duck's pad: autonomy pauses while you drive
+      if (w.has_input || in.robot) {
+        const u32 pressed = in.robot & ~w.robot_held;
+        if (pressed & 1) walker_skill(w.actor, "sit");
+        if (pressed & 2) walker_skill(w.actor, "pick");
+        if (pressed & 4) walker_skill(w.actor, "kick_left");
+        if (pressed & 8) walker_skill(w.actor, "kick_right");
+        if (in.robot & 16) walker_skill(w.actor, "roulade");  // held: rolls on (CHAIN_WINDOW)
+        if (pressed & 32) w.mouth_open = w.mouth_open > 0.5f ? 0.0f : 1.0f;
+        if (in.robot) w.manual_left = 2.0f;
+        w.robot_held = in.robot;
+      }
       sense_walker(w);
       think_walker(w, kControlPeriod);
       f32 cmd[3] = {0, 0, 0}, head[4] = {0, 0, 0, 0};
@@ -570,12 +908,7 @@ void GameWorld::drive_walkers(f32 h) {
       for (int i = 0; i < 3; ++i) obs[48 + i] = w.command[i];
       for (int i = 0; i < 4; ++i) obs[51 + i] = head_cmd[i];
       // body command (x, y, z, roll, pitch, yaw) stays 0: the stand pose
-      micro_duck_policy(obs, w.action);
-      for (i32 j = 0; j < kJoints; ++j) {
-        const f32 a = std::isfinite(w.action[j]) ? w.action[j] : 0.0f;
-        w.action[j] = a;
-        w.target[j] = kDuckLinks[j + 1].home + a;  // action scale 1, no filter (training)
-      }
+      run_controller(w, obs);
     }
     // ---- every physics step: the servos get the command sent `delay` steps ago ------------------
     w.pending.erase(w.pending.begin());

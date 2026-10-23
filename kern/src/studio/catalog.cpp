@@ -28,7 +28,8 @@ constexpr Item kItems[] = {
     {"hover_car", "Hover Car", "Players", "car", "Fast Box3D hover car with boost"},
     {"rolling_ball", "Rolling Ball", "Players", "ball", "Physics ball you roll and jump"},
     {"drone", "Drone", "Players", "drone", "Flyer: Space / E up, Q / Ctrl down"},
-    {"micro_duck", "Micro Duck", "Players", "duck", "Pollen Robotics' biped robot, walking on its own trained neural network: W/S walk, A/D turn, Space quacks"},
+    {"micro_duck", "Micro Duck", "Players", "duck", "Pollen Robotics' biped robot on its trained networks: W/S walk, A/D turn, Space quacks, 1 sit, 2 pick up, 3/4 kick, 5 roll, 6 beak"},
+    {"micro_duck_rollers", "Micro Duck (Rollers)", "Players", "duck", "The Micro Duck on its roller skates: roller.onnx skates, 2 crouches"},
     // Gameplay building blocks (work without any logic graph).
     {"orb", "Orb", "Gameplay", "orb", "Glowing pickup worth 1 point"},
     {"star", "Star", "Gameplay", "star", "Spinning pickup worth 10 points"},
@@ -309,8 +310,8 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
     gun.mesh->size = {0.75f, 0.07f, 0.12f};
     gun.mesh->collision = false;
     add(gun, {0.35f, -0.22f, 0.35f}, root);
-  } else if (item == "micro_duck") {
-    for (game::Actor& a : game::micro_duck_actors()) actors.push_back(std::move(a));
+  } else if (item == "micro_duck" || item == "micro_duck_rollers") {
+    for (game::Actor& a : game::micro_duck_actors(item == "micro_duck_rollers")) actors.push_back(std::move(a));
   } else if (item == "target_dummy") {
     game::Actor body = shape_actor("Target Dummy", game::Shape::capsule, {0.85f, 0.35f, 0.25f});
     body.mesh->radius = 0.32f;

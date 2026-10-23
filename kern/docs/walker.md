@@ -289,3 +289,79 @@ fällt nie.
 
 Vorlage **Robot: walk and turn away with its ToF** (Templates im Blueprint-Editor): Die Ente
 läuft per Logic und dreht weg, sobald der ToF etwas näher als 1,6 m sieht.
+
+## 11. Aussehen und Kollision
+
+- **Meshes:** Jedes Glied zeigt Pollens STL-Teile (`third_party/microduck/micro_duck_meshes.inc`,
+  CC BY-NC-SA 4.0). Sie sind vereinfacht, pro Glied zusammengeführt, in die Home-Pose gestellt und
+  tragen die MJCF-Materialfarben als Vertexfarben. Für die Vereinfachung gilt:
+  - Verfahren: Vertex-Clustering mit Quadrik-Repräsentanten.
+  - Bei den gedruckten Schalen bleibt die Zelle unter 1 mm. Sonst verschmelzen Innen- und
+    Außenwand, und es entstehen Löcher.
+  - Das Ergebnis: rund 85 000 Dreiecke.
+- **Mund:** Der Unterschnabel (Kiefer und weiches Polster) ist ein eigenes Glied am Mund-Servo.
+  - Bereich wie im Daemon: −5° (gegen das Polster gedrückt) bis 30°.
+  - Die Drehachse geht durch die Augen des Kiefer-Meshes.
+  - Masse und Trägheit stammen aus den Meshes (PLA 1,24, TPU 1,21 g/cm³) und sind vom Kopf
+    abgezogen.
+- **Kollision wie in MuJoCo:** Jedes kollidierende Mesh ist seine konvexe Hülle.
+  - Sohlen: Reibung 1.
+  - XL330-Gehäuse: reibungsfrei, wie im Training.
+  - Schnabelpolster: Reibung 1. Sie greifen.
+  - Schalen von Rumpf und Kopf: Reibung 0,5. Darauf liegt eine gestürzte Ente und rutscht nicht
+    wie auf Eis. Die Schalen berühren die eigene Ente nie.
+- *[gemessen]* Test `micro_duck_stands_on_the_floor`: Die Sohlen stehen 0,3–0,6 mm im Boden. Das
+  liegt innerhalb von Box3Ds Kontakt-Slop von 5 mm. Früher waren die Sohlen Quader aus den
+  Mesh-Maßen und standen 2,8 mm (echt) zu tief, deshalb schwebte die sichtbare Sohle.
+
+## 12. Alle Bewegungen (Policy-Set, `manifest.json`)
+
+Kern lädt dieselben `.onnx`-Dateien wie der Roboter (`third_party/microduck/`, Apache-2.0).
+`velstand.onnx` ist eingebaut, die anderen lädt der Editor aus `editor/microduck/`.
+`WalkerPolicy` liest das ONNX-Format selbst (rsl_rl-Actor: Normalisierer, dann Gemm und ELU).
+
+Die Ablaufsteuerung folgt `robotd/src/control.rs`:
+
+- Vorrang: Skill > Ground Pick > Sitzen/Aufstehen > Laufen.
+- Ein Move zur Zeit, aus dem Sitzen keiner.
+- Die Fenster laufen vor der Inferenz ab.
+- Die Rückmeldung der letzten Aktion teilen sich alle Netze.
+
+| Move | Netz | Kommando | Taste | Pad | Touch |
+|---|---|---|---|---|---|
+| Laufen | `velstand.onnx` (oder `alpha_walking` + `alpha_stand` unter Twist 0,05: Details › Walking network) | Twist, Kopf | W A S D | linker Stick | MOVE |
+| Sitzen / Aufstehen | `alpha_sitstand.onnx` | Posture-Flag in vx (1 sitzen, 0 stehen); 2 s Sitzen, 1 s Aufstehen | 1 | B | SIT |
+| Socke aufheben | `alpha_ground_pick.onnx` | Phase cos/sin(2π·φ), Periode 4 s, Ende bei φ = 0,7 | 2 | X | PICK |
+| Kick links / rechts | `ball_kick_left/right.onnx` | null, 0,5 s | 3 / 4 | LT / RT | KICK L / R |
+| Rolle | `roulade.onnx` | null, 1 s; gehalten rollt sie weiter (Chain-Fenster 0,15 s) | 5 | Y | ROLL |
+| Rollschuh fahren | `roller.onnx` (Action-Scale 0,8) | Twist | W A S D | | |
+| Ducken auf Rollen | `roller_crouch.onnx` (0,8) | Phase, Periode 5 s | 2 | X | PICK |
+| Schnabel auf / zu | Mund-Servo | | 6 | | BEAK |
+
+- **Schnabel beim Aufheben:** Er öffnet sich beim Ground Pick und schließt sich bei φ = 0,42,
+  wenn der Schnabel am Boden ist. Das übernimmt auf dem Roboter der Client, also die App.
+- **Action-Scale und Filter:** Der Daemon fährt den echten Roboter mit Scale 0,9 und einem
+  Tiefpass auf den Sollwerten (Kopf 0,5, Beine 0,7). Das ist Sim-to-Real-Tuning für die Hardware.
+  - Kern simuliert die Trainingsphysik und fährt deshalb jedes Netz wie trainiert: Scale 1, kein
+    Filter. Nur das Action-Scale aus dem Set gilt (Rollen 0,8).
+  - *[gemessen]* Mit 0,9 und Tiefpass kippen die Kicks um, mit 1,0 ohne Filter stehen sie.
+- **Rollschuhe:** Katalogeintrag „Micro Duck (Rollers)“ (Rollen-MJCF
+  `robot_groundcontact_rollers_backlash.xml`).
+  - Die Knöchel tragen Kufen statt Füßen.
+  - Je zwei freie Räder sind Scharniere ohne Antrieb, mit Lagerträgheit 0,0001 kg·m².
+  - Die Reifen berühren den Boden als Mesh-Hülle, Reibung 1.
+  - Die Ente steht 23,5 mm (echt) höher.
+- **Gelenkgrenzen:** Alle 15 Servo-Gelenke haben harte Box3D-Grenzen aus dem MJCF.
+  - *[gemessen]* Test `micro_duck_runs_every_move_of_its_set`: Bei allen Moves überschreitet kein
+    Gelenk seine Grenze um mehr als 0,004 rad.
+
+*[gemessen]* Test `micro_duck_runs_every_move_of_its_set`:
+
+| Move | Ergebnis |
+|---|---|
+| Sitzen und Aufstehen | ok |
+| Socke aufheben | ok, tiefste Neigung 0,78 |
+| Kick links | ok, der Ball fliegt 4 m (echt) |
+| Kick rechts | kippt manchmal und steht wieder auf |
+| Rolle | dreht sich ganz und steht wieder |
+| Ducken auf Rollen | ok |

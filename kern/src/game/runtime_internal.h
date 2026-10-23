@@ -66,6 +66,19 @@ struct GameWorld::WalkerBrain {
   SimJoint* mouth = nullptr;       // the mouth servo (robotd: not part of any policy)
   f32 mouth_open = 0;              // 0 closed (pressed shut) .. 1 open
   f32 idle_mouth = 0;              // the idle look-around's yawn
+  // robotd's controller (walker.cpp): which network drives and its windows; real seconds.
+  bool rollers = false;            // roller skates: roller.onnx walks, the crouch is the pick
+  bool alpha_gait = false;         // alpha_walking + alpha_stand instead of velstand
+  enum class Sit : u8 { up, sitting, rising } sit = Sit::up;
+  f32 sit_remaining = 0, sit_settle = 0;
+  f32 pick_phase = -1;             // ground pick / crouch phase, < 0 when none runs
+  i32 skill = -1;                  // the one-shot skill running (index into the set), -1 none
+  bool skill_unwinding = false;
+  f32 skill_remaining = 0, skill_chain = 0;
+  f32 previous_target[14] = {};    // the low-pass anchor
+  bool has_previous = false;
+  u32 robot_held = 0;              // robot buttons held last tick (edges start moves)
+  std::string driving = "walk";
   WalkerSensors sensors;
   f64 next_tof = 0;                // simulation time of the next ToF frame
   f32 tilted_for = 0;              // real seconds the trunk has been tipped past the fall limit

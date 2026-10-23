@@ -104,6 +104,7 @@ struct ColliderComponent {
   Vec3 rotation;                // Euler degrees
   Vec3 size{1, 1, 1};           // box
   f32 radius = 0.5f, length = 1;  // sphere, capsule (length between the cap centres, along Z)
+  std::vector<Vec3> points;     // hull: its points (actor-local); empty = the hull of the actor's mesh
   f32 density = 1000, friction = 0.6f, restitution = 0, rolling_resistance = 0;
   bool sensor = false;
   u32 category = 1, mask = 0xffffffffu;  // collision channels
@@ -171,6 +172,8 @@ struct ControllerComponent {
   bool head_bob = true;
   // walker
   bool autonomous = true;       // roams on its own (camera, ToF) whenever nobody drives it
+  std::string gait = "velstand";  // walking network: "velstand" (walks and stands) or "alpha" (alpha_walking + alpha_stand)
+  bool rollers = false;         // wears the roller skates (roller.onnx and the crouch drive it)
 };
 
 enum class WeaponKind : u8 { rifle, pistol, shotgun, sniper };

@@ -7,8 +7,10 @@ Decimation is vertex clustering with quadric representatives (Lindstrom, "Out-of
 simplification of large polygonal models", SIGGRAPH 2000): the mesh is binned into a grid; each
 occupied cell becomes one vertex at the point minimising the summed plane distances (quadric error)
 of the triangles that touched it, clamped to the cell; triangles whose corners fall into fewer than
-three cells disappear. The cell size is searched so the result lands near a triangle budget. Sharp
-CAD edges survive because the quadric pulls the cell's vertex onto them.
+three cells disappear. The cell size is searched so the result lands near a triangle budget, but
+never wider than a printed wall is thick (a wider cell merges the wall's two faces: holes).
+`simplify_qem` (quadric edge collapse, tools/qem_simplify.cpp) is kept for comparison; on these
+CAD meshes it loses shape faster.
 
 Normals: area-weighted face normals averaged per corner over the faces within a crease angle, so
 flat faces stay flat and fillets stay smooth.
@@ -87,11 +89,49 @@ def cluster(verts, faces, cell):
     return pos[used], remap[nf]
 
 
-def simplify(verts, faces, budget):
+_QEM = None
+
+
+def _qem_binary():
+    global _QEM
+    if _QEM is None:
+        import os, subprocess, tempfile
+        src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qem_simplify.cpp")
+        exe = os.path.join(tempfile.gettempdir(), "kern_qem_simplify_%d" % int(os.path.getmtime(src)))
+        if not os.path.exists(exe):
+            subprocess.run(["c++", "-O2", "-std=c++17", src, "-o", exe], check=True)
+        _QEM = exe
+    return _QEM
+
+
+def simplify_qem(verts, faces, budget):
+    """Quadric edge collapse down to about `budget` triangles (experimental)."""
+    import subprocess
+    if len(faces) <= budget:
+        return verts, faces
+    # The decimator's error thresholds are tuned for unit-sized meshes: normalise, then undo.
+    lo = verts.min(axis=0)
+    k = float(np.max(verts.max(axis=0) - lo)) or 1.0
+    data = (struct.pack("<II", len(verts), len(faces)) + np.asarray((verts - lo) / k, "<f8").tobytes()
+            + np.asarray(faces, "<u4").tobytes() + struct.pack("<I", int(budget)))
+    out = subprocess.run([_qem_binary()], input=data, capture_output=True, check=True).stdout
+    nv, nt = struct.unpack_from("<II", out, 0)
+    v = np.frombuffer(out, "<f8", nv * 3, 8).reshape(-1, 3) * k + lo
+    f = np.frombuffer(out, "<u4", nt * 3, 8 + nv * 24).reshape(-1, 3).astype(np.int64)
+    return v, f
+
+
+def simplify(verts, faces, budget, max_cell=None):
+    """Vertex clustering down to about `budget` triangles; the cell never exceeds `max_cell` (a
+    cell wider than a wall merges its two faces: printed shells are 1.5-2 mm thick)."""
     if len(faces) <= budget:
         return verts, faces
     ext = np.max(verts.max(axis=0) - verts.min(axis=0))
     lo_c, hi_c = ext / 4000, ext / 4
+    if max_cell is not None:
+        hi_c = min(hi_c, max_cell)
+        if len(cluster(verts, faces, hi_c)[1]) > budget:
+            return cluster(verts, faces, hi_c)
     best = None
     for _ in range(22):
         mid = np.sqrt(lo_c * hi_c)

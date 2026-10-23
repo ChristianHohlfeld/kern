@@ -9,6 +9,8 @@
 
 #include "kern/api/c_api.h"
 #include "kern/studio/studio.h"
+#include "kern/game/walker_policy.h"
+#include "kern/core/json.h"
 
 using namespace kern;
 
@@ -129,6 +131,29 @@ KERN_EXPORT(kern_studio_texture_source) const char* kern_studio_texture_source(c
 
 KERN_EXPORT(kern_studio_texture_pixels) i32 kern_studio_texture_pixels(const char* id, u32 length, i32 width, i32 height, const u8* rgba) {
   return live() && g_host->studio->texture_pixels(std::string(text(id, length)), width, height, rgba) ? 1 : 0;
+}
+
+// ---- robot policies ----
+
+/// The policy files of the Micro Duck's set (manifest.json) not loaded yet: ["roller.onnx", ...].
+/// The page fetches them (microduck/<file> next to the editor) and hands them over.
+KERN_EXPORT(kern_studio_pending_policies) const char* kern_studio_pending_policies() {
+  if (!live()) return nullptr;
+  json::Value m, list = json::Value::array();
+  if (json::parse(game::micro_duck_manifest(), m))
+    for (const json::Value& p : m["policies"].items())
+      if (!game::walker_policy(p["file"].as_string())) list.push(p["file"].as_string());
+  return answer(list);
+}
+
+/// One .onnx policy (bytes); 1 when it is an rsl_rl actor Kern can run.
+KERN_EXPORT(kern_studio_load_policy) i32 kern_studio_load_policy(const char* file, u32 length, const u8* data, u32 bytes) {
+  auto p = std::make_shared<game::WalkerPolicy>();
+  std::string error;
+  if (!game::parse_onnx_policy(Span<const u8>(data, bytes), *p, &error)) return 0;
+  p->file = std::string(text(file, length));
+  game::register_walker_policy(std::move(p));
+  return 1;
 }
 
 // ---- audio ----

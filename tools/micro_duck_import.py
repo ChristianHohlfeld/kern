@@ -83,6 +83,7 @@ POLICY_ORDER = ["left_hip_yaw", "left_hip_roll", "left_hip_pitch", "left_knee", 
                 "neck_pitch", "head_pitch", "head_yaw", "head_roll",
                 "right_hip_yaw", "right_hip_roll", "right_hip_pitch", "right_knee", "right_ankle"]
 SERVO_MESH = "xl330"
+TIRE_MESH = "tire"  # the roller skates' wheels (robot_groundcontact_rollers_backlash.xml)
 SOLES = {"left_foot_collision", "right_foot_collision"}
 SENSOR_SITES = {"head_camera", "tof", "imu", "mouth_tip"}  # the robot's camera, ToF, trunk IMU and beak tip
 
@@ -125,6 +126,9 @@ def load_robot(xml_path, assets):
         joint = None
         for j in body.findall("joint"):
             name = j.get("name")
+            if name.startswith("passive_") and name.endswith("_wheel"):
+                joint = (name, None, None)  # a roller's free-spinning wheel (rollers model)
+                continue
             if name.startswith("passive_"):
                 continue  # gearbox backlash (+-1 degree): not modelled, see docs/walker.md
             assert j.get("type", "hinge") == "hinge" and floats(j.get("axis", "0 0 1")) == [0, 0, 1]
@@ -144,14 +148,14 @@ def load_robot(xml_path, assets):
                 continue
             mesh = g.get("mesh")
             sole = g.get("name") in SOLES
-            if not sole and mesh != SERVO_MESH:
+            if not sole and mesh != SERVO_MESH and mesh != TIRE_MESH:
                 continue  # not colliding in training (CollisionCfg disables unnamed geoms)
             c, size = stl_extent(meshes[mesh])
             gR = qmat(floats(g.get("quat", "1 0 0 0"), 4))
             gpos = floats(g.get("pos", "0 0 0"), 3)
             # body-local centre and orientation of the box, then the joint's home rotation
             local_c = add(gpos, mvec(gR, c))
-            boxes.append({"c": local_c, "R": gR, "size": size, "sole": sole})
+            boxes.append({"c": local_c, "R": gR, "size": size, "sole": sole, "path": meshes[mesh], "gpos": gpos})
         visuals = []
         for g in body.findall("geom"):
             if g.get("class") == "visual":
@@ -183,6 +187,8 @@ SHELL_LINKS = ("trunk_base", "jaw_soft")  # bodies whose convex shell collides (
 SHELL_FRICTION = 0.5  # PLA shell on a floor
 PAD_FRICTION = 1.0
 MESH_BUDGET = 0.08  # triangles kept per part (vertex clustering, tools/mesh_simplify.py)
+THIN_PARTS = ("shell", "face_part")  # printed shells: walls of about 1.5 mm
+THIN_CELL = 0.001  # m: clustering cells on them stay below the wall thickness
 
 
 def part_world(v, link, vis):
@@ -268,15 +274,15 @@ def link_mesh(link, mesh_cache, lift):
             mesh_cache[vis["path"]] = ms.weld(ms.read_stl(vis["path"]))
         v, f = mesh_cache[vis["path"]]
         w = part_world(v, vis.get("frame", link), vis) - origin
-        v2, f2 = ms.simplify(w, f, max(120, int(len(f) * MESH_BUDGET)))
+        thin = any(k in vis["mesh"] for k in THIN_PARTS)
+        v2, f2 = ms.simplify(w, f, max(120, int(len(f) * MESH_BUDGET)), THIN_CELL if thin else None)
         p, n, t = ms.crease_normals(v2, f2)
         T.append(t + sum(len(x) for x in P))
         P.append(p)
         N.append(n)
         C.append(np.tile(vis["rgba"][:3], (len(p), 1)))  # sRGB (the renderer decodes vertex colours)
         if vis["mesh"] in GRIP_PADS:
-            lo, hi = w.min(axis=0), w.max(axis=0)
-            pads.append({"c": list((lo + hi) / 2), "size": list(hi - lo)})
+            pads.append({"hull": ms.hull_points(w, 40)})
     P, N, C, T = np.concatenate(P), np.concatenate(N), np.concatenate(C), np.concatenate(T)
     return P, N, C, T, ms.hull_points(P), pads
 
@@ -420,6 +426,62 @@ def box_rotation(R, size):
     return best[1], best[2]
 
 
+def export_rollers(xml_path, assets, links, order, remap, lift, w, mesh_cache, meshes):
+    """The roller skates (pollen-robotics/microduck_rl robot_groundcontact_rollers_backlash.xml, what
+    roller.onnx and roller_crouch.onnx train on): the ankles carry a blade instead of the foot, and
+    two free wheels hang off each. Everything above the ankles is the walking model."""
+    import numpy as np
+    import mesh_simplify as ms
+    rl = load_robot(xml_path, assets)
+    by = {l["name"]: l for l in rl}
+    ankle_of = {"ankle_l_v1": "left_ankle", "ankle_r_v1": "right_ankle"}
+    joint_link = {links[i]["joint"][0]: remap[i] for i in order if links[i]["joint"]}
+    # Lowest wheel point vs the shoes' sole: how much higher the rollers stand.
+    lowest = 1e9
+    for l in rl:
+        for b in l["boxes"]:
+            if b["path"].endswith(TIRE_MESH + ".stl"):
+                if b["path"] not in mesh_cache:
+                    mesh_cache[b["path"]] = ms.weld(ms.read_stl(b["path"]))
+                lowest = min(lowest, float(part_world(mesh_cache[b["path"]][0], l, {"pos": b["gpos"], "R": b["R"]})[:, 2].min()))
+    raise_by = -lowest - lift
+    w("// Roller skates: the ankles' blades and the four free wheels (rollers model). The whole robot")
+    w("// stands this much higher on them (metres, real):")
+    w("constexpr float kDuckRollerRaise = %s;" % cf(raise_by))
+    w("const DuckRollerDef kDuckRollers[] = {")
+    hull_lines = []
+    flat = []
+    for name in ("ankle_l_v1", "ankle_r_v1"):
+        a = by[name]
+        li = joint_link[ankle_of[name]]
+        Iw = mmul(mmul(a["R"], a["I"]), mT(a["R"]))
+        P, N, C, T, H, _ = link_mesh(a, mesh_cache, lift)
+        meshes.append(("roller/" + name, (P, N, C, T, H)))
+        w('    {"%s", "", %d, -1, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, %s, %s, %s, 0, 0},' % (
+            name, li, cf(a["mass"]), vec(mvec(a["R"], a["ipos"])), vec([Iw[0][0], Iw[1][1], Iw[2][2], Iw[0][1], Iw[0][2], Iw[1][2]])))
+        for t in rl:
+            if t["parent"] != rl.index(a) or not t["joint"]:
+                continue
+            Iw = mmul(mmul(t["R"], t["I"]), mT(t["R"]))
+            P, N, C, T, H, _ = link_mesh(t, mesh_cache, lift)
+            meshes.append(("roller/" + t["joint"][0], (P, N, C, T, H)))
+            rel = [t["origin"][k] - a["origin"][k] for k in range(3)]
+            axis = [t["R"][0][2], t["R"][1][2], t["R"][2][2]]
+            box = t["boxes"][0]
+            if box["path"] not in mesh_cache:
+                mesh_cache[box["path"]] = ms.weld(ms.read_stl(box["path"]))
+            hp = ms.hull_points(part_world(mesh_cache[box["path"]][0], t, {"pos": box["gpos"], "R": box["R"]}) - np.array(t["origin"]), 40)
+            w('    {"%s", "%s", %d, %d, %s, %s, %s, %s, %s, %d, %d},' % (
+                t["joint"][0], t["joint"][0], li, 0, vec(rel), vec(axis), cf(t["mass"]), vec(mvec(t["R"], t["ipos"])),
+                vec([Iw[0][0], Iw[1][1], Iw[2][2], Iw[0][1], Iw[0][2], Iw[1][2]]), len(flat) // 3, len(hp)))
+            flat += [x for q in hp for x in q]
+    w("};")
+    w("const float kDuckRollerHullPoints[] = {")
+    for k in range(0, len(flat), 12):
+        w("    " + ", ".join(cf(x) for x in flat[k:k + 12]) + ",")
+    w("};")
+
+
 def write_meshes(path, meshes):
     """The links' meshes as C++ arrays: positions quantised to 16 bits over the mesh bounds, normals
     and sRGB colours to 8 bits, 16-bit indices, hull points as floats (metres, real size)."""
@@ -438,7 +500,7 @@ def write_meshes(path, meshes):
         q = np.round((P - lo) / np.maximum(hi - lo, 1e-9) * 65535 - 32768).astype(int)
         n = np.round(N * 127).astype(int)
         c = np.round(np.clip(C, 0, 1) * 255).astype(int)
-        ident = "kDuckMesh_" + name
+        ident = "kDuckMesh_" + name.replace("/", "_")
         def arr(ctype, suffix, values):
             values = list(values)
             L.append("static const %s %s%s[] = {" % (ctype, ident, suffix))
@@ -467,17 +529,16 @@ def main():
     by_joint = {l["joint"][0]: i for i, l in enumerate(links) if l["joint"]}
     order = [0] + [by_joint[n] for n in POLICY_ORDER] + [len(links) - 1]  # the mouth last
     remap = {old: new for new, old in enumerate(order)}
-    # Lowest collider corner in the home pose -> trunk height that puts the soles on the ground.
+    # Lowest collider point in the home pose (the meshes, as MuJoCo collides them) -> the trunk
+    # height that puts the soles on the ground.
+    import mesh_simplify as ms
     lowest = 1e9
     for l in links:
         for b in l["boxes"]:
-            Rw = mmul(l["R"], b["R"])
-            cw = add(l["origin"], mvec(l["R"], b["c"]))
-            for sx in (-0.5, 0.5):
-                for sy in (-0.5, 0.5):
-                    for sz in (-0.5, 0.5):
-                        p = add(cw, mvec(Rw, [sx * b["size"][0], sy * b["size"][1], sz * b["size"][2]]))
-                        lowest = min(lowest, p[2])
+            if b["path"] not in mesh_cache:
+                mesh_cache[b["path"]] = ms.weld(ms.read_stl(b["path"]))
+            pw = part_world(mesh_cache[b["path"]][0], l, {"pos": b["gpos"], "R": b["R"]})
+            lowest = min(lowest, float(pw[:, 2].min()))
     lift = -lowest
     lines = []
     w = lines.append
@@ -507,19 +568,35 @@ def main():
         P, N, C, T, H, link_pads = link_mesh(links[i], mesh_cache, lift)
         meshes.append((links[i]["name"], (P, N, C, T, H)))
         pads += [(remap[i], p) for p in link_pads]
-    w("// Colliders: the soles (friction 1) and XL330 housings (frictionless, as in training), then the")
-    w("// beak's soft pads (TPU, friction %g): what grips." % PAD_FRICTION)
-    w("const DuckBoxDef kDuckBoxes[] = {")
+    w("// Colliders, as MuJoCo collides mesh geoms: the convex hull of each mesh. The soles (friction 1)")
+    w("// and the XL330 housings (frictionless) as in training, then the beak's soft pads (TPU, friction")
+    w("// %g): what grips. Points relative to the link's origin, world-aligned, home pose." % PAD_FRICTION)
+    import numpy as np
+    import mesh_simplify as ms
+    hulls = []
     for i in order:
         l = links[i]
         for b in l["boxes"]:
-            Rw = mmul(l["R"], b["R"])
-            cw = mvec(l["R"], b["c"])
-            e, s = box_rotation(Rw, b["size"])
-            w("    {%d, %s, %s, %s, %s, %s}," % (remap[i], vec(cw), vec(e), vec(s), "true" if b["sole"] else "false", cf(1.0 if b["sole"] else 0.0)))
+            if b["path"] not in mesh_cache:
+                mesh_cache[b["path"]] = ms.weld(ms.read_stl(b["path"]))
+            v = mesh_cache[b["path"]][0]
+            pw = part_world(v, l, {"pos": b["gpos"], "R": b["R"]}) - np.array(l["origin"])
+            hulls.append((remap[i], 1.0 if b["sole"] else 0.0, b["sole"], ms.hull_points(pw, 40)))
     for li, p in pads:
-        w("    {%d, %s, {0.0f, 0.0f, 0.0f}, %s, false, %s}," % (li, vec(p["c"]), vec(p["size"]), cf(PAD_FRICTION)))
+        hulls.append((li, PAD_FRICTION, False, p["hull"]))
+    flat = []
+    w("const DuckHullDef kDuckHulls[] = {")
+    for li, fr, sole, H in hulls:
+        w("    {%d, %s, %s, %d, %d}," % (li, cf(fr), "true" if sole else "false", len(flat) // 3, len(H)))
+        flat += [x for p in H for x in p]
     w("};")
+    w("const float kDuckHullPoints[] = {")
+    for k in range(0, len(flat), 12):
+        w("    " + ", ".join(cf(x) for x in flat[k:k + 12]) + ",")
+    w("};")
+    rollers_xml = os.path.join(os.path.dirname(xml_path), "robot_groundcontact_rollers_backlash.xml")
+    if os.path.exists(rollers_xml):
+        export_rollers(rollers_xml, assets, links, order, remap, lift, w, mesh_cache, meshes)
     w("// Links whose convex shell collides (the shell encloses the servos; PLA on a floor).")
     w("constexpr const char* kDuckShellBodies[] = {%s};" % ", ".join('"%s"' % n for n in SHELL_LINKS))
     w("constexpr float kDuckShellFriction = %s;" % cf(SHELL_FRICTION))

@@ -252,7 +252,8 @@ void add_shape(BodyPlan& body, ActorId actor, const ColliderComponent& c, const 
     case ColliderShape::hull: {
       s.kind = physics::ShapeKind::hull;
       std::vector<Vec3> pts;
-      if (mesh) pts = shape_hull_points(*mesh);
+      if (!c.points.empty()) pts = c.points;  // explicit hull (imported robots: the mesh's hull)
+      else if (mesh) pts = shape_hull_points(*mesh);
       else {
         const Vec3 h = c.size * 0.5f;
         for (int i = 0; i < 8; ++i) pts.push_back({i & 1 ? h.x : -h.x, i & 2 ? h.y : -h.y, i & 4 ? h.z : -h.z});
