@@ -5198,6 +5198,76 @@ TEST(studio_undo_transactions_and_dirty_state) {
   f.s->stop();
 }
 
+
+// Restore from the last session (docs/studio.md): the host keeps a copy only while there is
+// unsaved work, so a normal reload of a clean editor offers nothing.
+TEST(studio_autosave_only_while_unsaved) {
+  StudioFixture f;
+  f.frames(5);
+  // A fresh start is clean: nothing to store, nothing to drop.
+  CHECK(!f.s->dirty());
+  CHECK(f.s->take_autosave(f.now + 60000).empty());
+  CHECK(!f.s->take_autosave_discard());
+  // A change is stored once it is due (autosave_seconds), once.
+  const game::ActorId id = f.s->spawn("cube", Vec3{0, 0, 1});
+  CHECK(f.s->dirty());
+  CHECK(f.s->take_autosave(f.now).empty());
+  const std::string text = f.s->take_autosave(f.now + 60000);
+  CHECK(!text.empty());
+  CHECK(!f.s->take_autosave_discard());
+  CHECK(f.s->take_autosave(f.now + 60000).empty());
+  // Undone back to the opened state: nothing is unsaved, the stored copy must go (once).
+  f.s->undo();
+  CHECK(!f.s->dirty());
+  CHECK(f.s->take_autosave(f.now + 60000).empty());
+  CHECK(f.s->take_autosave_discard());
+  CHECK(!f.s->take_autosave_discard());
+  // Redo: unsaved again, stored again; saving drops it.
+  f.s->redo();
+  CHECK(!f.s->take_autosave(f.now + 60000).empty());
+  f.cmd(R"({"cmd":"saved"})");
+  CHECK(!f.s->dirty());
+  CHECK(f.s->take_autosave_discard());
+  CHECK(f.s->take_autosave(f.now + 60000).empty());
+  // Saving a level that never had a stored copy drops nothing (it may be another level's).
+  f.cmd(R"({"cmd":"saved"})");
+  CHECK(!f.s->take_autosave_discard());
+  // Opening another level keeps the previous level's unsaved work stored until the new one changes.
+  f.s->spawn("sphere", Vec3{2, 0, 1});
+  CHECK(!f.s->take_autosave(f.now + 60000).empty());
+  f.cmd(R"({"cmd":"new","template":"basic"})");
+  CHECK(!f.s->dirty());
+  CHECK(f.s->take_autosave(f.now + 60000).empty());
+  CHECK(!f.s->take_autosave_discard());
+  // Restoring: the level comes back unsaved (its content is in no file) and owns the stored copy.
+  json::Value restore = json::Value::object();
+  restore.set("cmd", "restore");
+  restore.set("text", text);
+  restore.set("name", "Orb Run");
+  CHECK(f.s->command(restore)["ok"].as_bool());
+  CHECK(f.s->level().find(id) != nullptr);
+  CHECK(f.s->dirty());
+  CHECK(f.s->state()["level"]["dirty"].as_bool());
+  CHECK(!f.s->can_undo());
+  CHECK(f.s->take_autosave(f.now + 60000).empty());  // the stored copy is already this state
+  CHECK(!f.s->take_autosave_discard());
+  // Changing and undoing it stays unsaved (stored, never dropped); saving drops it.
+  f.s->spawn("cube", Vec3{4, 0, 1});
+  CHECK(!f.s->take_autosave(f.now + 60000).empty());
+  f.s->undo();
+  CHECK(f.s->dirty());
+  CHECK(!f.s->take_autosave(f.now + 60000).empty());
+  CHECK(!f.s->take_autosave_discard());
+  f.cmd(R"({"cmd":"saved"})");
+  CHECK(f.s->take_autosave_discard());
+  CHECK(!f.s->dirty());
+  // A broken copy is reported and changes nothing.
+  json::Value broken = json::Value::object();
+  broken.set("cmd", "restore");
+  broken.set("text", "{not a level");
+  CHECK(!f.s->command(broken)["ok"].as_bool());
+  CHECK(!f.s->dirty());
+}
 TEST(studio_player_only) {
   StudioFixture f(true);
   CHECK(f.s->level().actors.empty());

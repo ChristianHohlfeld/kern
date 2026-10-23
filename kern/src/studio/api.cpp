@@ -235,6 +235,8 @@ KERN_EXPORT(kern_studio_take_autosave) const char* kern_studio_take_autosave(f64
   return answer(std::move(s));
 }
 
+KERN_EXPORT(kern_studio_take_autosave_discard) i32 kern_studio_take_autosave_discard() { return live() && g_host->studio->take_autosave_discard() ? 1 : 0; }
+
 KERN_EXPORT(kern_studio_dirty) i32 kern_studio_dirty() { return live() && g_host->studio->dirty() ? 1 : 0; }
 
 KERN_EXPORT(kern_studio_context_lost) void kern_studio_context_lost() { if (live()) g_host->renderer.context_lost(); }

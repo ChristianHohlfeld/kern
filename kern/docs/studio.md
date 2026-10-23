@@ -148,7 +148,7 @@ Die Seite spricht den Editor über die C-ABI in `kern/src/studio/api.cpp` an:
 | `kern_studio_revision()` | ändert sich, wenn `state()` neu gelesen werden muss |
 | `kern_studio_take_ui()` | Aufträge an die Seite: `capturePointer`, `releasePointer`, `clipboard`, `readClipboard`, `popup`, `dialog`, `save`, `saveAs`, `open`, `importTexture`, `packageGame`, `toggleDrawer`, `toggleLog`, `fullscreen`, `rename` |
 | `kern_studio_pending_textures()`, `…_texture_source(id)`, `…_texture_pixels(id, w, h, rgba)` | Texturen dekodiert die Seite |
-| `kern_studio_take_autosave(now)`, `kern_studio_dirty()` | Autosave |
+| `kern_studio_take_autosave(now)`, `kern_studio_take_autosave_discard()`, `kern_studio_dirty()` | Autosave (siehe [Wiederherstellen](#wiederherstellen-restore-from-last-session)) |
 | `kern_studio_audio_init(rate)`, `kern_studio_audio_render(frames)` | Mixer starten, Stereo-PCM ziehen |
 | `kern_studio_pending_sounds()`, `…_sound_source(id)`, `…_sound_pcm(id, pcm, frames, channels, rate)`, `…_sound_failed(id, reason)` | importierte Sounds dekodiert die Seite |
 
@@ -163,12 +163,41 @@ Befehle (`{"cmd": …}`):
 - Play: `play {mode: play|simulate}`, `stop`, `pause`, `stepFrame`, `eject`, `restart`, `keep`, `gameInput {moveX, moveY, up, jump, boost}`, `pointerCaptured {value}`
 - Werkzeuge und Ansichten: `tool`, `space`, `snap`, `cameraSpeed`, `layout`, `maximize`, `activeViewport`, `viewType`, `viewMode`, `showFlag`, `gameView`, `fov`, `bookmark {slot, set}`
 - Panels: `filter`, `collapse {key}`, `section {id, closed}`, `menu {name}`, `dialog {name}`, `submitDialog {name, values}`, `catalog`, `clearLog`, `ui {action}`
-- Dokumente: `new {template}`, `open {text, name}`, `save`, `saved`, `packageText`, `validate`, `console {text}`
+- Dokumente: `new {template}`, `open {text, name}`, `restore {text, name}`, `save`, `saved`, `packageText`, `validate`, `console {text}`
+
+## Wiederherstellen („Restore from last session“)
+
+Beim Start bietet Studio **Restore "…" from your last session? · Restore / Dismiss** nur an, wenn die
+letzte Sitzung ungespeicherte Arbeit zurückgelassen hat. Ein normales Neuladen eines Editors ohne
+ungespeicherte Änderungen zeigt nichts an.
+
+- **Wann gespeichert wird:** Die Seite hält höchstens eine Kopie in `localStorage`
+  (`kern-studio.autosave.v1`). Die Engine entscheidet: `take_autosave(now)` liefert den Level-Text nur,
+  wenn eine Änderung fällig ist (`autosave_seconds`, 2 s) und das Dokument ungespeicherte Änderungen hat
+  (`dirty()`).
+- **Wann sie gelöscht wird:** Gehört die gespeicherte Kopie zum aktuellen Dokument und ist nichts mehr
+  ungespeichert, meldet `take_autosave_discard()` das genau einmal, und die Seite löscht die Kopie. Das
+  passiert nach dem Speichern und wenn die Änderungen bis zum gespeicherten Stand rückgängig gemacht
+  wurden. **Dismiss** löscht die Kopie ebenfalls.
+- **Anderes Level öffnen oder neu anlegen:** Die Kopie der ungespeicherten Änderungen des vorigen Levels
+  bleibt erhalten, bis das neue Level eigene Änderungen bekommt. Sie wird dann ersetzt.
+- **Restore** lädt die Kopie mit dem Befehl `restore`. Das Level bleibt ungespeichert (Punkt am Tab,
+  Rückfrage beim Verlassen), denn sein Inhalt steht in keiner Datei. Bis zum Speichern wird es bei
+  jedem Start wieder angeboten.
+- **Seite verlassen:** Bei `beforeunload`, `pagehide` und beim Wechsel in den Hintergrund
+  (`visibilitychange`) schreibt die Seite eine fällige Kopie sofort bzw. löscht eine veraltete. So kommt
+  auch auf Mobilgeräten und beim Update-Neuladen (siehe [Als App installieren](#als-app-installieren-android-ios-desktop))
+  nichts abhanden.
+- **Absturz oder nicht sauber beendet:** Die Kopie wird spätestens 2 s nach jeder Änderung geschrieben.
+  Stürzt der Tab ab oder wird er beendet, ohne dass gespeichert wurde, liegt sie beim nächsten Start
+  noch da und wird angeboten. War beim Absturz nichts ungespeichert, gibt es auch nichts anzubieten.
+- **Nicht gespeichert, solange Play läuft:** Während Play/Simulate wird nichts geschrieben. Eine fällige
+  Kopie folgt nach Stop.
 
 ## Tests
 
-- `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave, Packaging, Player-Modus
-- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Modul-Version und schmales Fenster
+- `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave (nur bei ungespeicherten Änderungen, Löschen nach Speichern und Undo, `restore`), Packaging, Player-Modus
+- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Modul-Version und schmales Fenster
 
 ## Logic: Blueprints, die C++ sind
 
@@ -297,7 +326,7 @@ Kern Studio unter `/editor/` ist eine installierbare Web-App:
   - Ist ein neuer Build da, lädt Studio sofort neu, solange nichts verloren gehen kann: im Editier-Modus
     ohne ungespeicherte Änderungen.
   - Sonst erscheint **New version available · Update / Later**. Beim Update wird das Level per Autosave
-    mitgenommen und beim nächsten Start angeboten.
+    mitgenommen und beim nächsten Start angeboten (siehe [Wiederherstellen](#wiederherstellen-restore-from-last-session)).
   - Unten rechts steht die laufende Version, gelb, wenn online eine neuere bereitliegt.
 - **Icons:** 192, 512 und maskable 512 im Manifest, dazu ein Apple Touch Icon (180) und ein Favicon
   (`site/editor/icons`).
