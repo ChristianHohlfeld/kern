@@ -24,6 +24,31 @@ function defaultAmbientOcclusion() {
   return o;
 }
 
+
+/** Networks Kern Trainer saved on this device: IndexedDB "kern-trained", store "policies", key =
+ *  file name ("jump.onnx"), value = the ONNX bytes. [[file, Uint8Array], ...]; `only` picks one. */
+export function trainedPolicies(only) {
+  return new Promise(resolve => {
+    let open;
+    try { open = indexedDB.open("kern-trained", 1); } catch { resolve([]); return; }
+    open.onupgradeneeded = () => open.result.createObjectStore("policies");
+    open.onerror = () => resolve([]);
+    open.onsuccess = () => {
+      const out = [];
+      try {
+        const cursor = open.result.transaction("policies").objectStore("policies").openCursor();
+        cursor.onsuccess = () => {
+          const c = cursor.result;
+          if (!c) { resolve(out); return; }
+          if (!only || c.key === only) out.push([String(c.key), new Uint8Array(c.value)]);
+          c.continue();
+        };
+        cursor.onerror = () => resolve(out);
+      } catch { resolve(out); }
+    };
+  });
+}
+
 export class StudioEngine {
   constructor(kern) {
     this.kern = kern;
@@ -90,6 +115,7 @@ export class StudioEngine {
    *  repository's copy, so does the repository's single-file build in generated/). A file that fails is fetched again later; until then the move it
    *  drives is unavailable (the duck stands and says why). */
   async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/microduck/"] : /\/generated\/[^/]*$/.test(location.pathname) ? ["../kern/third_party/microduck/"] : ["microduck/"]) {
+    if (!this.trainedWatched) { this.trainedWatched = true; this.watchTrainedPolicies(); }
     if (this.policiesLoading) return this.policiesLoading;
     // A file that failed is asked for again later (5 s, 10 s, 20 s ... at most every minute).
     const retry = this.policyRetry ??= new Map(), now = Date.now();
@@ -117,6 +143,26 @@ export class StudioEngine {
       return false;
     })).finally(() => { this.policiesLoading = null; });
     return this.policiesLoading;
+  }
+  /** Hands one network (ONNX bytes) to the engine under `file`; true when it took it. */
+  registerPolicy(file, bytes) {
+    const ptr = this.e.kern_alloc(Math.max(4, bytes.length));
+    try {
+      this.kern.u8.set(bytes, ptr);
+      return this.withStrings([file], (p, n) => this.e.kern_studio_load_policy(p, n, ptr, bytes.length)) === 1;
+    } finally {
+      this.e.kern_free(ptr);
+    }
+  }
+  /** Networks trained in Kern Trainer on this device (same site): loaded now, and again whenever
+   *  the trainer saves a newer one (docs/training.md). */
+  watchTrainedPolicies() {
+    const load = async only => {
+      for (const [file, bytes] of await trainedPolicies(only))
+        if (this.registerPolicy(file, bytes)) console.info("Kern: trained network " + file + " loaded");
+    };
+    load().catch(() => {});
+    try { new BroadcastChannel("kern-trained").onmessage = e => load(e.data?.file).catch(() => {}); } catch { /* no channel */ }
   }
   /** Decodes the level's texture images (data URLs) into RGBA for the engine. */
   pollTextures(maxSide = 2048) {

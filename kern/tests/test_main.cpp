@@ -4472,6 +4472,34 @@ TEST(train_exports_onnx_like_pollens_networks) {
   CHECK(worst < 1e-4f);
 }
 
+TEST(micro_duck_jumps_with_a_network_trained_in_kern) {
+  // Kern's own move: "jump" runs jump.onnx (from Kern Trainer) like Pollen's kicks run theirs.
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0});
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::play));
+  if (!game::walker_policy("jump.onnx")) CHECK(f.world->walker_skill(duck, "jump") == "jump.onnx is not loaded");
+  // A network as the trainer writes it (untrained here: the check is the plumbing).
+  train::Rng rng(8);
+  train::Mlp actor;
+  actor.init({61, 32, 14}, rng, 0.01f);
+  train::Normalizer norm;
+  norm.init(61);
+  const std::vector<u8> bytes = train::export_onnx(actor, norm, train::micro_duck_metadata("jump"));
+  auto p = std::make_shared<game::WalkerPolicy>();
+  CHECK(game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), *p));
+  p->file = "jump.onnx";
+  game::register_walker_policy(p);
+  f.run(1);
+  CHECK(f.world->walker_skill(duck, "jump").empty());
+  f.run(0.5f);
+  CHECK(f.world->walker_driving(duck) == "jump");
+  f.run(2.5f * 2 + 1);  // 2.5 s of the robot's time (the world runs 2x slower), then it walks again
+  CHECK(f.world->walker_driving(duck) != "jump");
+}
+
 TEST(micro_duck_observation_between_ticks_is_what_its_controller_sees) {
   // The trainer reads the observation between ticks (walker_observation); it must be exactly what
   // the controller builds at the tick (IMU, joints, lagged speeds, last action).
@@ -4533,7 +4561,7 @@ TEST(train_duck_env_runs_episodes_headless) {
   train::DuckEnv a1(train::make_jump_task(), 3), a2(train::make_jump_task(), 3);
   a1.reset();
   a2.reset();
-  CHECK(a1.critic_size() == 69);
+  CHECK(a1.critic_size() == 70);
   train::Rng rng(5);
   f32 r1 = 0, r2 = 0;
   for (i32 i = 0; i < 40; ++i) {
@@ -4543,7 +4571,7 @@ TEST(train_duck_env_runs_episodes_headless) {
     r2 += a2.step(act).reward;
   }
   CHECK(r1 == r2);
-  CHECK(std::memcmp(a1.critic(), a2.critic(), sizeof(f32) * 69) == 0);
+  CHECK(std::memcmp(a1.critic(), a2.critic(), sizeof(f32) * 70) == 0);
   // A limp duck (all actions far off home) falls and the episode ends as terminal.
   a1.reset();
   bool fell = false;

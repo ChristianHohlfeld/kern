@@ -75,7 +75,7 @@ class JumpTask : public Task {
  public:
   std::string name() const override { return "jump"; }
   f32 episode_seconds() const override { return 3; }
-  i32 privileged() const override { return 8; }
+  i32 privileged() const override { return 9; }
   void progress(i32 iteration) override {
     // Pollen's action-rate stages (velocity / kick): -0.1 -> -1.0 by iteration 1500.
     static const std::pair<i32, f32> stages[] = {{0, -0.1f}, {500, -0.2f}, {750, -0.4f}, {1000, -0.6f}, {1250, -0.8f}, {1500, -1.0f}};
@@ -88,9 +88,11 @@ class JumpTask : public Task {
     s.pitch = rng.uniform(-3, 3);
     s.dz = rng.uniform(0, 0.005f);
     s.foot_friction = rng.uniform(0.7f, 1.3f);
+    flown_ = false;
     return s;
   }
   void privileged(const game::GameWorld::WalkerProbe& p, f32* out) override {
+    out[8] = flown_ ? 1.0f : 0.0f;  // it has jumped this episode (the landing pays from then on)
     out[0] = p.position.z - kStandZ;
     out[1] = p.velocity.x;
     out[2] = p.velocity.y;
@@ -105,12 +107,17 @@ class JumpTask : public Task {
     const auto& p = t.probe;
     // In the air: nothing of it touches the floor (a duck on its tail with its feet up is not).
     const bool airborne = !p.foot_contact[0] && !p.foot_contact[1] && !p.body_contact;
-    // The jump: both soles off the ground, the trunk high, a push upwards to get there.
-    r.add("airborne", 5, airborne ? 1.0f : 0.0f);
-    r.add("height", 10, airborne ? clamp((p.position.z - kStandZ) / 0.05f, 0.0f, 2.0f) : 0.0f);
-    r.add("lift", 4, clamp(p.velocity.z, 0.0f, 1.0f));
+    const f32 up = upright(p);
+    if (airborne && p.position.z > kStandZ + 0.01f) flown_ = true;
+    // The jump: both soles off the ground, the trunk high, a push upwards to get there - all of it
+    // counts only as far as the duck stays upright (a dive or a tumble is no jump).
+    r.add("airborne", 5, airborne ? up : 0.0f);
+    r.add("height", 10, airborne ? up * clamp((p.position.z - kStandZ) / 0.05f, 0.0f, 2.0f) : 0.0f);
+    r.add("lift", 4, up * clamp(p.velocity.z, 0.0f, 1.0f));
+    // Landed: after a jump, standing on both soles, upright.
+    r.add("landed", 4, flown_ && p.foot_contact[0] && p.foot_contact[1] && !p.body_contact ? up : 0.0f);
     // Upright through it, and back at home to stand.
-    r.add("upright", 2, upright(p));
+    r.add("upright", 2, up);
     r.add("pose_legs", 1, pose_match(p.joint, kLegs, 10, 0.5f));
     r.add("pose_neck", 1, pose_match(p.joint, kNeck, 4, 0.3f));
     // Sim2real regularisers (velocity's weights; the action rate ramps in, below).
@@ -119,12 +126,13 @@ class JumpTask : public Task {
     r.add("self_collisions", -1, p.self_contact ? 1.0f : 0.0f);
     r.add("body_contact", -2, p.body_contact ? 1.0f : 0.0f);  // only the soles meet the floor
     terminal = fell(p);
-    if (terminal) r.add("fall", -4, 1, false);
+    if (terminal) r.add("fall", -20, 1, false);  // a fall must cost more than a jump earns
     return r.sum();
   }
 
  private:
   f32 action_rate_weight_ = -0.1f;
+  bool flown_ = false;
 };
 
 }  // namespace

@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <algorithm>
 #include <numeric>
@@ -362,6 +363,9 @@ void Ppo::update(IterationStats& stats) {
           }
         }
         kl /= static_cast<f64>(size);
+#ifdef KERN_PPO_DEBUG
+        std::fprintf(stderr, "    epoch %d mb %d kl %.5f lr %.2e\n", epoch, b, kl, lr_);
+#endif
         if (kl > cfg_.desired_kl * 2.0) lr_ = max_of(1e-5f, lr_ / 1.5f);
         else if (kl < cfg_.desired_kl / 2.0 && kl > 0.0) lr_ = min_of(1e-2f, lr_ * 1.5f);
         actor_adam_.lr = critic_adam_.lr = lr_;

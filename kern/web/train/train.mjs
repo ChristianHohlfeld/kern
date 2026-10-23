@@ -91,6 +91,27 @@ async function exportOnnx(task) {
   onnx = new Blob([d.onnx], { type: "application/octet-stream" });
   onnx.task = task;
   $("download").disabled = false;
+  await saveForStudio(`${task}.onnx`, d.onnx).catch(() => {});
+}
+
+/** Kern Studio on this device picks the network up (IndexedDB "kern-trained", key = file name), at
+ *  once in open tabs (BroadcastChannel): the duck's "jump" move runs jump.onnx. */
+function saveForStudio(file, bytes) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open("kern-trained", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("policies");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const tx = open.result.transaction("policies", "readwrite");
+      tx.objectStore("policies").put(bytes, file);
+      tx.oncomplete = () => {
+        try { new BroadcastChannel("kern-trained").postMessage({ file }); } catch { /* no channel */ }
+        $("saved").textContent = `Saved for Kern Studio as ${file} (iteration ${iteration}).`;
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    };
+  });
 }
 
 function show(s, seconds, steps) {

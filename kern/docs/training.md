@@ -67,16 +67,28 @@ werden wie dort als Gewicht × Term × dt summiert.
 
 | Term | Gewicht | Was |
 |---|---|---|
-| airborne | 5 | in der Luft: weder Sohlen noch ein anderes Teil berühren den Boden |
-| height | 10 | in der Luft: Rumpf über Standhöhe (0,115 m), je 5 cm 1, höchstens 2 |
-| lift | 4 | Steiggeschwindigkeit des Rumpfs (0–1 m/s) |
+| airborne | 5 × aufrecht | in der Luft: weder Sohlen noch ein anderes Teil berühren den Boden |
+| height | 10 × aufrecht | in der Luft: Rumpf über Standhöhe (0,115 m), je 5 cm 1, höchstens 2 |
+| lift | 4 × aufrecht | Steiggeschwindigkeit des Rumpfs (0–1 m/s) |
+| landed | 4 × aufrecht | nach einem Sprung wieder auf beiden Sohlen |
 | upright | 2 | aufrecht (exp(−g_xy²/0,05), Pollens Rezept) |
 | pose_legs / pose_neck | 1 / 1 | Beine / Hals nahe der Grundstellung (std 0,5 / 0,3) |
-| action_rate | −0,1 | Änderung der Aktion |
+| action_rate | −0,1 → −1,0 | Änderung der Aktion (steigt wie bei Pollen bis Iteration 1500) |
 | body_ang_vel | −0,05 | Drehrate des Rumpfs um x und y |
 | self_collisions | −1 | eigene Teile berühren sich |
 | body_contact | −2 | ein anderes Teil als die Sohlen berührt den Boden |
-| fall | −4 (einmalig) | über 60° gekippt oder Rumpf unter 5 cm: Episode endet |
+| fall | −20 (einmalig) | über 60° gekippt oder Rumpf unter 5 cm: Episode endet |
+
+Der Critic sieht zusätzlich, ob die Ente in dieser Episode schon gesprungen ist (9. Wert).
+
+Was die ersten Läufe zeigten (je einige Hunderttausend Schritte auf 2 Kernen):
+
+- **Erster Lauf:** Die Ente lernte, sich auf den Schwanz zu setzen und die Füße zu heben. Das zählte
+  als „in der Luft“. Seitdem heißt in der Luft: kein Teil berührt den Boden. Andere Teile als die
+  Sohlen auf dem Boden kosten.
+- **Zweiter Lauf:** Die Ente sprang 91 mm hoch, fiel aber jedes Mal (Hechtsprung). Seitdem zählen
+  die Sprungterme nur, soweit sie aufrecht bleibt. Eine Landung auf beiden Sohlen zahlt, und ein
+  Sturz kostet −20 statt −4.
 
 Die Gewichte sind ein erster Entwurf. Sie werden mit dem Training abgestimmt (Schritt 7).
 
