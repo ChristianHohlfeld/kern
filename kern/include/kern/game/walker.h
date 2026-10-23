@@ -26,7 +26,7 @@ std::vector<Actor> micro_duck_actors(bool rollers = false);
 /// Adds a Micro Duck to `level` standing at `at` (its trunk on the floor plane at z = 0 when at.z is
 /// 0) and sets the level's step rate for it; returns the trunk's id.
 ActorId add_micro_duck(Level& level, Vec3 at, bool rollers = false);
-/// Kern's jump (trained in Kern, docs/training.md): one jump in kJumpSeconds. Its network sees the
+/// Kern's jump (trained in Kern, docs/lehrer.md): one jump in kJumpSeconds. Its network sees the
 /// move's phase t / kJumpSeconds as cos and sin in observation slots kJumpPhaseSlot and the next (the
 /// body command's x and y, which Pollen's networks never use); the rest of the command is 0.
 constexpr f32 kJumpSeconds = 2.0f;

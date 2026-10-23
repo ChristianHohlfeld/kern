@@ -1,9 +1,9 @@
 // evaluate_jump (env.h): what a jump policy does on the clean robot.
 #include <cmath>
 
-#include "kern/train/env.h"
+#include "kern/lehrer/env.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 substeps) {
   JumpReport rep;
@@ -40,4 +40,4 @@ JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 subs
   return rep;
 }
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

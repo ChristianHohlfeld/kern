@@ -1,8 +1,8 @@
-// kern_train: trains a Micro Duck policy headless on all cores (docs/training.md).
+// kern_lehrer: trains a Micro Duck policy headless on all cores (docs/lehrer.md).
 //
-//   kern/tools/train.sh                      builds kern/build/kern_train (native, optimised)
-//   kern_train --task jump --iterations 600 --out jump.onnx
-//   kern_train --eval jump.onnx               the jump on the clean robot in the Studio's physics
+//   kern/tools/lehrer.sh                      builds kern/build/kern_lehrer (native, optimised)
+//   kern_lehrer --task jump --iterations 600 --out jump.onnx
+//   kern_lehrer --eval jump.onnx               the jump on the clean robot in the Studio's physics
 //
 // Long runs (on a server, say): --checkpoint run.ckpt saves the whole learner every --save-every
 // iterations; --resume run.ckpt carries on from it.
@@ -18,14 +18,14 @@
 
 #include "kern/game/walker.h"
 #include "kern/game/walker_policy.h"
-#include "kern/train/backend.h"
-#include "kern/train/env.h"
-#include "kern/train/onnx_export.h"
-#include "kern/train/ppo.h"
-#include "kern/train/recipe.h"
+#include "kern/lehrer/backend.h"
+#include "kern/lehrer/env.h"
+#include "kern/lehrer/onnx_export.h"
+#include "kern/lehrer/ppo.h"
+#include "kern/lehrer/recipe.h"
 
 using namespace kern;
-using namespace kern::train;
+using namespace kern::lehrer;
 
 namespace {
 
@@ -118,16 +118,16 @@ int main(int argc, char** argv) {
     else if (a == "--fingerprint") o.fingerprint = std::atoi(next());
     else {
       std::fprintf(stderr,
-                   "usage: kern_train [--task jump|stand] [--envs N] [--threads N] [--iterations 600] [--steps 24] [--seed 1]\n"
+                   "usage: kern_lehrer [--task jump|stand] [--envs N] [--threads N] [--iterations 600] [--steps 24] [--seed 1]\n"
                    "                  [--out task.onnx] [--log log.csv] [--checkpoint run.ckpt] [--resume run.ckpt] [--save-every 25]\n"
                    "                  [--warm-start velstand|none|file.onnx] [--init-std 0.3] [--lr 1e-3] [--entropy 0.005]\n"
                    "                  [--critic 256,128] [--substeps 16] [--eval-every 10] [--stop-after-jump]\n"
-                   "       kern_train --fingerprint 400       one state hash per control tick (determinism)\n"
-                   "       kern_train --eval policy.onnx [--episodes 10]\n");
+                   "       kern_lehrer --fingerprint 400       one state hash per control tick (determinism)\n"
+                   "       kern_lehrer --eval policy.onnx [--episodes 10]\n");
       return 2;
     }
   }
-  if (o.fingerprint > 0) {  // the determinism fingerprint (docs/training.md): one hash per control tick
+  if (o.fingerprint > 0) {  // the determinism fingerprint (docs/lehrer.md): one hash per control tick
     const std::vector<u64> h = determinism_fingerprint(o.fingerprint);
     for (std::size_t i = 0; i < h.size(); ++i) std::printf("%zu %016llx\n", i, static_cast<unsigned long long>(h[i]));
     return 0;

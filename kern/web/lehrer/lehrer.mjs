@@ -1,7 +1,7 @@
-// Kern Trainer page: collectors in Web Workers, one learner worker, a chart (docs/training.md).
+// Kern Lehrer page: collectors in Web Workers, one learner worker, a chart (docs/lehrer.md).
 const $ = id => document.getElementById(id);
 const here = new URL(".", import.meta.url);
-const wasmUrl = new URL("../../../generated/kern_train.wasm", here);
+const wasmUrl = new URL("../../../generated/kern_lehrer.wasm", here);
 const workerUrl = new URL("./worker.mjs", here);
 
 const cores = Math.max(1, (navigator.hardwareConcurrency || 2) - 1);
@@ -47,14 +47,14 @@ async function start() {
   $("start").disabled = true;
   $("pause").disabled = false;
   $("download").disabled = true;
-  status(`Starting ${workers} workers with ${envs} ducks each...`);
+  status(`Starte ${workers} Worker mit je ${envs} Enten ...`);
   try {
     wakeLock = await navigator.wakeLock?.request("screen").catch(() => null);
     const seed = Math.max(1, Number($("seed").value) || 1);
     learner = await spawn();
     collectors = await Promise.all(Array.from({ length: workers }, () => spawn()));
     // Worker i steps ducks i*envs .. (i+1)*envs-1 of one run: the same run as natively with as many
-    // ducks in all (bit for bit, docs/training.md).
+    // ducks in all (bit for bit, docs/lehrer.md).
     await Promise.all(collectors.map((w, i) => call(w, { type: "collector", task, envs, seed, first: i * envs }, "ready")));
     const config = {};
     if (Number($("initstd").value) > 0) config.initStd = Number($("initstd").value);
@@ -83,7 +83,7 @@ async function loop(task) {
     if (iteration % 25 === 0 || iteration === total) await exportOnnx(task);
   }
   if (running) {
-    status(`Done: ${iteration} iterations. Download the network and load it in Kern Studio.`);
+    status(`Fertig: ${iteration} Iterationen. Das Netz herunterladen oder direkt in Kern Studio nutzen.`);
     await exportOnnx(task);
     stop(true);
   }
@@ -97,19 +97,19 @@ async function exportOnnx(task) {
   await saveForStudio(`${task}.onnx`, d.onnx).catch(() => {});
 }
 
-/** Kern Studio on this device picks the network up (IndexedDB "kern-trained", key = file name), at
+/** Kern Studio on this device picks the network up (IndexedDB "kern-lehrer", key = file name), at
  *  once in open tabs (BroadcastChannel): the duck's "jump" move runs jump.onnx. */
 function saveForStudio(file, bytes) {
   return new Promise((resolve, reject) => {
-    const open = indexedDB.open("kern-trained", 1);
+    const open = indexedDB.open("kern-lehrer", 1);
     open.onupgradeneeded = () => open.result.createObjectStore("policies");
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
       const tx = open.result.transaction("policies", "readwrite");
       tx.objectStore("policies").put(bytes, file);
       tx.oncomplete = () => {
-        try { new BroadcastChannel("kern-trained").postMessage({ file }); } catch { /* no channel */ }
-        $("saved").textContent = `Saved for Kern Studio as ${file} (iteration ${iteration}).`;
+        try { new BroadcastChannel("kern-lehrer").postMessage({ file }); } catch { /* no channel */ }
+        $("saved").textContent = `Für Kern Studio gespeichert als ${file} (Iteration ${iteration}).`;
         resolve();
       };
       tx.onerror = () => reject(tx.error);
@@ -127,7 +127,7 @@ function show(s, seconds, steps) {
     history.push({ it: s.iteration, ret: s.meanReturn, len: s.meanLength * 0.02 });
   }
   $("s-std").textContent = s.meanStd.toFixed(3);
-  status(`Training: iteration ${s.iteration}, collecting ${s.collectSeconds.toFixed(2)} s, learning ${s.learnSeconds.toFixed(2)} s`);
+  status(`Lernt: Iteration ${s.iteration}, sammeln ${s.collectSeconds.toFixed(2)} s, lernen ${s.learnSeconds.toFixed(2)} s`);
   draw();
 }
 
@@ -165,7 +165,7 @@ function draw() {
   g.font = "11px system-ui";
   g.fillText(hi.toFixed(1), 4, pad + 4);
   g.fillText(lo.toFixed(1), 4, h - pad);
-  g.fillText(`iteration ${history[history.length - 1].it}`, w - pad - 80, h - 8);
+  g.fillText(`Iteration ${history[history.length - 1].it}`, w - pad - 80, h - 8);
 }
 
 function stop(done = false) {
@@ -178,14 +178,14 @@ function stop(done = false) {
   $("start").disabled = false;
   $("pause").disabled = true;
   $("pause").textContent = "Pause";
-  if (!done && !$("status").classList.contains("err")) status("Stopped.");
+  if (!done && !$("status").classList.contains("err")) status("Angehalten.");
 }
 
 $("start").onclick = start;
 $("pause").onclick = () => {
   paused = !paused;
-  $("pause").textContent = paused ? "Resume" : "Pause";
-  status(paused ? "Paused." : "Training...");
+  $("pause").textContent = paused ? "Weiter" : "Pause";
+  status(paused ? "Pausiert." : "Lernt ...");
 };
 $("download").onclick = () => {
   if (!onnx) return;
@@ -200,9 +200,9 @@ addEventListener("resize", draw);
 (async () => {
   try {
     module = await WebAssembly.compileStreaming(fetch(wasmUrl)).catch(async () => WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer()));
-    status(`Ready. ${navigator.hardwareConcurrency || "?"} cores on this device.`);
+    status(`Bereit. ${navigator.hardwareConcurrency || "?"} Kerne auf diesem Gerät.`);
   } catch (error) {
-    status(`The trainer could not load: ${error.message}`, true);
+    status(`Der Lehrer konnte nicht laden: ${error.message}`, true);
     $("start").disabled = true;
   }
 })();

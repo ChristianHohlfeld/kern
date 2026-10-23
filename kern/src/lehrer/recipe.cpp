@@ -1,10 +1,10 @@
 // Training recipes (recipe.h).
-#include "kern/train/recipe.h"
+#include "kern/lehrer/recipe.h"
 
 #include "kern/game/walker.h"
 #include "kern/game/walker_policy.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 f32 Recipe::push_scale(i32 iteration) const { return iteration < 300 ? 0.0f : iteration < 500 ? 0.27f : 1.0f; }
 
@@ -49,4 +49,4 @@ std::unique_ptr<Ppo> make_learner(const Recipe& recipe, u64 seed) {
   return ppo;
 }
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

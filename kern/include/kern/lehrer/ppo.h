@@ -13,10 +13,10 @@
 #include <string>
 #include <vector>
 
-#include "kern/train/env.h"
-#include "kern/train/nn.h"
+#include "kern/lehrer/env.h"
+#include "kern/lehrer/nn.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 struct PpoConfig {
   std::vector<i32> actor_hidden{512, 256, 128}, critic_hidden{512, 256, 128};
@@ -142,4 +142,4 @@ class Ppo {
   std::vector<u8> live_, timeout_;
 };
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

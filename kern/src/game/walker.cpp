@@ -517,7 +517,7 @@ const PolicySet& policy_set() {
         out.skills.push_back(std::move(d));
       }
     }
-    // Kern's own moves, trained in Kern (docs/training.md; Kern Trainer saves them for the Studio):
+    // Kern's own moves, trained in Kern (docs/lehrer.md; Kern Lehrer saves them for the Studio):
     // the jump runs like Pollen's kicks - a hard swap to its network, then back after the episode.
     SkillDef jump;
     jump.name = "jump";

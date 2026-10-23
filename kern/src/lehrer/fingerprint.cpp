@@ -2,9 +2,9 @@
 #include <cstring>
 
 #include "kern/game/walker_policy.h"
-#include "kern/train/env.h"
+#include "kern/lehrer/env.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 namespace {
 
 class WalkTask : public Task {
@@ -52,4 +52,4 @@ std::vector<u64> determinism_fingerprint(i32 ticks) {
   return out;
 }
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

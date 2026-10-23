@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#151516">
-<meta name="description" content="Kern Trainer: trains Micro Duck policies on this device, in Kern's own engine and physics.">
-<title>Kern Trainer</title>
+<meta name="description" content="Kern Lehrer: bringt dem Micro Duck auf diesem Gerät neue Bewegungen bei, in Kerns eigener Engine und Physik.">
+<title>Kern Lehrer</title>
 <style>
 :root {
   --bg1: #151516; --bg2: #1c1c1e; --bg3: #242427; --bg4: #2e2e32; --line2: #2b2b2f;
@@ -48,52 +48,52 @@ details p { margin: 6px 0; }
 <body>
 <main>
   <header>
-    <h1>Kern Trainer</h1>
-    <p>Teaches the Micro Duck new moves on this device: Kern's engine and Box3D, PPO in C++.</p>
+    <h1>Kern Lehrer</h1>
+    <p>Bringt dem Micro Duck auf diesem Gerät neue Bewegungen bei: Kerns Engine und Box3D, PPO in C++.</p>
     <a href="../editor/">Kern Studio</a>
   </header>
   <section class="panel">
     <div class="controls">
-      <label>Move
+      <label>Bewegung
         <select id="task">
-          <option value="jump">Jump</option>
-          <option value="stand">Stand (quick check)</option>
+          <option value="jump">Sprung</option>
+          <option value="stand">Stehen (Schnelltest)</option>
         </select>
       </label>
-      <label>Workers <input id="workers" type="number" min="1" max="64"></label>
-      <label>Ducks per worker <input id="envs" type="number" min="1" max="256" value="8"></label>
-      <label>Iterations <input id="iterations" type="number" min="1" max="100000" value="1500"></label>
+      <label>Worker <input id="workers" type="number" min="1" max="64"></label>
+      <label>Enten je Worker <input id="envs" type="number" min="1" max="256" value="8"></label>
+      <label>Iterationen <input id="iterations" type="number" min="1" max="100000" value="1500"></label>
       <label>Seed <input id="seed" type="number" min="1" value="1"></label>
-      <label>Action noise at start <input id="initstd" type="number" min="0.05" max="2" step="0.05" placeholder="recipe"></label>
-      <label>Learning rate <input id="lr" type="number" min="0.00001" max="0.01" step="0.0001" placeholder="recipe"></label>
+      <label>Aktionsrauschen am Anfang <input id="initstd" type="number" min="0.05" max="2" step="0.05" placeholder="Rezept"></label>
+      <label>Lernrate <input id="lr" type="number" min="0.00001" max="0.01" step="0.0001" placeholder="Rezept"></label>
     </div>
     <div class="buttons">
       <button id="start" class="go">Start</button>
       <button id="pause" disabled>Pause</button>
-      <button id="download" disabled>Download .onnx</button>
+      <button id="download" disabled>.onnx herunterladen</button>
     </div>
-    <div id="status">Loading the engine...</div>
+    <div id="status">Die Engine lädt ...</div>
     <div id="saved" class="saved"></div>
   </section>
   <section class="panel stats">
-    <div class="stat"><b id="s-it">0</b><span>iteration</span></div>
-    <div class="stat"><b id="s-steps">0</b><span>duck steps</span></div>
-    <div class="stat"><b id="s-sps">-</b><span>steps / s</span></div>
-    <div class="stat"><b id="s-ret">-</b><span>mean episode return</span></div>
-    <div class="stat"><b id="s-len">-</b><span>episode length (s)</span></div>
-    <div class="stat"><b id="s-std">-</b><span>action noise (std)</span></div>
+    <div class="stat"><b id="s-it">0</b><span>Iteration</span></div>
+    <div class="stat"><b id="s-steps">0</b><span>Entenschritte</span></div>
+    <div class="stat"><b id="s-sps">-</b><span>Schritte / s</span></div>
+    <div class="stat"><b id="s-ret">-</b><span>mittlere Episoden-Rückgabe</span></div>
+    <div class="stat"><b id="s-len">-</b><span>Episodenlänge (s)</span></div>
+    <div class="stat"><b id="s-std">-</b><span>Aktionsrauschen (std)</span></div>
   </section>
   <section class="panel">
     <canvas id="chart"></canvas>
-    <div class="legend"><span><i style="background:var(--play)"></i>episode return</span><span><i style="background:var(--accent)"></i>episode length</span></div>
+    <div class="legend"><span><i style="background:var(--play)"></i>Episoden-Rückgabe</span><span><i style="background:var(--accent)"></i>Episodenlänge</span></div>
   </section>
   <details class="panel">
-    <summary>How it works</summary>
-    <p>Every worker runs its own ducks in Kern's engine (the same servos, sensors and 50 Hz controller as in Kern Studio) and acts with the current policy. The learner gathers their steps and improves the policy with PPO, the recipe Pollen Robotics trains the robot's networks with. The result is an ONNX file in the shape of Pollen's networks, so Kern Studio and the robot itself can load it.</p>
-    <p>Keep this tab open while it trains; on a phone, plug it in. More workers use more cores.</p>
-    <p>Every 25 iterations the network is saved on this device for Kern Studio: the Micro Duck's "jump" move (Logic node Robot Move, move "jump") runs the latest jump network, in open Studio tabs at once.</p>
+    <summary>Wie es funktioniert</summary>
+    <p>Jeder Worker führt seine eigenen Enten in Kerns Engine (dieselben Servos, Sensoren und derselbe 50-Hz-Regler wie im Kern Studio) und handelt mit der aktuellen Policy. Der Lerner sammelt ihre Schritte und verbessert die Policy mit PPO, dem Rezept, mit dem Pollen Robotics die Netze des Roboters trainiert. Heraus kommt eine ONNX-Datei im Format von Pollens Netzen; Kern Studio und der Roboter selbst können sie laden.</p>
+    <p>Diesen Tab offen lassen, solange er lernt; ein Handy ans Ladekabel. Mehr Worker nutzen mehr Kerne. Gleicher Seed und gleich viele Enten ergeben Bit für Bit dasselbe Netz, auf jedem Gerät.</p>
+    <p>Alle 25 Iterationen wird das Netz auf diesem Gerät für Kern Studio gespeichert: Die Bewegung „jump“ des Micro Duck (Logik-Knoten Robot Move, Bewegung „jump“) nutzt dann das neueste Sprung-Netz, in offenen Studio-Tabs sofort.</p>
   </details>
 </main>
-<script type="module" src="../kern/web/train/train.mjs"></script>
+<script type="module" src="../kern/web/lehrer/lehrer.mjs"></script>
 </body>
 </html>

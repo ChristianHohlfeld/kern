@@ -393,7 +393,7 @@ void add_walker_nodes(logic::Library& lib) {
                  "brain behaviour wander ai duck robot"));
   lib.add(action("walker.skill", "Robot Move", "Robots", {data("target", "Robot", PinType::actor, 0), data("move", "Move", PinType::text, "pick")}, {},
                  [](Context& c, GameWorld& w) { w.walker_skill(target(c), c.in_text("move")); },
-                 "One of the robot's moves, as its daemon runs them: sit (toggles), pick (ground pick; the crouch on rollers), kick_left, kick_right, roulade; and jump, Kern's own (trained in Kern Trainer).",
+                 "One of the robot's moves, as its daemon runs them: sit (toggles), pick (ground pick; the crouch on rollers), kick_left, kick_right, roulade; and jump, Kern's own (trained in Kern Lehrer).",
                  "skill sit kick roll pick duck robot"));
   lib.add(action("walker.beak", "Robot Beak", "Robots", {data("target", "Robot", PinType::actor, 0), data("open", "Open (0-1)", PinType::number, 1.0)}, {},
                  [](Context& c, GameWorld& w) { w.walker_mouth(target(c), static_cast<f32>(c.in_number("open"))); },

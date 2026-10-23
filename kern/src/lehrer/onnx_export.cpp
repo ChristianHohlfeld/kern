@@ -1,9 +1,9 @@
 // ONNX export (see onnx_export.h): a small protobuf writer, just the messages a model needs.
-#include "kern/train/onnx_export.h"
+#include "kern/lehrer/onnx_export.h"
 
 #include <cstring>
 
-namespace kern::train {
+namespace kern::lehrer {
 namespace {
 
 class Pb {
@@ -138,8 +138,8 @@ std::vector<std::pair<std::string, std::string>> micro_duck_metadata(const std::
       {"joint_stiffness", "1.000,1.000,1.000,1.000,1.000,1.000,1.000,1.000,1.000,1.000,1.000,1.000,1.000,1.000"},
       {"joint_damping", "0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000"},
       {"task", task},
-      {"trainer", "Kern (C++ PPO on Box3D)"},
+      {"lehrer", "Kern (C++ PPO on Box3D)"},
   };
 }
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

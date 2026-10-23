@@ -1,16 +1,16 @@
-// The training recipe of each task, shared by every place that trains (kern_train natively, the
-// browser's workers through train_api.cpp): the same tasks, environments, seeds, curricula, PPO
+// The training recipe of each task, shared by every place that trains (kern_lehrer natively, the
+// browser's workers through lehrer_api.cpp): the same tasks, environments, seeds, curricula, PPO
 // settings and warm start everywhere, so the same run gives the same network everywhere
-// (docs/training.md, determinism).
+// (docs/lehrer.md, determinism).
 #pragma once
 
 #include <memory>
 #include <string>
 
-#include "kern/train/env.h"
-#include "kern/train/ppo.h"
+#include "kern/lehrer/env.h"
+#include "kern/lehrer/ppo.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 struct Recipe {
   std::string task;
@@ -32,4 +32,4 @@ void prepare_env(DuckEnv& env, const Recipe& recipe, i32 iteration);
 /// A learner for `recipe`, warm-started as it says. nullptr when the warm start is not possible.
 std::unique_ptr<Ppo> make_learner(const Recipe& recipe, u64 seed);
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

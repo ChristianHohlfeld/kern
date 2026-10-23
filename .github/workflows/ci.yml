@@ -31,7 +31,7 @@ jobs:
       - name: Native unit tests (ASan/UBSan)
         run: CXX=g++ CC=gcc kern/tests/run.sh
 
-  # Bit-identical everywhere (docs/training.md, determinism): the Lehrer built with Apple clang on
+  # Bit-identical everywhere (docs/lehrer.md, determinism): the Lehrer built with Apple clang on
   # ARM must step the duck exactly as GCC on x86 and WebAssembly do (the golden hashes).
   determinism:
     runs-on: macos-14
@@ -39,9 +39,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the Lehrer (Apple clang, arm64)
-        run: KERN_NATIVE=1 kern/tools/train.sh build-mac
+        run: KERN_NATIVE=1 kern/tools/lehrer.sh build-mac
       - name: Same hashes as x86 and wasm
-        run: build-mac/kern_train --fingerprint 400 | diff - kern/tests/determinism_fingerprint.txt
+        run: build-mac/kern_lehrer --fingerprint 400 | diff - kern/tests/determinism_fingerprint.txt
 
   build:
     runs-on: ubuntu-latest
@@ -77,10 +77,10 @@ jobs:
           tools/build_studio.sh
           kern/build.sh --app kern/examples/hello/hello.wasm kern/examples/hello/hello.cpp
           kern/build.sh --app kern/examples/orbrun/orbrun.wasm kern/examples/orbrun/orbrun.cpp
-          kern/build.sh --train generated/kern_train.wasm
-          for f in kern/web/kern.mjs kern/web/app.mjs kern/web/studio/*.mjs kern/web/train/*.mjs tools/net_relay.mjs; do node --check "$f"; done
-      - name: Trainer in WebAssembly (one PPO iteration through the workers' C ABI)
-        run: node kern/tests/train_wasm_test.mjs generated/kern_train.wasm
+          kern/build.sh --lehrer generated/kern_lehrer.wasm
+          for f in kern/web/kern.mjs kern/web/app.mjs kern/web/studio/*.mjs kern/web/lehrer/*.mjs tools/net_relay.mjs; do node --check "$f"; done
+      - name: Lehrer in WebAssembly (one PPO iteration through the workers' C ABI)
+        run: node kern/tests/lehrer_wasm_test.mjs generated/kern_lehrer.wasm
       - name: Logic JIT (graphs compiled to WebAssembly must match the interpreter)
         run: |
           set -euo pipefail
@@ -100,11 +100,13 @@ jobs:
           # The Micro Duck's policy set (Apache-2.0): the editor loads the moves it needs from here.
           mkdir -p _site/editor/microduck && cp kern/third_party/microduck/*.onnx _site/editor/microduck/
           cp generated/kern_studio.wasm _site/generated/
-          # The trainer (docs/training.md): its page, workers and module.
-          mkdir -p _site/train _site/kern/web/train
-          cp kern/web/train/index.html _site/train/
-          cp kern/web/train/*.mjs _site/kern/web/train/
-          cp generated/kern_train.wasm _site/generated/
+          # The Lehrer (docs/lehrer.md): its page, workers and module.
+          mkdir -p _site/lehrer _site/kern/web/lehrer
+          cp kern/web/lehrer/index.html _site/lehrer/
+          cp kern/web/lehrer/*.mjs _site/kern/web/lehrer/
+          cp generated/kern_lehrer.wasm _site/generated/
+          # Its old address (/train/) leads there.
+          mkdir -p _site/train && printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=../lehrer/"><a href="../lehrer/">Kern Lehrer</a>\n' > _site/train/index.html
           cp kern/web/kern.mjs kern/web/app.mjs _site/kern/web/
           cp kern/web/studio/*.mjs kern/web/studio/*.html kern/web/studio/*.css _site/kern/web/studio/
           for g in hello orbrun; do

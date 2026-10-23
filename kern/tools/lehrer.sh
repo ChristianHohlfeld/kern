@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Builds kern_train, the headless Lehrer (native, optimised, all cores; Linux and macOS, x86 and ARM):
-#   kern/tools/train.sh [out-dir]      -> <out-dir>/kern_train (default kern/build)
-# Then e.g.: kern/build/kern_train --task jump --iterations 600 --out jump.onnx
+# Builds kern_lehrer, the headless Lehrer (native, optimised, all cores; Linux and macOS, x86 and ARM):
+#   kern/tools/lehrer.sh [out-dir]      -> <out-dir>/kern_lehrer (default kern/build)
+# Then e.g.: kern/build/kern_lehrer --task jump --iterations 600 --out jump.onnx
 #
-# Bit-identical with the browser and the Studio (docs/training.md, determinism): Box3D's scalar path,
+# Bit-identical with the browser and the Studio (docs/lehrer.md, determinism): Box3D's scalar path,
 # no FMA contraction anywhere (-ffp-contract=off), the deterministic libm (third_party/musl_math).
 # The CPU-specific flags (KERN_NATIVE=1, the default) only let the compiler pick instructions; they
 # never change a result.
@@ -54,7 +54,7 @@ for c in "$root"/third_party/musl_math/src/*.c; do
 done
 sources=()
 while IFS= read -r f; do sources+=("$f"); done < <(find "$root/src" -name '*.cpp' -not -path "*/studio/*" -not -path "*/app/*" | sort)
-sources+=("$root/tests/gl_stub.cpp" "$here/kern_train.cpp")
+sources+=("$root/tests/gl_stub.cpp" "$here/kern_lehrer.cpp")
 flags=(-std=c++20 "${opt[@]}" -fno-exceptions -fno-rtti -I"$root/include" -I"$root/third_party/box3d/include" -I"$root/tests")
 newest_header="$(ls -t $(find "$root/include" "$root/src" -name '*.h' -o -name '*.inc') | head -1)"
 objects=()
@@ -65,5 +65,5 @@ for f in "${sources[@]}"; do
   if stale "$o" "$f" "$newest_header"; then run "$cxx" "${flags[@]}" -c "$f" -o "$o"; fi
 done
 finish
-"$cxx" "${opt[@]}" "${objects[@]}" "$out"/obj/box3d/*.o "$out"/obj/musl_math/*.o -lm -lpthread -o "$out/kern_train"
-echo "built $out/kern_train"
+"$cxx" "${opt[@]}" "${objects[@]}" "$out"/obj/box3d/*.o "$out"/obj/musl_math/*.o -lm -lpthread -o "$out/kern_lehrer"
+echo "built $out/kern_lehrer"

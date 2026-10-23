@@ -1,9 +1,9 @@
-// Where the trainer's computing happens (docs/training.md). The learner (Ppo) only ever sees a
+// Where the Lehrer's computing happens (docs/lehrer.md). The learner (Ppo) only ever sees a
 // Backend: it hands it the current Policy and gets rollouts back, and it asks it for the parallel
 // runner its update uses. Behind it the compute is interchangeable:
 //   - ThreadBackend: environments on this machine's threads (native),
 //   - the browser: Web Workers, each a Collector with its own environments, driven by the page
-//     through the C ABI (src/train/train_api.cpp),
+//     through the C ABI (src/lehrer/lehrer_api.cpp),
 //   - later remote machines.
 // All of them exchange the same flat buffers: Policy::serialize / Rollout::serialize.
 #pragma once
@@ -13,10 +13,10 @@
 #include <string>
 #include <vector>
 
-#include "kern/train/env.h"
-#include "kern/train/ppo.h"
+#include "kern/lehrer/env.h"
+#include "kern/lehrer/ppo.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 class Backend {
  public:
@@ -39,7 +39,7 @@ using EnvFactory = std::function<std::vector<std::unique_ptr<Env>>(i32 first, i3
 using EnvPrepare = std::function<void(Env& env, i32 iteration)>;
 
 /// Native: `workers` groups of environments, each stepped on its own thread. The result is the same
-/// for any number of workers with the same total of environments (docs/training.md, determinism).
+/// for any number of workers with the same total of environments (docs/lehrer.md, determinism).
 class ThreadBackend : public Backend {
  public:
   ThreadBackend(i32 workers, i32 envs_per_worker, u64 seed, const EnvFactory& make, EnvPrepare prepare = {});
@@ -63,4 +63,4 @@ class ThreadBackend : public Backend {
 /// The training loop over any backend: hand out the policy, collect, learn.
 IterationStats train_iteration(Ppo& ppo, Backend& backend);
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

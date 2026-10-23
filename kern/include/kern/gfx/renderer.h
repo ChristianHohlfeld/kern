@@ -170,7 +170,7 @@ class Renderer {
   void context_lost();
   bool context_restored();
   bool lost() const { return lost_; }
-  /// No GPU at all (a headless simulation, e.g. the trainer): meshes stay on the CPU and nothing
+  /// No GPU at all (a headless simulation, e.g. the Lehrer): meshes stay on the CPU and nothing
   /// touches GL, as while the context is lost. Call instead of init().
   void set_headless() { if (!initialised_) lost_ = true; }
 

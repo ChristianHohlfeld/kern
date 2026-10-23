@@ -1,7 +1,7 @@
 // Backends (backend.h): where rollouts are collected and the update's parallel work runs.
-#include "kern/train/backend.h"
+#include "kern/lehrer/backend.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 ThreadBackend::ThreadBackend(i32 workers, i32 envs_per_worker, u64 seed, const EnvFactory& make, EnvPrepare prepare)
     : prepare_(std::move(prepare)), pool_(thread_pool(workers)) {
@@ -43,4 +43,4 @@ IterationStats train_iteration(Ppo& ppo, Backend& backend) {
   return ppo.learn(ptrs);
 }
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

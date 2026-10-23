@@ -25,7 +25,7 @@ werden wie dort als Gewicht × Term × dt summiert.
 | 6. Training im Browser (Web Worker, Desktop und Handy) | fertig |
 | 7. Das Sprung-Netz trainieren und als Fertigkeit einbinden | offen |
 
-## 1. Die Umgebung (`src/train`)
+## 1. Die Umgebung (`src/lehrer`)
 
 - **`DuckEnv`:** eine Ente auf ebenem Boden in einer eigenen GameWorld.
   - Der Renderer bleibt headless (`Renderer::set_headless`): Meshes bleiben auf der CPU, GL wird nie
@@ -33,7 +33,7 @@ werden wie dort als Gewicht × Term × dt summiert.
   - `reset()`, dann im Takt `observation()` / `step(action)`.
   - Ein `step` ist ein Regeltakt: 20 ms Roboterzeit, 4 feste Schritte der Welt.
 - **Externe Steuerung:** `set_walker_external` und `set_walker_action`.
-  - Der Regler nimmt die Aktion des Trainers statt eines Netzes.
+  - Der Regler nimmt die Aktion des Lehrers statt eines Netzes.
   - Die Servos bekommen sie wie trainiert: Grundstellung + Aktion, Skalierung 1, kein Tiefpass, mit
     der Totzeit.
 - **Beobachtung:** `walker_observation` liefert zwischen zwei Takten genau, was der Regler beim
@@ -107,7 +107,7 @@ Nächste Schritte für den Sprung:
 
 Die Gewichte sind ein erster Entwurf. Sie werden mit dem Training abgestimmt (Schritt 7).
 
-## 2. Netze (`src/train/nn.cpp`)
+## 2. Netze (`src/lehrer/nn.cpp`)
 
 - **`Mlp`:** Schichten mit ELU dazwischen und linearer Ausgabe, wie rsl_rls Actor und Critic
   (512/256/128).
@@ -123,7 +123,7 @@ Die Gewichte sind ein erster Entwurf. Sie werden mit dem Training abgestimmt (Sc
 - **Test:** Adam lernt sin(x) (mittlerer quadratischer Fehler < 0,01). Der Normalisierer stimmt mit
   Mittelwert und Varianz des ganzen Datensatzes überein.
 
-## 3. PPO (`src/train/ppo.cpp`)
+## 3. PPO (`src/lehrer/ppo.cpp`)
 
 PPO folgt rsl_rls Implementierung, mit der Pollen seine Netze trainiert:
 
@@ -144,22 +144,22 @@ PPO folgt rsl_rls Implementierung, mit der Pollen seine Netze trainiert:
 - **Test `train_ppo_learns_to_reach`:** Ein Punkt lernt, zu einem Ziel zu fahren. Die Rückgabe
   verbessert sich von −5,7 auf −0,8 in 60 Iterationen (9 s im Sanitizer-Build).
 
-## 4. Export (`src/train/onnx_export.cpp`)
+## 4. Export (`src/lehrer/onnx_export.cpp`)
 
 - **Format:** Der trainierte Actor wird als ONNX geschrieben, aufgebaut wie Pollens exportierte
   Netze:
   - Eingang `obs` [1, 61], Ausgang `actions` [1, 14], Opset 17.
   - Sub(Mittelwert), Div(σ + 0,01), dann (Gemm mit transB, Elu)* und Gemm.
 - **Metadaten:** dieselben Schlüssel wie bei Pollen (Gelenknamen, Grundstellung, Layout der
-  Beobachtung, `action_scale`). Dazu kommen `task` und `trainer`.
+  Beobachtung, `action_scale`). Dazu kommen `task` und `lehrer`.
 - **Ohne Abhängigkeit:** Der Protobuf-Schreiber ist ein kleines Stück C++.
 - **Prüfung:**
   - `train_exports_onnx_like_pollens_networks`: Kern liest die Datei (`parse_onnx_policy`), und sie
-    rechnet bis 1e-4 genau dasselbe wie der Actor im Trainer.
+    rechnet bis 1e-4 genau dasselbe wie der Actor im Lehrer.
   - Eine exportierte Datei lädt und rechnet auch mit ONNX Runtime, der Laufzeit des Roboters (lokal
     geprüft).
 
-## 5. Variation und natives Training (`tools/kern_train.cpp`)
+## 5. Variation und natives Training (`tools/kern_lehrer.cpp`)
 
 ### Variation je Episode
 
@@ -182,9 +182,9 @@ den sauberen Zustand.
 ### Lauf
 
 ```
-kern/tools/train.sh                    # baut kern/build/kern_train (nativ, -O3, alle Kerne)
-kern/build/kern_train --task jump --envs 64 --iterations 1500 --out jump.onnx --log jump.csv
-kern/build/kern_train --eval jump.onnx --task jump   # sauberer Roboter: Höhe, Flugzeit, Stürze
+kern/tools/lehrer.sh                    # baut kern/build/kern_lehrer (nativ, -O3, alle Kerne)
+kern/build/kern_lehrer --task jump --envs 64 --iterations 1500 --out jump.onnx --log jump.csv
+kern/build/kern_lehrer --eval jump.onnx --task jump   # sauberer Roboter: Höhe, Flugzeit, Stürze
 ```
 
 - **Fortschritt:** Jede Iteration schreibt eine Zeile (CSV mit `--log`).
@@ -200,12 +200,12 @@ kern/build/kern_train --eval jump.onnx --task jump   # sauberer Roboter: Höhe, 
   dass bei 4096 Umgebungen die Normalisierer im Rollout kaum wandern; bei einigen Dutzend
   Umgebungen verfälscht das sonst KL und Ratio.
 
-## 6. Training im Browser (`kern/web/train/`, Seite `/train/`)
+## 6. Training im Browser (`kern/web/lehrer/`, Seite `/lehrer/`)
 
 ### Aufbau
 
-- **Build:** `kern/build.sh --train` baut den Trainer als WebAssembly-Modul (`kern_train.wasm`):
-  Engine, Box3D, Spiel-Laufzeit, `src/train` und die C-Schnittstelle (`src/train/train_api.cpp`).
+- **Build:** `kern/build.sh --lehrer` baut den Lehrer als WebAssembly-Modul (`kern_lehrer.wasm`):
+  Engine, Box3D, Spiel-Laufzeit, `src/lehrer` und die C-Schnittstelle (`src/lehrer/lehrer_api.cpp`).
 - **Sammler:** Jeder Web Worker lädt das Modul einmal. Er führt seine eigenen Enten mit der Policy,
   die er bekommt, und gibt den Rollout als Bytes zurück.
 - **Lerner:** ein eigener Worker. Er sammelt die Rollouts aller Sammler ein, macht das PPO-Update und
@@ -220,7 +220,7 @@ kern/build/kern_train --eval jump.onnx --task jump   # sauberer Roboter: Höhe, 
 
 ### Test
 
-- **CI:** `kern/tests/train_wasm_test.mjs` führt eine PPO-Iteration durch die C-Schnittstelle der
+- **CI:** `kern/tests/lehrer_wasm_test.mjs` führt eine PPO-Iteration durch die C-Schnittstelle der
   Worker aus und prüft den ONNX-Export.
 - **Lokal (Playwright):** 2 Worker, 3 Iterationen; die heruntergeladene Datei lädt in ONNX Runtime.
 
@@ -254,12 +254,12 @@ anders aussieht.
 
 ### Prüfung
 
-- **Fingerabdruck:** `kern_train --fingerprint 400` lässt die Ente 400 Regeltakte gehen und drehen
+- **Fingerabdruck:** `kern_lehrer --fingerprint 400` lässt die Ente 400 Regeltakte gehen und drehen
   (Pollens Netz, Studio-Physik) und gibt je Takt einen Hash über Lage, Geschwindigkeiten und alle
   Gelenke aus. Die Referenz liegt in `tests/determinism_fingerprint.txt`.
 - **CI prüft sie dreimal:**
   - GCC auf x86 mit Sanitizern (Test `determinism_is_bit_identical_across_builds_and_platforms`),
-  - WebAssembly in Node (`tests/train_wasm_test.mjs`),
+  - WebAssembly in Node (`tests/lehrer_wasm_test.mjs`),
   - Apple clang auf ARM (macOS-Job `determinism`, mit `-mcpu=native`).
 - **Worker:** `train_runs_the_same_on_any_number_of_workers` trainiert mit 1, 2 und 4 Workern
   (je 8 Enten insgesamt) und vergleicht die Netze Byte für Byte.

@@ -1,4 +1,4 @@
-// A trainer Web Worker (kern/web/train/): one Kern module (kern_train.wasm) per worker. A worker is
+// A Lehrer Web Worker (kern/web/lehrer/): one Kern module (kern_lehrer.wasm) per worker. A worker is
 // a collector (its own ducks, the policy it is handed, returns rollouts) or the learner (PPO).
 import { loadKern } from "../kern.mjs";
 
@@ -18,7 +18,7 @@ function withBytes(bytes, fn) {
 function withText(text, fn) { return withBytes(enc.encode(text), fn); }
 function resultBytes(ptr) {
   if (!ptr) return null;
-  return kern.u8.slice(ptr, ptr + kern.exports.kern_train_result_length());
+  return kern.u8.slice(ptr, ptr + kern.exports.kern_lehrer_result_length());
 }
 
 self.onmessage = async ({ data: m }) => {
@@ -27,19 +27,19 @@ self.onmessage = async ({ data: m }) => {
       kern = await loadKern({ module: m.module });
       self.postMessage({ type: "loaded" });
     } else if (m.type === "collector") {
-      const ok = withText(m.task, (p, n) => kern.exports.kern_train_create(p, n, m.envs, m.seed, m.first));
+      const ok = withText(m.task, (p, n) => kern.exports.kern_lehrer_create(p, n, m.envs, m.seed, m.first));
       self.postMessage({ type: "ready", ok: !!ok });
     } else if (m.type === "collect") {
-      kern.exports.kern_train_progress(m.iteration);
+      kern.exports.kern_lehrer_progress(m.iteration);
       const policy = new Float32Array(m.policy);
-      const ok = withBytes(policy, (p, n) => kern.exports.kern_train_set_policy(p, n >> 2));
+      const ok = withBytes(policy, (p, n) => kern.exports.kern_lehrer_set_policy(p, n >> 2));
       if (!ok) throw Error("the policy did not load");
       const t0 = performance.now();
-      const rollout = resultBytes(kern.exports.kern_train_collect(m.steps));
+      const rollout = resultBytes(kern.exports.kern_lehrer_collect(m.steps));
       if (!rollout) throw Error("collect failed");
       self.postMessage({ type: "rollout", rollout: rollout.buffer, ms: performance.now() - t0 }, [rollout.buffer]);
     } else if (m.type === "learner") {
-      const ok = withText(m.task, (tp, tn) => withText(JSON.stringify(m.config || {}), (cp, cn) => kern.exports.kern_train_learner(tp, tn, cp, cn, m.seed)));
+      const ok = withText(m.task, (tp, tn) => withText(JSON.stringify(m.config || {}), (cp, cn) => kern.exports.kern_lehrer_learner(tp, tn, cp, cn, m.seed)));
       if (!ok) throw Error("unknown task " + m.task);
       self.postMessage({ type: "policy", policy: policyBuffer() }, []);
     } else if (m.type === "learn") {
@@ -54,13 +54,13 @@ self.onmessage = async ({ data: m }) => {
         all.set(new Uint8Array(r), at + 4);
         at += 4 + r.byteLength;
       }
-      const statsPtr = withBytes(all, (p, n) => kern.exports.kern_train_learn(p, n, m.rollouts.length));
+      const statsPtr = withBytes(all, (p, n) => kern.exports.kern_lehrer_learn(p, n, m.rollouts.length));
       if (!statsPtr) throw Error("learn failed");
-      const stats = JSON.parse(kern.string(statsPtr, kern.exports.kern_train_result_length()));
+      const stats = JSON.parse(kern.string(statsPtr, kern.exports.kern_lehrer_result_length()));
       const policy = policyBuffer();
       self.postMessage({ type: "learned", stats, policy }, [policy]);
     } else if (m.type === "export") {
-      const onnx = resultBytes(kern.exports.kern_train_export_onnx());
+      const onnx = resultBytes(kern.exports.kern_lehrer_export_onnx());
       self.postMessage({ type: "onnx", onnx: onnx.buffer }, [onnx.buffer]);
     }
   } catch (error) {
@@ -69,7 +69,7 @@ self.onmessage = async ({ data: m }) => {
 };
 
 function policyBuffer() {
-  const ptr = kern.exports.kern_train_policy();
-  const bytes = kern.u8.slice(ptr, ptr + kern.exports.kern_train_result_length());
+  const ptr = kern.exports.kern_lehrer_policy();
+  const bytes = kern.u8.slice(ptr, ptr + kern.exports.kern_lehrer_result_length());
   return bytes.buffer;
 }

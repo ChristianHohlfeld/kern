@@ -1,4 +1,4 @@
-// The trainer's neural networks, in plain C++: a multilayer perceptron (ELU between layers, linear
+// The Lehrer's neural networks, in plain C++: a multilayer perceptron (ELU between layers, linear
 // output, as rsl_rl's actor and critic), its gradient, Adam, and the running observation normaliser.
 // Batched and cache-friendly; no dependency beyond the standard library.
 #pragma once
@@ -8,9 +8,9 @@
 #include <vector>
 
 #include "kern/core/base.h"
-#include "kern/train/env.h"
+#include "kern/lehrer/env.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 class Mlp {
  public:
@@ -85,4 +85,4 @@ class Normalizer {
   f64 count_ = 0;
 };
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

@@ -16,11 +16,11 @@
 #include "kern/game/walker_policy.h"
 #include "kern/game/runtime.h"
 #include "kern/game/walker.h"
-#include "kern/train/env.h"
-#include "kern/train/nn.h"
-#include "kern/train/ppo.h"
-#include "kern/train/onnx_export.h"
-#include "kern/train/backend.h"
+#include "kern/lehrer/env.h"
+#include "kern/lehrer/nn.h"
+#include "kern/lehrer/ppo.h"
+#include "kern/lehrer/onnx_export.h"
+#include "kern/lehrer/backend.h"
 #include "kern/studio/studio.h"
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
@@ -4245,9 +4245,9 @@ TEST(micro_duck_rolls_forward_on_its_skates) {
   CHECK(r.min_up > 0.8f);
 }
 
-TEST(train_mlp_gradient_matches_finite_differences) {
-  train::Rng rng(3);
-  train::Mlp net;
+TEST(lehrer_mlp_gradient_matches_finite_differences) {
+  lehrer::Rng rng(3);
+  lehrer::Mlp net;
   net.init({5, 7, 6, 3}, rng);
   const i32 batch = 4;
   std::vector<f32> x(batch * 5), c(batch * 3), out(batch * 3);
@@ -4259,7 +4259,7 @@ TEST(train_mlp_gradient_matches_finite_differences) {
     for (std::size_t k = 0; k < out.size(); ++k) L += static_cast<f64>(out[k]) * c[k];
     return L;
   };
-  train::Mlp::Cache cache;
+  lehrer::Mlp::Cache cache;
   net.forward(x.data(), batch, out.data(), &cache);
   std::vector<f32> grad(net.params().size(), 0.0f), dx(x.size());
   net.backward(cache, c.data(), grad.data(), dx.data());
@@ -4292,18 +4292,18 @@ TEST(train_mlp_gradient_matches_finite_differences) {
   CHECK(std::memcmp(one.data(), out.data() + 3, sizeof(f32) * 3) == 0);
 }
 
-TEST(train_adam_fits_a_curve_and_the_normaliser_tracks) {
-  train::Rng rng(9);
-  train::Mlp net;
+TEST(lehrer_adam_fits_a_curve_and_the_normaliser_tracks) {
+  lehrer::Rng rng(9);
+  lehrer::Mlp net;
   net.init({1, 32, 32, 1}, rng);
-  train::Adam adam;
+  lehrer::Adam adam;
   adam.lr = 3e-3f;
   const i32 batch = 64;
   std::vector<f32> x(batch), y(batch), out(batch), d(batch), grad;
   f32 mse = 1;
   for (i32 it = 0; it < 1500; ++it) {
     for (i32 b = 0; b < batch; ++b) { x[b] = rng.uniform(-3.14159f, 3.14159f); y[b] = std::sin(x[b]); }
-    train::Mlp::Cache cache;
+    lehrer::Mlp::Cache cache;
     net.forward(x.data(), batch, out.data(), &cache);
     mse = 0;
     for (i32 b = 0; b < batch; ++b) { d[b] = 2 * (out[b] - y[b]) / batch; mse += (out[b] - y[b]) * (out[b] - y[b]) / batch; }
@@ -4313,7 +4313,7 @@ TEST(train_adam_fits_a_curve_and_the_normaliser_tracks) {
   }
   CHECK(mse < 0.01f);
   // The running normaliser agrees with the whole data's mean and variance.
-  train::Normalizer n;
+  lehrer::Normalizer n;
   n.init(2);
   std::vector<f32> data;
   for (i32 i = 0; i < 300; ++i) { data.push_back(rng.uniform(2, 6)); data.push_back(rng.normal() * 3 - 1); }
@@ -4329,7 +4329,7 @@ TEST(train_adam_fits_a_curve_and_the_normaliser_tracks) {
 
 namespace {
 // A point that should go to a target: PPO's quick sanity check (seconds, not hours).
-class ReachEnv : public train::Env {
+class ReachEnv : public lehrer::Env {
  public:
   explicit ReachEnv(u64 seed) : rng_(seed) {}
   i32 obs_size() const override { return 4; }
@@ -4351,31 +4351,31 @@ class ReachEnv : public train::Env {
   }
 
  private:
-  train::Rng rng_;
+  lehrer::Rng rng_;
   f32 s_[4] = {};
   i32 steps_ = 0;
 };
 }  // namespace
 
-TEST(train_ppo_learns_to_reach) {
-  train::PpoConfig cfg;
+TEST(lehrer_ppo_learns_to_reach) {
+  lehrer::PpoConfig cfg;
   cfg.actor_hidden = cfg.critic_hidden = {32, 32};
   cfg.init_std = 0.5f;
   cfg.steps_per_env = 40;
   cfg.learning_rate = 3e-3f;
   cfg.seed = 4;
   std::vector<std::unique_ptr<ReachEnv>> owned;
-  std::vector<train::Env*> envs;
+  std::vector<lehrer::Env*> envs;
   for (int i = 0; i < 16; ++i) {
     owned.push_back(std::make_unique<ReachEnv>(100 + i));
     owned.back()->reset();
     envs.push_back(owned.back().get());
   }
-  train::Ppo ppo(cfg, 4, 4, 2);
-  const auto pool = train::thread_pool(2);
+  lehrer::Ppo ppo(cfg, 4, 4, 2);
+  const auto pool = lehrer::thread_pool(2);
   f32 first = 0, last = 0;
   for (int it = 0; it < 60; ++it) {
-    const train::IterationStats s = ppo.iterate(envs, pool);
+    const lehrer::IterationStats s = ppo.iterate(envs, pool);
     CHECK(std::isfinite(s.value_loss) && std::isfinite(s.surrogate_loss));
     if (it == 0) first = s.mean_return;
     last = s.mean_return;
@@ -4388,25 +4388,25 @@ TEST(train_ppo_learns_to_reach) {
   CHECK(a[0] > 0.3f && a[1] < -0.3f);
 }
 
-TEST(train_ppo_learns_from_collectors_elsewhere) {
+TEST(lehrer_ppo_learns_from_collectors_elsewhere) {
   // The browser's shape: collectors (Web Workers) get the policy as a flat buffer, return their
   // rollouts as bytes, and the learner learns from all of them.
-  train::PpoConfig cfg;
+  lehrer::PpoConfig cfg;
   cfg.actor_hidden = cfg.critic_hidden = {32, 32};
   cfg.init_std = 0.5f;
   cfg.steps_per_env = 40;
   cfg.learning_rate = 3e-3f;
   cfg.seed = 4;
-  train::Ppo ppo(cfg, 4, 4, 2);
+  lehrer::Ppo ppo(cfg, 4, 4, 2);
   struct Worker {
     std::vector<std::unique_ptr<ReachEnv>> owned;
-    std::vector<train::Env*> envs;
-    train::Collector collector;
-    train::Policy policy;
+    std::vector<lehrer::Env*> envs;
+    lehrer::Collector collector;
+    lehrer::Policy policy;
   };
   Worker workers[2];
   for (int w = 0; w < 2; ++w) {
-    workers[w].collector = train::Collector(50 + w);
+    workers[w].collector = lehrer::Collector(50 + w);
     for (int i = 0; i < 8; ++i) {
       workers[w].owned.push_back(std::make_unique<ReachEnv>(200 + 10 * w + i));
       workers[w].owned.back()->reset();
@@ -4416,22 +4416,22 @@ TEST(train_ppo_learns_from_collectors_elsewhere) {
   f32 first = 0, last = 0;
   for (int it = 0; it < 60; ++it) {
     const std::vector<f32> policy = ppo.policy().serialize();
-    std::vector<train::Rollout> received(2);
+    std::vector<lehrer::Rollout> received(2);
     for (int w = 0; w < 2; ++w) {
       CHECK(workers[w].policy.deserialize(policy.data(), policy.size()));
-      train::Rollout r;
+      lehrer::Rollout r;
       workers[w].collector.collect(workers[w].envs, cfg.steps_per_env, workers[w].policy, r);
       const std::vector<u8> bytes = r.serialize();
       CHECK(received[static_cast<std::size_t>(w)].deserialize(bytes.data(), bytes.size()));
     }
-    const train::IterationStats s = ppo.learn({&received[0], &received[1]});
+    const lehrer::IterationStats s = ppo.learn({&received[0], &received[1]});
     if (it == 0) first = s.mean_return;
     last = s.mean_return;
   }
   std::printf("  reach (2 collectors): return %.3f -> %.3f\n", first, last);
   CHECK(last > first * 0.5f);
   // A policy that went through the buffer acts exactly as the learner's.
-  train::Policy copy;
+  lehrer::Policy copy;
   const std::vector<f32> buf = ppo.policy().serialize();
   CHECK(copy.deserialize(buf.data(), buf.size()));
   f32 obs[4] = {0.3f, -0.2f, -0.6f, 0.5f}, a[2], b[2];
@@ -4443,8 +4443,8 @@ TEST(train_ppo_learns_from_collectors_elsewhere) {
 TEST(determinism_is_bit_identical_across_builds_and_platforms) {
   // The duck walks and turns on velstand for 8 s (400 ticks); every tick's exact state is hashed.
   // tests/determinism_fingerprint.txt holds the hashes every build must produce: this native build,
-  // the WebAssembly modules (tests/train_wasm_test.mjs) and ARM (CI on macOS) - bit for bit.
-  const std::vector<u64> h = train::determinism_fingerprint(400);
+  // the WebAssembly modules (tests/lehrer_wasm_test.mjs) and ARM (CI on macOS) - bit for bit.
+  const std::vector<u64> h = lehrer::determinism_fingerprint(400);
   std::string path = __FILE__;
   path = path.substr(0, path.find_last_of('/') + 1) + "determinism_fingerprint.txt";
   FILE* f = std::fopen(path.c_str(), "r");
@@ -4463,20 +4463,20 @@ TEST(determinism_is_bit_identical_across_builds_and_platforms) {
   CHECK(first_diff < 0);
 }
 
-TEST(train_runs_the_same_on_any_number_of_workers) {
+TEST(lehrer_runs_the_same_on_any_number_of_workers) {
   // The same run on 1, 2 or 4 workers (8 environments in all): the same policy, bit for bit.
   auto run = [](i32 workers) {
-    train::PpoConfig cfg;
+    lehrer::PpoConfig cfg;
     cfg.actor_hidden = cfg.critic_hidden = {16, 16};
     cfg.steps_per_env = 20;
     cfg.seed = 9;
-    train::Ppo ppo(cfg, 4, 4, 2);
-    train::ThreadBackend backend(workers, 8 / workers, 77, [](i32 first, i32 count, u64 seed) {
-      std::vector<std::unique_ptr<train::Env>> v;
+    lehrer::Ppo ppo(cfg, 4, 4, 2);
+    lehrer::ThreadBackend backend(workers, 8 / workers, 77, [](i32 first, i32 count, u64 seed) {
+      std::vector<std::unique_ptr<lehrer::Env>> v;
       for (i32 i = 0; i < count; ++i) v.push_back(std::make_unique<ReachEnv>(seed * 131 + static_cast<u64>(first + i)));
       return v;
     });
-    for (int it = 0; it < 4; ++it) train::train_iteration(ppo, backend);
+    for (int it = 0; it < 4; ++it) lehrer::train_iteration(ppo, backend);
     return ppo.policy().serialize();
   };
   const std::vector<f32> one = run(1), two = run(2), four = run(4);
@@ -4485,16 +4485,16 @@ TEST(train_runs_the_same_on_any_number_of_workers) {
   CHECK(std::memcmp(one.data(), four.data(), one.size() * sizeof(f32)) == 0);
 }
 
-TEST(train_exports_onnx_like_pollens_networks) {
-  train::Rng rng(21);
-  train::Mlp actor;
+TEST(lehrer_exports_onnx_like_pollens_networks) {
+  lehrer::Rng rng(21);
+  lehrer::Mlp actor;
   actor.init({61, 64, 32, 14}, rng);
-  train::Normalizer norm;
+  lehrer::Normalizer norm;
   norm.init(61);
   std::vector<f32> data(61 * 40);
   for (f32& v : data) v = rng.normal() * 2 + 0.5f;
   norm.update(data.data(), 40);
-  const std::vector<u8> bytes = train::export_onnx(actor, norm, train::micro_duck_metadata("jump"));
+  const std::vector<u8> bytes = lehrer::export_onnx(actor, norm, lehrer::micro_duck_metadata("jump"));
   if (const char* path = std::getenv("KERN_ONNX_OUT")) {
     if (FILE* f = std::fopen(path, "wb")) { std::fwrite(bytes.data(), 1, bytes.size(), f); std::fclose(f); }
   }
@@ -4505,7 +4505,7 @@ TEST(train_exports_onnx_like_pollens_networks) {
   CHECK(p.dims == std::vector<i32>({61, 64, 32, 14}));
   CHECK(p.meta("task") == "jump");
   CHECK(p.meta("joint_names").rfind("left_hip_yaw,", 0) == 0);
-  // The file computes what the trainer's actor computes.
+  // The file computes what the Lehrer's actor computes.
   f32 worst = 0;
   for (int trial = 0; trial < 5; ++trial) {
     f32 obs[61], x[61], a[14], b[14];
@@ -4519,7 +4519,7 @@ TEST(train_exports_onnx_like_pollens_networks) {
 }
 
 TEST(micro_duck_jumps_with_a_network_trained_in_kern) {
-  // Kern's own move: "jump" runs jump.onnx (from Kern Trainer) like Pollen's kicks run theirs.
+  // Kern's own move: "jump" runs jump.onnx (from Kern Lehrer) like Pollen's kicks run theirs.
   GameFixture f;
   game::Level l = game::basic_level();
   for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
@@ -4527,13 +4527,13 @@ TEST(micro_duck_jumps_with_a_network_trained_in_kern) {
   f.world->sync(l);
   CHECK(f.world->start(l, game::SimMode::play));
   if (!game::walker_policy("jump.onnx")) CHECK(f.world->walker_skill(duck, "jump") == "jump.onnx is not loaded");
-  // A network as the trainer writes it (untrained here: the check is the plumbing).
-  train::Rng rng(8);
-  train::Mlp actor;
+  // A network as the Lehrer writes it (untrained here: the check is the plumbing).
+  lehrer::Rng rng(8);
+  lehrer::Mlp actor;
   actor.init({61, 32, 14}, rng, 0.01f);
-  train::Normalizer norm;
+  lehrer::Normalizer norm;
   norm.init(61);
-  const std::vector<u8> bytes = train::export_onnx(actor, norm, train::micro_duck_metadata("jump"));
+  const std::vector<u8> bytes = lehrer::export_onnx(actor, norm, lehrer::micro_duck_metadata("jump"));
   auto p = std::make_shared<game::WalkerPolicy>();
   CHECK(game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), *p));
   p->file = "jump.onnx";
@@ -4547,7 +4547,7 @@ TEST(micro_duck_jumps_with_a_network_trained_in_kern) {
 }
 
 TEST(micro_duck_observation_between_ticks_is_what_its_controller_sees) {
-  // The trainer reads the observation between ticks (walker_observation); it must be exactly what
+  // The Lehrer reads the observation between ticks (walker_observation); it must be exactly what
   // the controller builds at the tick (IMU, joints, lagged speeds, last action).
   GameFixture f;
   game::Level l = game::basic_level();
@@ -4573,14 +4573,14 @@ TEST(micro_duck_observation_between_ticks_is_what_its_controller_sees) {
   CHECK(worst == 0);
 }
 
-TEST(train_duck_env_runs_episodes_headless) {
-  train::DuckEnv env(train::make_stand_task(), 7);
+TEST(lehrer_duck_env_runs_episodes_headless) {
+  lehrer::DuckEnv env(lehrer::make_stand_task(), 7);
   env.task().randomize = false;  // the clean robot: the check is that the external path is exact
   env.reset();
   CHECK(env.critic_size() == 61);
   const auto& p0 = env.probe();
   CHECK(p0.foot_contact[0] || p0.foot_contact[1] || p0.position.z > 0.1f);
-  // The robot's own walking network, given the trainer's observation, holds it up: the external
+  // The robot's own walking network, given the Lehrer's observation, holds it up: the external
   // path drives the servos exactly as the networks do.
   auto net = game::walker_policy("velstand.onnx");
   CHECK(net != nullptr);
@@ -4590,7 +4590,7 @@ TEST(train_duck_env_runs_episodes_headless) {
   i32 steps = 0;
   while (!terminal && !timeout) {
     net->run(env.observation(), a);
-    const train::Env::Step s = env.step(a);
+    const lehrer::Env::Step s = env.step(a);
     CHECK(std::isfinite(s.reward));
     terminal = s.terminal;
     timeout = s.timeout;
@@ -4604,11 +4604,11 @@ TEST(train_duck_env_runs_episodes_headless) {
   CHECK(std::fabs(p.position.z - 0.115f) < 0.02f);
   CHECK(env.episode_return() > 0);
   // Reproducible: the same seed, the same episode.
-  train::DuckEnv a1(train::make_jump_task(), 3), a2(train::make_jump_task(), 3);
+  lehrer::DuckEnv a1(lehrer::make_jump_task(), 3), a2(lehrer::make_jump_task(), 3);
   a1.reset();
   a2.reset();
   CHECK(a1.critic_size() == 70);
-  train::Rng rng(5);
+  lehrer::Rng rng(5);
   f32 r1 = 0, r2 = 0;
   for (i32 i = 0; i < 40; ++i) {
     f32 act[14];
@@ -4627,9 +4627,9 @@ TEST(train_duck_env_runs_episodes_headless) {
     fell = a1.step(act).terminal;
   }
   CHECK(fell);
-  // Speed of the headless simulation (printed; the trainer's budget).
+  // Speed of the headless simulation (printed; the Lehrer's budget).
   const auto t0 = std::chrono::steady_clock::now();
-  train::DuckEnv bench(train::make_jump_task(), 11);
+  lehrer::DuckEnv bench(lehrer::make_jump_task(), 11);
   bench.reset();
   i32 n = 0;
   for (; n < 150; ++n) {

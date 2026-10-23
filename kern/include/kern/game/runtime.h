@@ -376,7 +376,7 @@ class GameWorld {
   /// The network driving the robot now: "walk", "stand", "sit", "rise", "ground_pick", a skill.
   std::string walker_driving(ActorId id) const;
 
-  // ---- Training (kern/src/train): a learning policy drives the walkers ----------------------------
+  // ---- Training (kern/src/lehrer): a learning policy drives the walkers ----------------------------
   /// External control: walker `id`'s controller takes the action set with set_walker_action in place
   /// of its networks (when no skill, pick or sit runs). The servos take it as trained: home + action,
   /// scale 1, no low-pass, through the actuator delay.
@@ -390,7 +390,7 @@ class GameWorld {
   bool walker_tick_due(ActorId id) const;
   /// The observation its controller used at the last tick (after the command slots were written).
   bool walker_last_observation(ActorId id, f32 observation[61]) const;
-  /// What a trainer's reward and its critic read, in real units (the robot's size and time, not the
+  /// What a Lehrer's reward and its critic read, in real units (the robot's size and time, not the
   /// world's kWalkerScale): the trunk's pose and velocity, the soles on the ground, a link on a link.
   struct WalkerProbe {
     Vec3 position;                  // trunk origin, real metres (world position / scale)

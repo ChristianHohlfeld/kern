@@ -1,5 +1,5 @@
 // PPO as rsl_rl runs it (see ppo.h): the same losses, schedule and bookkeeping, in C++.
-#include "kern/train/ppo.h"
+#include "kern/lehrer/ppo.h"
 #include "kern/core/dmath.h"
 
 #include <chrono>
@@ -13,7 +13,7 @@
 #include <thread>
 #endif
 
-namespace kern::train {
+namespace kern::lehrer {
 namespace {
 
 constexpr f32 kLog2Pi = 1.83787706641f;
@@ -255,7 +255,7 @@ IterationStats Ppo::learn(const std::vector<const Rollout*>& rollouts) {
   adv_buf_.resize(rows);
   // One canonical order, whatever the split into rollouts: step-major over all environments in the
   // rollouts' order (the order of their global indices). The learner's result is then the same for
-  // any number of workers (docs/training.md, determinism).
+  // any number of workers (docs/lehrer.md, determinism).
   const i32 T = rollouts.front()->steps;
   i32 N = 0;
   for (const Rollout* r : rollouts) {
@@ -584,4 +584,4 @@ bool Ppo::load(const u8* d, std::size_t size) {
   return true;
 }
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

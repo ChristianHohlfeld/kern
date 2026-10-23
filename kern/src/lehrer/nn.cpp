@@ -1,12 +1,12 @@
-// The trainer's networks (see nn.h). Weights are stored input-major (w[i * out + o]) so that both
+// The Lehrer's networks (see nn.h). Weights are stored input-major (w[i * out + o]) so that both
 // passes run as contiguous axpy loops the compiler vectorises without reassociating sums.
-#include "kern/train/nn.h"
+#include "kern/lehrer/nn.h"
 #include "kern/core/dmath.h"
 
 #include <cmath>
 #include <cstring>
 
-namespace kern::train {
+namespace kern::lehrer {
 
 void Mlp::init(const std::vector<i32>& dims, Rng& rng, f32 output_gain) {
   dims_ = dims;
@@ -230,4 +230,4 @@ void Normalizer::apply(const f32* x, i32 batch, f32* y) const {
     }
 }
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

@@ -1,6 +1,6 @@
 // Deterministic transcendental functions: the same bits on every platform Kern runs on (x86 and ARM
 // natively, WebAssembly in every browser), so a simulation, a training run or a replayed robot log
-// comes out identical everywhere (docs/training.md, determinism).
+// comes out identical everywhere (docs/lehrer.md, determinism).
 //
 // The platform's own libm (glibc, Apple's, Android's bionic, wasi-libc) rounds sin, exp, atan2 ...
 // differently in the last bit; a robot simulation amplifies one bit into a different walk within

@@ -1,5 +1,5 @@
-// The trainer's environment: one Micro Duck in its own headless GameWorld (see env.h).
-#include "kern/train/env.h"
+// The Lehrer's environment: one Micro Duck in its own headless GameWorld (see env.h).
+#include "kern/lehrer/env.h"
 
 #include <cmath>
 #include <cstring>
@@ -7,7 +7,7 @@
 #include "kern/game/walker.h"
 #include "kern/gfx/renderer.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 struct DuckEnv::Impl {
   Renderer renderer;
@@ -130,4 +130,4 @@ Env::Step DuckEnv::step(const f32* action) {
   return r;
 }
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

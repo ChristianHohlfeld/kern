@@ -111,7 +111,7 @@ bool World::create(const WorldSettings& s) {
   b3WorldId id;
   {
     // Box3D keeps its worlds in one global table: creating and destroying them is not thread-safe
-    // (the trainer runs a world per environment on several threads).
+    // (the Lehrer runs a world per environment on several threads).
     WorldTableLock lock;
     id = b3CreateWorld(&def);
   }

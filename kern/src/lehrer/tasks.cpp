@@ -1,13 +1,13 @@
-// What the trainer teaches the duck (see env.h, docs/training.md). The reward terms follow the
+// What the Lehrer teaches the duck (see env.h, docs/lehrer.md). The reward terms follow the
 // shape of Pollen's mjlab tasks (microduck_rl, Apache-2.0): a task term, upright and home-pose
 // terms, and the sim2real regularisers (action rate, body rate, self collision); weight x term x dt.
 #include <cmath>
 #include "kern/core/dmath.h"
 
-#include "kern/train/env.h"
+#include "kern/lehrer/env.h"
 #include "kern/game/walker.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 namespace {
 
 constexpr f32 kStandZ = 0.115f;   // trunk height standing at home, real metres (Pollen: STAND_Z)
@@ -175,4 +175,4 @@ class JumpTask : public Task {
 std::unique_ptr<Task> make_jump_task() { return std::make_unique<JumpTask>(); }
 std::unique_ptr<Task> make_stand_task() { return std::make_unique<StandTask>(); }
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

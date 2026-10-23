@@ -25,12 +25,12 @@ function defaultAmbientOcclusion() {
 }
 
 
-/** Networks Kern Trainer saved on this device: IndexedDB "kern-trained", store "policies", key =
+/** Networks Kern Lehrer saved on this device: IndexedDB "kern-lehrer", store "policies", key =
  *  file name ("jump.onnx"), value = the ONNX bytes. [[file, Uint8Array], ...]; `only` picks one. */
 export function trainedPolicies(only) {
   return new Promise(resolve => {
     let open;
-    try { open = indexedDB.open("kern-trained", 1); } catch { resolve([]); return; }
+    try { open = indexedDB.open("kern-lehrer", 1); } catch { resolve([]); return; }
     open.onupgradeneeded = () => open.result.createObjectStore("policies");
     open.onerror = () => resolve([]);
     open.onsuccess = () => {
@@ -154,15 +154,15 @@ export class StudioEngine {
       this.e.kern_free(ptr);
     }
   }
-  /** Networks trained in Kern Trainer on this device (same site): loaded now, and again whenever
-   *  the trainer saves a newer one (docs/training.md). */
+  /** Networks trained in Kern Lehrer on this device (same site): loaded now, and again whenever
+   *  the Lehrer saves a newer one (docs/lehrer.md). */
   watchTrainedPolicies() {
     const load = async only => {
       for (const [file, bytes] of await trainedPolicies(only))
         if (this.registerPolicy(file, bytes)) console.info("Kern: trained network " + file + " loaded");
     };
     load().catch(() => {});
-    try { new BroadcastChannel("kern-trained").onmessage = e => load(e.data?.file).catch(() => {}); } catch { /* no channel */ }
+    try { new BroadcastChannel("kern-lehrer").onmessage = e => load(e.data?.file).catch(() => {}); } catch { /* no channel */ }
   }
   /** Decodes the level's texture images (data URLs) into RGBA for the engine. */
   pollTextures(maxSide = 2048) {

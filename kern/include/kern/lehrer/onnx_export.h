@@ -8,9 +8,9 @@
 #include <vector>
 
 #include "kern/core/base.h"
-#include "kern/train/nn.h"
+#include "kern/lehrer/nn.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 std::vector<u8> export_onnx(const Mlp& actor, const Normalizer& normalizer,
                             const std::vector<std::pair<std::string, std::string>>& metadata);
@@ -19,4 +19,4 @@ std::vector<u8> export_onnx(const Mlp& actor, const Normalizer& normalizer,
 /// layout, action scale), plus who trained it and on what.
 std::vector<std::pair<std::string, std::string>> micro_duck_metadata(const std::string& task);
 
-}  // namespace kern::train
+}  // namespace kern::lehrer

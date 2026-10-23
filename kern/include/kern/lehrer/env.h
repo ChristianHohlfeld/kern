@@ -1,7 +1,7 @@
-// Kern's headless trainer: the Micro Duck in the engine's own GameWorld (Box3D, the same servos,
+// Kern's headless Lehrer: the Micro Duck in the engine's own GameWorld (Box3D, the same servos,
 // sensors and 50 Hz controller as in Kern Studio), with a learning policy in place of its networks.
 // A Task says what is learned (reset, command, reward, end); the DuckEnv runs episodes of it.
-// See docs/training.md.
+// See docs/lehrer.md.
 #pragma once
 
 #include "kern/core/dmath.h"
@@ -14,7 +14,7 @@
 #include "kern/game/runtime.h"
 #include "kern/game/walker.h"
 
-namespace kern::train {
+namespace kern::lehrer {
 
 /// Small, fast and reproducible (splitmix64): every environment has its own stream.
 struct Rng {
@@ -91,13 +91,13 @@ class Task {
   std::vector<std::pair<const char*, f32>> terms;
 };
 
-/// The jump (Kern's own skill, docs/training.md): from a stand, leave the ground with both feet as
+/// The jump (Kern's own skill, docs/lehrer.md): from a stand, leave the ground with both feet as
 /// high as it can, land and stand again.
 std::unique_ptr<Task> make_jump_task();
 /// Stand still at home (the pipeline's smoke test: quick to learn, easy to check).
 std::unique_ptr<Task> make_stand_task();
 
-/// An environment the trainer learns in: reset, then observation / step. The actor sees
+/// An environment the Lehrer learns in: reset, then observation / step. The actor sees
 /// observation() (obs_size), the critic critic() (critic_size, the actor's first).
 class Env {
  public:
@@ -118,8 +118,8 @@ class Env {
 /// by tick from outside: reset, then observation / step.
 class DuckEnv : public Env {
  public:
-  /// substeps: Box3D sub-steps per fixed step (the Studio runs game::kWalkerSubsteps; a trainer
-  /// may run fewer for speed, docs/training.md measures what that changes).
+  /// substeps: Box3D sub-steps per fixed step (the Studio runs game::kWalkerSubsteps; a Lehrer
+  /// may run fewer for speed, docs/lehrer.md measures what that changes).
   DuckEnv(std::unique_ptr<Task> task, u64 seed, i32 substeps = 0);
   ~DuckEnv();
   DuckEnv(const DuckEnv&) = delete;
@@ -161,9 +161,9 @@ class DuckEnv : public Env {
   game::GameWorld::WalkerProbe probe_;
 };
 
-}  // namespace kern::train
+}  // namespace kern::lehrer
 
-namespace kern::train {
+namespace kern::lehrer {
 
 /// How a policy jumps (Kern's jump task), on the clean robot in the Studio's physics: per episode the
 /// highest trunk above where it stood, the longest flight (nothing of it on the floor), whether it
@@ -178,15 +178,15 @@ struct JumpReport {
 using ActFn = void (*)(void* user, const f32* observation, f32* action);
 JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 substeps = 0);
 
-}  // namespace kern::train
+}  // namespace kern::lehrer
 
-namespace kern::train {
+namespace kern::lehrer {
 
 /// A reproducibility fingerprint: Pollen's velstand network drives the clean duck (no randomisation)
 /// for `ticks` control ticks in the Studio's physics, walking forward then turning; out[t] is a
 /// hash over the exact bits of the robot's state after tick t (trunk pose and velocity, every joint
 /// angle and speed). Two builds or platforms are bit-identical exactly when the lists are equal; the
-/// first differing index says when they part (docs/training.md, determinism).
+/// first differing index says when they part (docs/lehrer.md, determinism).
 std::vector<u64> determinism_fingerprint(i32 ticks);
 
-}  // namespace kern::train
+}  // namespace kern::lehrer
