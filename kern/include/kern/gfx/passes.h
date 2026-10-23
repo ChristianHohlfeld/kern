@@ -62,17 +62,28 @@ struct SkyState {
   Vec2 wind{0.012f, 0.004f};
 };
 
+/// The scene fog as seen by the sky, so distant geometry and the horizon meet.
+struct SkyAtmosphere {
+  Vec3 fog_color{0.474f, 0.584f, 0.716f};  // sRGB, as Lighting::fog_color
+  Vec3 sun_color{2.8f, 2.47f, 2.11f};
+  Vec3 sun_direction{-0.45f, -0.52f, 0.72f};
+  f32 sun_scatter = 0;  // 0..1, Lighting::fog_sun_scatter
+  f32 horizon = 0;      // 0..1, Lighting::fog_horizon; 0 = sky as before
+};
+
 class SkyPass {
  public:
   bool init();
   void destroy(bool contextLost);
-  void draw(const Camera& camera, f32 aspect, const SkyState& state, f32 exposure, f64 time_seconds);
+  void draw(const Camera& camera, f32 aspect, const SkyState& state, f32 exposure, f64 time_seconds,
+            const SkyAtmosphere& atmosphere = {});
 
  private:
   Program program_;
   u32 vao_ = 0;
   u32 u_forward_ = 0, u_right_ = 0, u_up_ = 0, u_tan_half_ = 0, u_night_ = 0, u_sun_up_ = 0, u_time_ = 0;
   u32 u_clouds_ = 0, u_exposure_ = 0, u_blast_age_ = 0, u_sun_ = 0, u_moon_ = 0, u_blast_dir_ = 0, u_wind_ = 0;
+  u32 u_fog_color_ = 0, u_sun_color_ = 0, u_sun_light_ = 0, u_fog_sun_scatter_ = 0, u_fog_horizon_ = 0;
   UniformCache cache_;
 };
 

@@ -51,6 +51,10 @@ struct Lighting {
   Vec3 env_zenith{0.05f, 0.2f, 0.62f};
   Vec3 env_horizon{0.52f, 0.66f, 0.86f};
   Vec3 env_ground{0.105f, 0.127f, 0.084f};
+  // Atmosphere. All 0 = the uniform FogExp2 of three.js (unchanged look).
+  f32 fog_height_falloff = 0;  // per world unit (z up): fog thins with height, e.g. 0.012
+  f32 fog_sun_scatter = 0;     // 0..1: fog brightens toward the sun (in-scattering)
+  f32 fog_horizon = 0;         // 0..1: the sky fades into the fog colour at the horizon
 };
 
 struct PointLights {
@@ -206,7 +210,7 @@ class Renderer {
   struct Locations {
     u32 view_projection, material, emissive, alpha_cutoff, unlit, linear_color, pbr, has_texture, texture, skin_enabled, bones;
     u32 sun_direction, sun_color, sky_color, ground_color, fog_color, eye, env_zenith, env_horizon, env_ground;
-    u32 fog_density, exposure, env_intensity, grade;
+    u32 fog_density, exposure, env_intensity, grade, fog_height_falloff, fog_sun_scatter;
     u32 point_count, point_pos_range, point_color_intensity;
     u32 shadow_enabled, shadow_map, shadow_projection, shadow_bias;
   } u_{};

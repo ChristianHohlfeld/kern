@@ -27,6 +27,8 @@ in vec3 vDir;
 uniform float uNight, uSunUp, uTime, uClouds, uExposure, uBlastAge;
 uniform vec3 uSun, uMoon, uBlastDir;
 uniform vec2 uWind;
+uniform vec3 uFogColor, uSunColor, uSunLight;
+uniform float uFogSunScatter, uFogHorizon;
 layout(location=0) out vec4 outColor;
 layout(location=1) out vec4 outHdr;
 float h21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -87,7 +89,16 @@ void main() {
   }
   col = mix(col, hor * 0.92, smoothstep(0.0, -0.2, d.z));
   outHdr = vec4(max(col, vec3(0.0)), 1.0);
-  outColor = vec4(linearToSrgb(acesFilmic(col)), 1.0);
+  vec3 ldr = linearToSrgb(acesFilmic(col));
+  if (uFogHorizon > 0.0) {
+    // The horizon dissolves into the scene fog (same colour, same sun glow), so fogged
+    // buildings melt into the sky instead of standing against a different colour.
+    vec3 fogColor = uFogColor;
+    if (uFogSunScatter > 0.0)
+      fogColor = mix(fogColor, linearToSrgb(acesFilmic(uSunColor * 0.45)), uFogSunScatter * pow(max(dot(d, normalize(uSunLight)), 0.0), 8.0));
+    ldr = mix(ldr, fogColor, uFogHorizon * (1.0 - smoothstep(-0.02, 0.16, d.z)));
+  }
+  outColor = vec4(ldr, 1.0);
 }
 )GLSL";
 
@@ -112,6 +123,11 @@ bool SkyPass::init() {
   u_moon_ = program_.location("uMoon");
   u_blast_dir_ = program_.location("uBlastDir");
   u_wind_ = program_.location("uWind");
+  u_fog_color_ = program_.location("uFogColor");
+  u_sun_color_ = program_.location("uSunColor");
+  u_sun_light_ = program_.location("uSunLight");
+  u_fog_sun_scatter_ = program_.location("uFogSunScatter");
+  u_fog_horizon_ = program_.location("uFogHorizon");
   vao_ = gl::createVertexArray();
   cache_.reset();
   return true;
@@ -124,7 +140,8 @@ void SkyPass::destroy(bool contextLost) {
   cache_.reset();
 }
 
-void SkyPass::draw(const Camera& camera, f32 aspect, const SkyState& state, f32 exposure, f64 time_seconds) {
+void SkyPass::draw(const Camera& camera, f32 aspect, const SkyState& state, f32 exposure, f64 time_seconds,
+                   const SkyAtmosphere& atmosphere) {
   if (!program_.valid()) return;
   const Vec3 forward = normalize(camera.target - camera.eye, {0, 1, 0});
   Vec3 right = cross(forward, camera.up);
@@ -154,6 +171,13 @@ void SkyPass::draw(const Camera& camera, f32 aspect, const SkyState& state, f32 
   cache_.set_vec3(u_moon_, normalize(state.moon, {0.4f, 0.5f, 0.76f}));
   cache_.set_vec3(u_blast_dir_, state.blast_direction);
   cache_.set_vec2(u_wind_, state.wind.x, state.wind.y);
+  cache_.set_float(u_fog_horizon_, atmosphere.horizon);
+  if (atmosphere.horizon > 0) {
+    cache_.set_vec3(u_fog_color_, atmosphere.fog_color);
+    cache_.set_vec3(u_sun_color_, atmosphere.sun_color);
+    cache_.set_vec3(u_sun_light_, atmosphere.sun_direction);
+    cache_.set_float(u_fog_sun_scatter_, atmosphere.sun_scatter);
+  }
   gl::drawArrays(gl::TRIANGLES, 0, 3);
   gl::bindVertexArray(0);
   gl::depthMask(1);
