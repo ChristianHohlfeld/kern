@@ -19,7 +19,9 @@ void main() {
 }
 )GLSL";
 
-constexpr const char* kHead = "#version 300 es\nprecision highp float;\nin vec2 vUv;\nout vec4 o;\n";
+// highp samplers: the scene's HDR copy holds values far above 2, which the GLSL ES default (lowp)
+// clamps and quantises on mobile GPUs.
+constexpr const char* kHead = "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nin vec2 vUv;\nout vec4 o;\n";
 
 constexpr const char* kBright = R"GLSL(
 uniform sampler2D tSrc;
@@ -48,7 +50,7 @@ constexpr const char* kCopy = "uniform sampler2D tSrc;\nvoid main() { o = vec4(t
 
 constexpr const char* kCombine = R"GLSL(
 uniform sampler2D tScene, tHdr, tB1, tB2, tAoShare;
-uniform highp sampler2D tAo, tDepth;
+uniform sampler2D tAo, tDepth;
 uniform float uS1, uS2;
 uniform int uGrade, uAoOn;
 uniform vec2 uAoScale;  // AO size / scene size

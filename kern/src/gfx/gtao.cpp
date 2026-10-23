@@ -128,6 +128,7 @@ void main() {
 // Depth-aware 4x4 filter: removes the 4x4 slice pattern without bleeding across depth edges.
 constexpr const char* kDenoise = R"GLSL(#version 300 es
 precision highp float;
+precision highp sampler2D;  // (visibility, view depth in metres): lowp, the GLSL ES default, is 8 bit within +-2
 uniform sampler2D tAo;
 out vec4 o;
 void main() {
