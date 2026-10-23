@@ -131,7 +131,7 @@ json::Value Studio::key(std::string_view key, std::string_view code, bool down, 
   else keys_.erase(std::string(code));
   std::string c(code);
   if (key.size() == 1 && std::isalpha(static_cast<unsigned char>(key[0])) && c.rfind("Key", 0) == 0) {
-    const bool driving = (play_ == PlayState::playing && !ejected_) ||
+    const bool driving = (play_ == PlayState::playing && !ejected_) || (observing_ && ejected_) ||
                          std::any_of(views_.begin(), views_.end(), [](const Viewport& v) { return v.drag == Drag::fly || v.drag == Drag::pedestal; });
     if ((mods & ctrl) || !driving) c = std::string("Key") + static_cast<char>(std::toupper(static_cast<unsigned char>(key[0])));
   }
@@ -142,7 +142,7 @@ json::Value Studio::key(std::string_view key, std::string_view code, bool down, 
   };
   if (!down) {
     // Movement keys while flying or playing are ours.
-    handled = play_ == PlayState::playing || std::any_of(views_.begin(), views_.end(), [](const Viewport& v) { return v.drag == Drag::fly; });
+    handled = play_ == PlayState::playing || (observing_ && ejected_) || std::any_of(views_.begin(), views_.end(), [](const Viewport& v) { return v.drag == Drag::fly; });
     return done();
   }
   const bool m_shift = mods & shift, m_ctrl = mods & ctrl, m_alt = mods & alt;
@@ -165,6 +165,8 @@ json::Value Studio::key(std::string_view key, std::string_view code, bool down, 
       world_->restart();
     } else if (c == "KeyP" && !repeat) {
       toggle_pause();
+    } else if (c == "F8" && !repeat && observing_) {
+      eject();  // the observer camera: take over the player and back
     }
     return done();
   }
@@ -187,6 +189,12 @@ json::Value Studio::key(std::string_view key, std::string_view code, bool down, 
       report("Mouse released - click the viewport to control the game again");
       handled = true;
       return done();
+    }
+    if (observing_ && ejected_ && !m_ctrl && !m_alt) {
+      // Watching: the flying keys move the camera (held keys are read per frame), not the tools.
+      static constexpr const char* kFly[] = {"KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "KeyZ", "KeyC", "ArrowUp", "ArrowDown",
+                                            "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "ShiftLeft", "ShiftRight"};
+      for (const char* k : kFly) if (c == k) { handled = true; return done(); }
     }
     if (c == "Pause" || (c == "KeyP" && m_alt && m_shift)) { toggle_pause(); handled = true; return done(); }
     if (c == "KeyP" && m_alt && !repeat) { stop(); handled = true; return done(); }  // Alt+P toggles play
@@ -869,6 +877,8 @@ json::Value Studio::state() {
   p.set("state", play_names[static_cast<u32>(play_)]);
   p.set("paused", paused_);
   p.set("ejected", ejected_);
+  p.set("observing", observing_ && ejected_);
+  p.set("grabbing", play_ != PlayState::editing && world_->grabbing());
   p.set("captured", mouse_captured_);
   s.set("play", std::move(p));
   s.set("tool", tool_name(tool_));
@@ -1162,7 +1172,7 @@ json::Value Studio::status() {
   json::Value views = json::Value::array();
   for (const Viewport& w : views_) {
     json::Value o = json::Value::object();
-    static const char* drags[] = {"none", "fly", "pedestal", "pan", "orbit", "dolly", "gizmo", "marquee", "pan", "grab", "look"};
+    static const char* drags[] = {"none", "fly", "pedestal", "pan", "orbit", "dolly", "gizmo", "marquee", "pan", "grab", "look", "lookFree"};
     o.set("drag", drags[static_cast<u32>(w.drag)]);
     if (w.drag == Drag::marquee && w.moved) {
       json::Value r = json::Value::array();

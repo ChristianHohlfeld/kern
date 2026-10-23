@@ -895,10 +895,22 @@ bool Studio::play(game::SimMode mode) {
   play_ = mode == game::SimMode::play ? PlayState::playing : PlayState::simulating;
   paused_ = false;
   ejected_ = false;  // true only after F8 (Eject) from Play
+  observing_ = false;
   mouse_captured_ = false;
-  if (play_ == PlayState::playing) capture_play_pointer();
   touch_ctl_.release_all();
-  if (play_ != PlayState::playing) report("Simulating - physics runs, Ctrl+drag grabs bodies, K keeps the selected actors' poses");
+  free_touch_ = {};
+  if (play_ == PlayState::playing && level_.world.observer && !networked) {
+    // Observer camera: the game runs, the camera is free (as after F8); F8 takes over the player.
+    world_->set_mode(game::SimMode::simulate);
+    play_ = PlayState::simulating;
+    ejected_ = observing_ = true;
+    if (input_.touch()) report("Watching - drag to look around, pinch to fly, drag a body to move or lift it, F8 takes over the player");
+    else report("Watching - WASD / QE fly, drag to look around, drag a body to move or lift it (wheel: nearer / farther), F8 takes over the player");
+    ++scene_revision_;
+    return true;
+  }
+  if (play_ == PlayState::playing) capture_play_pointer();
+  if (play_ != PlayState::playing) report("Simulating - physics runs, drag a body to move or lift it, K keeps the selected actors' poses");
   else if (input_.touch()) report("Playing - left stick moves, right stick or a drag looks around, the buttons act");
   else report("Playing - WASD / arrows to move, mouse to look, Shift+F1 frees the mouse, F8 ejects, Esc stops");
   ++scene_revision_;
@@ -911,7 +923,8 @@ void Studio::stop() {
   world_->stop();
   play_ = PlayState::editing;
   paused_ = false;
-  ejected_ = false;
+  ejected_ = observing_ = false;
+  free_touch_ = {};
   mouse_captured_ = false;
   keys_.clear();
   json::Value a = json::Value::object();
@@ -941,7 +954,8 @@ void Studio::eject() {
     json::Value a = json::Value::object();
     a.set("action", "releasePointer");
     push_ui(std::move(a));
-    report("Ejected - free camera, F8 possesses the player again");
+    free_touch_ = {};
+    report(observing_ ? "Watching - free camera, F8 takes over the player again" : "Ejected - free camera, F8 possesses the player again");
   } else if (world_->set_mode(game::SimMode::play)) {
     play_ = PlayState::playing;
     ejected_ = false;

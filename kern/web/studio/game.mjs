@@ -841,7 +841,8 @@ export async function startGame({levelText = null, template = null, bytes = null
     try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     e.preventDefault();
     if (routeTouch(engine, POINTER.down, e, at)) return;
-    if (e.pointerType === "mouse" && document.pointerLockElement !== canvas) canvas.requestPointerLock?.()?.catch?.(() => {});
+    // The mouse looks through pointer lock - not while watching (observer camera: it drags bodies).
+    if (e.pointerType === "mouse" && document.pointerLockElement !== canvas && !engine.state()?.play?.observing) canvas.requestPointerLock?.()?.catch?.(() => {});
     send(POINTER.down, e);
   });
   canvas.addEventListener("pointermove", e => { if (!routeTouch(engine, POINTER.move, e, at) && document.pointerLockElement !== canvas) send(POINTER.move, e); });

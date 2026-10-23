@@ -331,6 +331,7 @@ struct WorldSettings {
   f32 time_limit = 0;           // seconds, 0 = none
   f32 score_target = 0;         // GameGoal::score
   u32 player = 0;               // the actor the player controls (0 = the first with a Player Controller)
+  bool observer = false;        // Play starts with a free camera: fly and watch, drag bodies (F8 takes over the player)
   // audio
   f32 master_volume = 1;
   std::string music;            // looping 2D track on the music bus ("" = none)

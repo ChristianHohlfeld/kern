@@ -927,6 +927,7 @@ json::Value world_to_json(const WorldSettings& w) {
   o.set("timeLimit", num(w.time_limit));
   o.set("scoreTarget", num(w.score_target));
   o.set("player", w.player);
+  if (w.observer) o.set("observer", true);
   o.set("masterVolume", num(w.master_volume));
   o.set("music", w.music);
   o.set("musicVolume", num(w.music_volume));
@@ -957,6 +958,7 @@ bool world_from_json(const json::Value& v, WorldSettings& w, std::string* error)
   r.number("timeLimit", w.time_limit, 0, 1e6);
   r.number("scoreTarget", w.score_target, 0, 1e9);
   r.uinteger("player", w.player);
+  r.boolean("observer", w.observer);
   r.number("masterVolume", w.master_volume, 0, 4);
   r.string("music", w.music);
   r.number("musicVolume", w.music_volume, 0, 4);

@@ -657,6 +657,23 @@ const vpCenter = async (page, i = 0) => {
   check(await until(() => page.locator(".menu .mi.mback").isVisible()) && await page.locator(".menu").count() === 1, "phone: a submenu drills down in place (one menu, back row)");
   await page.locator(".menu .mi", {hasText: "Micro Duck"}).tap();
   check(await until(async () => (await state(page)).level.name === "Micro Duck"), "phone: File > Example Levels > Micro Duck opens");
+  // Play watches (observer camera); a finger takes the ball with the mouse joint and lifts it.
+  await cmd(page, {cmd: "play", mode: "play"});
+  check(await until(async () => (await state(page)).play?.observing), "phone: Micro Duck plays with the observer camera (free, watching)");
+  const ballId = (await state(page)).outliner.rows.find(r => r.name === "Ball")?.id;
+  const at = async () => cmd(page, {cmd: "project", id: ballId});
+  const p0 = await at();
+  const finger = (type, x, y) => page.evaluate(([type, x, y]) => {
+    const el = document.querySelectorAll("#viewArea .vp")[0], r = el.getBoundingClientRect();
+    el.dispatchEvent(new PointerEvent(type, {pointerId: 31, pointerType: "touch", isPrimary: true, bubbles: true, cancelable: true, clientX: r.left + x, clientY: r.top + y, buttons: type === "pointerup" ? 0 : 1}));
+  }, [type, x, y]);
+  await finger("pointerdown", p0.x, p0.y);
+  const grabbed = await until(async () => (await state(page)).play?.grabbing, 5000);
+  for (let i = 1; i <= 8; i++) { await finger("pointermove", p0.x, p0.y - 10 * i); await page.waitForTimeout(60); }
+  const lifted = await until(async () => { const p = await at(); return p.y < p0.y - 25; }, 30000);
+  await finger("pointerup", p0.x, p0.y - 80);
+  check(grabbed && lifted, "phone: a finger on the ball takes it and lifts it (mouse joint)");
+  await cmd(page, {cmd: "stop"});
   check(errors.length === 0, "no page errors on the phone studio" + (errors.length ? ": " + errors.join(" | ") : ""));
   await ctx.close();
 }
