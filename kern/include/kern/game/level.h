@@ -186,6 +186,8 @@ struct ControllerComponent {
   // Kern's own additions on top of Pollen's software, off by default (then only Pollen's runtime
   // and brain run): ball play, sock fetching, the beak opening and biting during a ground pick.
   bool kern_extras = false;
+  // Its servos' command latency (real seconds; the device profile, game/servo.h).
+  f32 servo_delay = 0.02f;
 };
 
 enum class WeaponKind : u8 { rifle, pistol, shotgun, sniper };

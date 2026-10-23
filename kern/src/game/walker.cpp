@@ -15,6 +15,7 @@
 #include <cstring>
 
 #include "kern/game/runtime.h"
+#include "kern/game/servo.h"
 #include "kern/game/walker.h"
 #include "kern/game/walker_policy.h"
 #include "kern/core/json.h"
@@ -159,6 +160,15 @@ std::vector<Actor> scaled(std::vector<Actor> v) {
   return v;
 }
 
+/// The servo's rotor (armature): MuJoCo adds it to the joint's diagonal; here it is a thin disc on
+/// the joint axis that the link carries: `armature` about the axis, half of it across (a real rigid
+/// body: I = a/2 (E + axis axis^T); an axial-only tensor is not one, and Box3D gains energy with it).
+void add_armature(f32 inertia[6], Vec3 ax, f32 armature) {
+  if (armature <= 0) return;
+  const f32 add[6] = {1 + ax.x * ax.x, 1 + ax.y * ax.y, 1 + ax.z * ax.z, ax.x * ax.y, ax.x * ax.z, ax.y * ax.z};
+  for (int k = 0; k < 6; ++k) inertia[k] += 0.5f * armature * add[k];
+}
+
 }  // namespace
 
 ActorId add_micro_duck(Level& l, Vec3 at, bool rollers) {
@@ -179,24 +189,62 @@ ActorId add_micro_duck(Level& l, Vec3 at, bool rollers) {
 }
 
 void vary_micro_duck(Level& level, ActorId trunk, const DuckVariation& v) {
-  const f32 S = kDuckScale, S5 = S * S * S * S * S;
-  for (i32 i = 0; i < kLinkCount; ++i) {
-    Actor* a = level.find(trunk + static_cast<ActorId>(i));
-    if (!a || !a->body) continue;
-    if (i == 0) {
-      a->body->mass *= v.trunk_mass;
-      for (f32& k : a->body->inertia) k *= v.trunk_mass;
-      a->body->center_of_mass = a->body->center_of_mass + v.trunk_com * S;
-    }
-    if (i == 9) a->body->center_of_mass = a->body->center_of_mass + v.head_com * S;  // the head (head_roll)
-    if (i > 0 && kArmature > 0 && v.armature != 1) {
-      const Vec3 ax = kDuckLinks[i].axis;  // the rotor disc as built in micro_duck_actors, scaled
-      const f32 add[6] = {1 + ax.x * ax.x, 1 + ax.y * ax.y, 1 + ax.z * ax.z, ax.x * ax.y, ax.x * ax.z, ax.y * ax.z};
-      for (int k = 0; k < 6; ++k) a->body->inertia[k] += 0.5f * kArmature * (v.armature - 1) * add[k] * S5;
-    }
-    for (JointComponent& j : a->joints)
-      if (j.servo) j.servo_friction *= v.joint_friction;
+  const f32 S = kDuckScale;
+  if (Actor* a = level.find(trunk); a && a->body) {
+    a->body->mass *= v.trunk_mass;
+    for (f32& k : a->body->inertia) k *= v.trunk_mass;
+    a->body->center_of_mass = a->body->center_of_mass + v.trunk_com * S;
   }
+  if (Actor* a = level.find(trunk + 9); a && a->body)  // the head (head_roll)
+    a->body->center_of_mass = a->body->center_of_mass + v.head_com * S;
+}
+
+ServoProfile xl330_profile() {
+  ServoProfile p;
+  p.name = "xl330";
+  p.source = "Pollen Robotics microduck_rl: BAM m6 model of the XL330-M288 at 7.4 V, MJCF armature";
+  p.stiffness = kServoStiffness;
+  p.damping = kServoDamping;
+  p.friction = kServoFriction;
+  p.torque = kServoTorque;
+  p.armature = kArmature;
+  p.delay = kActuatorDelay;
+  // What training draws around it (microduck_rl's randomisation: rotor inertia and joint friction
+  // +-10 %, the command's latency 15-30 ms).
+  p.spread_armature = 0.1f;
+  p.spread_friction = 0.1f;
+  p.delay_min = 0.015f;
+  p.delay_max = 0.030f;
+  return p;
+}
+
+void set_micro_duck_servo(Level& level, ActorId trunk, i32 link, const ServoProfile& p) {
+  const Actor* t = level.find(trunk);
+  Actor* a = level.find(trunk + static_cast<ActorId>(link));
+  if (!t || !t->controller || !a || !a->body || link < 1 || link >= kLinkCount) return;
+  // Exactly as micro_duck_actors and scaled() build it (the nominal profile gives the same bits).
+  const f32 s = kDuckScale, s3 = s * s * s, s4 = s3 * s, s5 = s4 * s, rs = std::sqrt(s);
+  (void)s3;
+  const f32* base = kDuckLinks[link].inertia;
+  if (t->controller->rollers)
+    for (const DuckRollerDef& r : kDuckRollers)
+      if (r.kind < 0 && r.ankle == link) base = r.inertia;
+  f32 inertia[6];
+  std::memcpy(inertia, base, sizeof inertia);
+  add_armature(inertia, kDuckLinks[link].axis, p.armature);
+  for (int k = 0; k < 6; ++k) a->body->inertia[k] = inertia[k] * s5;
+  for (JointComponent& j : a->joints) {
+    if (!j.servo) continue;
+    j.servo_stiffness = p.stiffness * s4;
+    j.servo_damping = p.damping * (s4 * rs);
+    j.servo_friction = p.friction * s4;
+    j.max_motor_force = p.torque * s4;
+  }
+}
+
+void set_micro_duck_servos(Level& level, ActorId trunk, const ServoProfile& p) {
+  for (i32 link = 1; link < kLinkCount; ++link) set_micro_duck_servo(level, trunk, link, p);
+  if (Actor* t = level.find(trunk); t && t->controller) t->controller->servo_delay = p.delay;
 }
 
 std::vector<Actor> micro_duck_sock_actors() {
@@ -262,15 +310,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
     a.body->mass = blade ? blade->mass : l.mass;
     a.body->center_of_mass = blade ? blade->com : l.com;
     std::memcpy(a.body->inertia, blade ? blade->inertia : l.inertia, sizeof l.inertia);
-    if (i > 0 && kArmature > 0) {
-      // The servo's rotor (armature): MuJoCo adds it to the joint's diagonal; here it is a thin
-      // disc on the joint axis that the link carries: kArmature about the axis, half of it across
-      // (a real rigid body: I = a/2 (E + axis axis^T); an axial-only tensor is not one, and Box3D
-      // gains energy with it).
-      const Vec3 ax = l.axis;
-      const f32 add[6] = {1 + ax.x * ax.x, 1 + ax.y * ax.y, 1 + ax.z * ax.z, ax.x * ax.y, ax.x * ax.z, ax.y * ax.z};
-      for (int k = 0; k < 6; ++k) a.body->inertia[k] += 0.5f * kArmature * add[k];
-    }
+    if (i > 0) add_armature(a.body->inertia, l.axis, kArmature);
     a.body->allow_sleep = false;
     a.body->angular_damping = 0;  // MuJoCo bodies have none; the servos damp
     // Its plastic taps when shells and housings touch the floor or each other; the soles step
@@ -656,7 +696,7 @@ void GameWorld::create_walkers() {
     w->robot_actions = a.controller->actions == "robot";
     w->kern_extras = a.controller->kern_extras;
     w->decimation = max_of(1, static_cast<i32>(std::lround(kControlPeriod * slow * hz)));
-    w->delay = max_of(0, static_cast<i32>(std::lround(kActuatorDelay * slow * hz)));
+    w->delay = max_of(0, static_cast<i32>(std::lround(a.controller->servo_delay * slow * hz)));
     if (std::fabs(static_cast<f32>(w->decimation) / hz - kControlPeriod * slow) > 1e-4f)
       events_.push_back("Walker \"" + a.name + "\": its policy runs at 50 Hz on a " + std::to_string(static_cast<int>(kWalkerStepHz)) +
                         " Hz physics step - set World Settings > Step Rate to " + std::to_string(static_cast<int>(kWalkerStepHz)));
@@ -1312,20 +1352,10 @@ void GameWorld::drive_walkers(f32 h) {
 
 void GameWorld::drive_servos(f32 h) {
   (void)h;
-  // A position servo from Box3D's own joint parts (docs/physics.md section 5):
-  // * torque K x (target - angle) - D x speed: the revolute joint's spring, solved implicitly by
-  //   Box3D's soft step, so it is stable at any stiffness. Box3D sets springs in Hertz relative to
-  //   the joint's effective mass; set_joint_spring converts the servo's N*m/rad once, at the boundary.
-  // * the stall torque: the error is limited so that K x error never exceeds it (a Dynamixel's
-  //   duty cycle saturates the same way).
-  // * friction: a motor at speed 0 whose maximum torque is the friction (Erin's joint friction).
+  // The servos' device model (servo.h): one law for the Studio, the Lehrer and the calibration rig.
   for (auto& sj : joints_) {
     if (!sj->servo || sj->broken || !sj->joint.valid()) continue;
-    const f32 q = physics_.joint_angle(sj->joint);
-    const f32 k = max_of(1e-6f, sj->servo_stiffness);
-    const f32 reach = sj->servo_torque > 0 ? sj->servo_torque / k : 1e9f;
-    physics_.set_joint_spring(sj->joint, q + clamp(sj->servo_target - q, -reach, reach), k, max_of(0.0f, sj->servo_damping));
-    physics_.set_joint_motor(sj->joint, sj->servo_friction > 0, 0, max_of(0.0f, sj->servo_friction));
+    servo_step(physics_, sj->joint, sj->servo_target, sj->servo_stiffness, sj->servo_damping, sj->servo_friction, sj->servo_torque);
   }
 }
 

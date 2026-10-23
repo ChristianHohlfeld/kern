@@ -34,11 +34,10 @@ constexpr i32 kJumpPhaseSlot = 55;
 
 /// A variation of the Micro Duck's build for training (domain randomisation as in Pollen's recipes):
 /// trunk mass and inertia scaled together, the trunk's and the head's centre of mass moved (real
-/// metres), the servos' rotor inertia (armature) and joint friction scaled.
+/// metres). The servos vary through their device profile (servo.h: set_micro_duck_servo).
 struct DuckVariation {
   f32 trunk_mass = 1;
   Vec3 trunk_com, head_com;
-  f32 armature = 1, joint_friction = 1;
 };
 /// Applies `v` to the duck whose trunk is `trunk` in `level` (as add_micro_duck laid it out).
 void vary_micro_duck(Level& level, ActorId trunk, const DuckVariation& v);

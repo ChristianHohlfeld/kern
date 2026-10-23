@@ -141,10 +141,10 @@ class JumpTask : public Task {
     // air when the phase says so and push up into it, land on both soles; every term only as far as
     // the duck stays upright (a dive or a tumble is no jump).
     const f32 e = dz - reference(ph);
-    r.add("track_height", 8, up * kern::dm::exp(-e * e / (0.012f * 0.012f)));
-    r.add("airborne", 6, flight && airborne ? up : 0.0f);
-    r.add("lift", 3, takeoff ? up * clamp(p.velocity.z, 0.0f, 1.0f) : 0.0f);
-    r.add("landed", 3, ph >= 0.42f && flown_ && both ? up : 0.0f);
+    r.add("track_height", 4, up * kern::dm::exp(-e * e / (0.02f * 0.02f)));
+    r.add("airborne", 10, flight && airborne ? up : 0.0f);
+    r.add("lift", 20, takeoff ? up * clamp(p.velocity.z, 0.0f, 1.0f) : 0.0f);
+    r.add("landed", 6, ph >= 0.42f && flown_ && both ? up : 0.0f);
     r.add("extra_hop", -4, ph >= 0.5f && airborne ? 1.0f : 0.0f);  // one jump, then it stands
     // Upright, at home before and after, straight up (no drift, no turn).
     r.add("upright", 2, up);

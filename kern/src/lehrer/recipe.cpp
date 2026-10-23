@@ -29,7 +29,9 @@ Recipe recipe_for(const std::string& task) {
 }
 
 std::unique_ptr<DuckEnv> make_env(const Recipe& recipe, u64 seed, i32 index) {
-  return std::make_unique<DuckEnv>(make_task(recipe.task), seed * 1000003ull + static_cast<u64>(index), recipe.substeps);
+  auto env = std::make_unique<DuckEnv>(make_task(recipe.task), seed * 1000003ull + static_cast<u64>(index), recipe.substeps);
+  env->servo = recipe.servo;
+  return env;
 }
 
 void prepare_env(DuckEnv& env, const Recipe& recipe, i32 iteration) {

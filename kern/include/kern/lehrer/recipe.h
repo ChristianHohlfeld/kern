@@ -17,6 +17,8 @@ struct Recipe {
   PpoConfig ppo;
   std::string warm_start = "none";  // "velstand": the actor starts as Pollen's velstand network
   i32 substeps = 0;                 // Box3D sub-steps (0: the Studio's, game::kWalkerSubsteps)
+  /// The servos the ducks are built with (a calibrated profile makes the training's robot the real one).
+  game::ServoProfile servo = game::xl330_profile();
   /// The shoves' strength over the training (Pollen's kick: in once the move has formed).
   f32 push_scale(i32 iteration) const;
 };

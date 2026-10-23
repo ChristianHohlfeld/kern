@@ -508,6 +508,7 @@ json::Value actor_to_json(const Actor& a) {
       x.set("actions", k.actions);
       if (k.kern_extras) x.set("kernExtras", true);
       if (k.rollers) x.set("rollers", true);
+      if (k.servo_delay != 0.02f) x.set("servoDelay", num(k.servo_delay));
     }
     x.set("maxSpeed", num(k.max_speed));
     x.set("acceleration", num(k.acceleration));
@@ -774,6 +775,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       kr.boolean("kernExtras", k.kern_extras);
       if (k.gait != "velstand" && k.gait != "alpha") k.gait = "velstand";
       kr.boolean("rollers", k.rollers);
+      kr.number("servoDelay", k.servo_delay, 0, 1);
       kr.number("maxSpeed", k.max_speed, 0, 1000);
       kr.number("acceleration", k.acceleration, 0, 1000);
       kr.number("turnRate", k.turn_rate, 0, 3600);

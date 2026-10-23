@@ -12,6 +12,7 @@
 
 #include "kern/core/base.h"
 #include "kern/game/runtime.h"
+#include "kern/game/servo.h"
 #include "kern/game/walker.h"
 
 namespace kern::lehrer {
@@ -67,12 +68,10 @@ class Task {
     f32 push_every_min = 3, push_every_max = 6;  // real seconds
     f32 push = 0.3f;                    // real m/s, x and y uniform +-
     // The build, per episode (game::vary_micro_duck): trunk mass and inertia, the trunk's and the
-    // head's centre of mass (real metres, uniform +- per axis; the curricula widen them), the
-    // servos' armature and joint friction.
+    // head's centre of mass (real metres, uniform +- per axis; the curricula widen them). The
+    // servos vary within their device profile's spreads (DuckEnv::servo).
     f32 mass_min = 0.95f, mass_max = 1.05f;
     f32 com = 0.003f, head_com = 0.003f;
-    f32 armature_min = 0.9f, armature_max = 1.1f;
-    f32 friction_min = 0.9f, friction_max = 1.1f;
     // The IMU (gyro, gravity) arrives 0..imu_lag ticks late, re-drawn every imu_lag_period ticks.
     i32 imu_lag = 1, imu_lag_period = 64;
   };
@@ -141,6 +140,10 @@ class DuckEnv : public Env {
   const game::GameWorld::WalkerProbe& probe() const { return probe_; }
   /// The shoves' strength as a share of Task::Noise::push (the curriculum ramps it in).
   f32 push_scale = 1;
+  /// The servos' device profile (game/servo.h): the clean robot has exactly these values; with
+  /// randomisation every servo draws its own within the profile's spreads, and the bus its delay,
+  /// each episode.
+  game::ServoProfile servo = game::xl330_profile();
 
  private:
   void observe();

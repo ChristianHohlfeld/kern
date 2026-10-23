@@ -21,6 +21,8 @@
 #include "kern/lehrer/ppo.h"
 #include "kern/lehrer/onnx_export.h"
 #include "kern/lehrer/backend.h"
+#include "kern/lehrer/kalibrierung.h"
+#include "kern/game/servo.h"
 #include "kern/studio/studio.h"
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
@@ -4591,6 +4593,80 @@ TEST(lehrer_runs_the_same_on_any_number_of_workers) {
   CHECK(one.size() == two.size() && one.size() == four.size());
   CHECK(std::memcmp(one.data(), two.data(), one.size() * sizeof(f32)) == 0);
   CHECK(std::memcmp(one.data(), four.data(), one.size() * sizeof(f32)) == 0);
+}
+
+// Bench logs of a servo made in the simulation with `p` (stand-ins for measurements of a real one).
+static lehrer::ServoLog bench_log(const game::ServoProfile& p, int kind, lehrer::ServoLoad load) {
+  lehrer::ServoLog log;
+  log.load = load;
+  const int n = kind == 1 ? 600 : 480;  // 200 Hz samples
+  for (int i = 0; i < n; ++i) {
+    const f32 t = static_cast<f32>(i) * 0.005f;
+    f32 target = 0;
+    if (kind == 0) target = (i / 80) % 3 == 0 ? -0.6f : (i / 80) % 3 == 1 ? 0.4f : 0.9f;  // steps
+    if (kind == 1) target = 0.5f * std::sin(6.2831853f * (0.5f + 0.6f * t) * t);            // a chirp, 0.5 -> 4 Hz
+    if (kind == 2) target = (i / 60) % 2 ? 0.3f : -0.3f;                                    // a square wave
+    log.time.push_back(t);
+    log.target.push_back(target);
+    log.angle.push_back(0);
+  }
+  log.angle = lehrer::simulate_servo(p, log);
+  return log;
+}
+
+TEST(lehrer_calibrates_a_servo_from_bench_logs) {
+  // A servo that is not quite the nominal XL330 (as a real unit may be): stiffer losses, weaker,
+  // a heavier rotor, more latency. Its bench logs (two signals, two loads) are fitted, a third log
+  // with another signal and load is held out: the fit must explain it, not only the logs it saw.
+  const game::ServoProfile nominal = game::xl330_profile();
+  game::ServoProfile truth = nominal;
+  truth.stiffness *= 0.8f;
+  truth.damping *= 1.3f;
+  truth.friction *= 1.5f;
+  truth.torque *= 0.9f;
+  truth.armature *= 1.2f;
+  truth.delay = 0.03f;
+  const lehrer::ServoLoad light{0.05f, 0.05f, 1e-5f, true}, heavy{0.12f, 0.06f, 3e-5f, true}, other{0.08f, 0.04f, 2e-5f, true};
+  const std::vector<lehrer::ServoLog> fit = {bench_log(truth, 0, light), bench_log(truth, 1, heavy)};
+  const std::vector<lehrer::ServoLog> held = {bench_log(truth, 2, other)};
+  // The log format survives a round trip.
+  lehrer::ServoLog back;
+  std::string error;
+  CHECK(lehrer::parse_servo_log(lehrer::servo_log_csv(fit[1]), back, &error));
+  CHECK(back.time.size() == fit[1].time.size() && back.load.mass == fit[1].load.mass && back.angle[100] == fit[1].angle[100]);
+  // The same profile replays its own log exactly (the rig is deterministic).
+  CHECK(lehrer::servo_error(truth, fit[0]) == 0.0f);
+  const lehrer::CalibrationReport r = lehrer::calibrate_servo(nominal, fit, held, 40, 7, 2);
+  std::printf("    servo calibration: fit %.2f -> %.3f mrad, held out %.2f -> %.3f mrad (%d runs)\n", r.fit_rms_before * 1000, r.fit_rms * 1000,
+              r.holdout_rms_before * 1000, r.holdout_rms * 1000, r.evaluations);
+  std::printf("    K %.3f (%.3f) D %.4f (%.4f) F %.4f (%.4f) T %.3f (%.3f) A %.5f (%.5f) delay %.3f (%.3f)\n", r.profile.stiffness, truth.stiffness,
+              r.profile.damping, truth.damping, r.profile.friction, truth.friction, r.profile.torque, truth.torque, r.profile.armature, truth.armature,
+              r.profile.delay, truth.delay);
+  CHECK(r.holdout_rms < 0.2f * r.holdout_rms_before);
+  CHECK(r.holdout_rms < 0.003f);
+  // A profile as a file and back.
+  game::ServoProfile q;
+  CHECK(game::servo_profile_from_json(game::to_json(r.profile), q, &error));
+  CHECK(q.stiffness == r.profile.stiffness && q.delay == r.profile.delay && q.name == r.profile.name);
+  CHECK(!game::servo_profile_from_json("{\"kind\":\"servo\",\"stiffness\":-1,\"torque\":1}", q));
+}
+
+TEST(lehrer_replays_robot_logs_against_the_simulation) {
+  // A whole-robot log (what the policy saw and sent each tick) replayed in the simulation: with the
+  // servos it was made with the distance is exactly 0 (bit for bit); with other servos it is not.
+  game::ServoProfile real = game::xl330_profile();
+  real.damping *= 1.4f;
+  real.delay = 0.03f;
+  const lehrer::RobotLog log = lehrer::simulated_robot_log(real, 120);
+  lehrer::RobotLog back;
+  std::string error;
+  CHECK(lehrer::parse_robot_log(lehrer::robot_log_csv(log), back, &error));
+  const lehrer::LogDelta same = lehrer::compare_robot_log(back, real);
+  const lehrer::LogDelta nominal = lehrer::compare_robot_log(back, game::xl330_profile());
+  std::printf("    robot log, %d ticks: same servos %.4f rad, nominal servos joints %.4f rad, gyro %.4f rad/s\n", nominal.ticks, same.joint_pos,
+              nominal.joint_pos, nominal.gyro);
+  CHECK(same.ticks == 120 && same.joint_pos == 0 && same.gyro == 0 && same.joint_vel == 0);
+  CHECK(nominal.joint_pos > 1e-4f);
 }
 
 TEST(lehrer_exports_onnx_like_pollens_networks) {
