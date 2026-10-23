@@ -725,6 +725,15 @@ bool GameWorld::walker_probe(ActorId id, WalkerProbe& out) const {
   return true;
 }
 
+bool GameWorld::walker_push(ActorId id, Vec3 velocity) {
+  WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  const Vec3 dv = velocity * (kDuckScale / std::sqrt(kDuckScale));  // real m/s -> world m/s
+  for (const physics::Body& b : w->bodies)
+    if (b.valid()) physics_.set_linear_velocity(b, physics_.linear_velocity(b) + dv);
+  return true;
+}
+
 GameWorld::WalkerBrain* GameWorld::walker_brain(ActorId id) const {
   for (const auto& w : walkers_)
     if (!id || w->actor == id) return w.get();

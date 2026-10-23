@@ -4449,6 +4449,7 @@ TEST(micro_duck_observation_between_ticks_is_what_its_controller_sees) {
 
 TEST(train_duck_env_runs_episodes_headless) {
   train::DuckEnv env(train::make_stand_task(), 7);
+  env.task().randomize = false;  // the clean robot: the check is that the external path is exact
   env.reset();
   CHECK(env.critic_size() == 61);
   const auto& p0 = env.probe();

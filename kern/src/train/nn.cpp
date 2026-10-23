@@ -29,8 +29,45 @@ void Mlp::init(const std::vector<i32>& dims, Rng& rng, f32 output_gain) {
   }
 }
 
+namespace {
+
+// y[r][o] = b[o] + sum_i x[r][i] w[i][o] for rows r: four rows share each pass over w.
+void dense(const f32* x, i32 rows, i32 in, i32 out, const f32* w, const f32* b, f32* y) {
+  i32 r = 0;
+  for (; r + 4 <= rows; r += 4) {
+    f32* y0 = y + static_cast<std::size_t>(r) * out;
+    f32 *y1 = y0 + out, *y2 = y1 + out, *y3 = y2 + out;
+    for (i32 o = 0; o < out; ++o) y0[o] = y1[o] = y2[o] = y3[o] = b[o];
+    const f32* x0 = x + static_cast<std::size_t>(r) * in;
+    const f32 *x1 = x0 + in, *x2 = x1 + in, *x3 = x2 + in;
+    for (i32 i = 0; i < in; ++i) {
+      const f32 a0 = x0[i], a1 = x1[i], a2 = x2[i], a3 = x3[i];
+      const f32* wi = w + static_cast<std::size_t>(i) * out;
+      for (i32 o = 0; o < out; ++o) {
+        const f32 wv = wi[o];
+        y0[o] += wv * a0;
+        y1[o] += wv * a1;
+        y2[o] += wv * a2;
+        y3[o] += wv * a3;
+      }
+    }
+  }
+  for (; r < rows; ++r) {
+    f32* yr = y + static_cast<std::size_t>(r) * out;
+    std::memcpy(yr, b, sizeof(f32) * static_cast<std::size_t>(out));
+    const f32* xr = x + static_cast<std::size_t>(r) * in;
+    for (i32 i = 0; i < in; ++i) {
+      const f32 a = xr[i];
+      const f32* wi = w + static_cast<std::size_t>(i) * out;
+      for (i32 o = 0; o < out; ++o) yr[o] += wi[o] * a;
+    }
+  }
+}
+
+}  // namespace
+
 void Mlp::forward(const f32* x, i32 batch, f32* out, Cache* cache) const {
-  std::vector<f32> local_in, local_out;
+  std::vector<f32> buf[2];
   const f32* in_ptr = x;
   if (cache) {
     cache->batch = batch;
@@ -42,70 +79,66 @@ void Mlp::forward(const f32* x, i32 batch, f32* out, Cache* cache) const {
     const i32 in = dims_[static_cast<std::size_t>(l)], o_n = dims_[static_cast<std::size_t>(l) + 1];
     const bool last = l == layers() - 1;
     f32* y;
-    if (last && !cache) y = out;
-    else if (cache) {
-      cache->act[static_cast<std::size_t>(l) + 1].resize(static_cast<std::size_t>(batch) * static_cast<std::size_t>(o_n));
-      y = cache->act[static_cast<std::size_t>(l) + 1].data();
+    std::vector<f32>& target = cache ? cache->act[static_cast<std::size_t>(l) + 1] : buf[l & 1];
+    if (last && !cache) {
+      y = out;
     } else {
-      local_out.resize(static_cast<std::size_t>(batch) * static_cast<std::size_t>(o_n));
-      y = local_out.data();
+      target.resize(static_cast<std::size_t>(batch) * static_cast<std::size_t>(o_n));
+      y = target.data();
     }
-    const f32* w = weight(l);
-    const f32* b = bias(l);
-    for (i32 r = 0; r < batch; ++r) {
-      f32* yr = y + static_cast<std::size_t>(r) * o_n;
-      std::memcpy(yr, b, sizeof(f32) * static_cast<std::size_t>(o_n));
-      const f32* xr = in_ptr + static_cast<std::size_t>(r) * in;
-      for (i32 i = 0; i < in; ++i) {
-        const f32 xi = xr[i];
-        if (xi == 0) continue;
-        const f32* wi = w + static_cast<std::size_t>(i) * o_n;
-        for (i32 o = 0; o < o_n; ++o) yr[o] += wi[o] * xi;
-      }
-      if (!last)
-        for (i32 o = 0; o < o_n; ++o) yr[o] = yr[o] > 0 ? yr[o] : std::expm1(yr[o]);  // ELU
-    }
-    if (last && cache) std::memcpy(out, y, sizeof(f32) * static_cast<std::size_t>(batch) * static_cast<std::size_t>(o_n));
-    if (!cache && !last) {
-      local_in.swap(local_out);
-      in_ptr = local_in.data();
+    dense(in_ptr, batch, in, o_n, weight(l), bias(l), y);
+    if (!last) {
+      const std::size_t n = static_cast<std::size_t>(batch) * static_cast<std::size_t>(o_n);
+      for (std::size_t k = 0; k < n; ++k) y[k] = y[k] > 0 ? y[k] : std::expm1(y[k]);  // ELU
     } else if (cache) {
-      in_ptr = y;
+      std::memcpy(out, y, sizeof(f32) * static_cast<std::size_t>(batch) * static_cast<std::size_t>(o_n));
     }
+    in_ptr = y;
   }
 }
 
 void Mlp::backward(const Cache& cache, const f32* dout, f32* grad, f32* dx) const {
   const i32 batch = cache.batch;
-  std::vector<f32> delta(dout, dout + static_cast<std::size_t>(batch) * static_cast<std::size_t>(outputs())), prev;
+  std::vector<f32> delta(dout, dout + static_cast<std::size_t>(batch) * static_cast<std::size_t>(outputs())), prev, wt;
   for (i32 l = layers() - 1; l >= 0; --l) {
     const i32 in = dims_[static_cast<std::size_t>(l)], o_n = dims_[static_cast<std::size_t>(l) + 1];
-    const std::vector<f32>& x = cache.act[static_cast<std::size_t>(l)];
+    const f32* x = cache.act[static_cast<std::size_t>(l)].data();
     const f32* w = weight(l);
     f32* gw = grad + w_[static_cast<std::size_t>(l)];
     f32* gb = grad + b_[static_cast<std::size_t>(l)];
-    const bool need_dx = l > 0 || dx;
-    if (need_dx) prev.assign(static_cast<std::size_t>(batch) * static_cast<std::size_t>(in), 0.0f);
-    for (i32 r = 0; r < batch; ++r) {
-      const f32* d = delta.data() + static_cast<std::size_t>(r) * o_n;
-      const f32* xr = x.data() + static_cast<std::size_t>(r) * in;
-      for (i32 o = 0; o < o_n; ++o) gb[o] += d[o];
-      f32* pr = need_dx ? prev.data() + static_cast<std::size_t>(r) * in : nullptr;
+    const f32* d = delta.data();
+    // Bias and weight gradients: gw[i][o] += sum_r x[r][i] d[r][o], four rows per pass.
+    for (i32 r = 0; r < batch; ++r)
+      for (i32 o = 0; o < o_n; ++o) gb[o] += d[static_cast<std::size_t>(r) * o_n + o];
+    i32 r = 0;
+    for (; r + 4 <= batch; r += 4) {
+      const f32* x0 = x + static_cast<std::size_t>(r) * in;
+      const f32 *x1 = x0 + in, *x2 = x1 + in, *x3 = x2 + in;
+      const f32* d0 = d + static_cast<std::size_t>(r) * o_n;
+      const f32 *d1 = d0 + o_n, *d2 = d1 + o_n, *d3 = d2 + o_n;
       for (i32 i = 0; i < in; ++i) {
+        const f32 a0 = x0[i], a1 = x1[i], a2 = x2[i], a3 = x3[i];
         f32* gwi = gw + static_cast<std::size_t>(i) * o_n;
-        const f32 xi = xr[i];
-        if (xi != 0)
-          for (i32 o = 0; o < o_n; ++o) gwi[o] += xi * d[o];
-        if (pr) {
-          const f32* wi = w + static_cast<std::size_t>(i) * o_n;
-          f32 s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-          i32 o = 0;
-          for (; o + 4 <= o_n; o += 4) { s0 += wi[o] * d[o]; s1 += wi[o + 1] * d[o + 1]; s2 += wi[o + 2] * d[o + 2]; s3 += wi[o + 3] * d[o + 3]; }
-          for (; o < o_n; ++o) s0 += wi[o] * d[o];
-          pr[i] = (s0 + s1) + (s2 + s3);
-        }
+        for (i32 o = 0; o < o_n; ++o) gwi[o] += a0 * d0[o] + a1 * d1[o] + a2 * d2[o] + a3 * d3[o];
       }
     }
+    for (; r < batch; ++r) {
+      const f32* xr = x + static_cast<std::size_t>(r) * in;
+      const f32* dr = d + static_cast<std::size_t>(r) * o_n;
+      for (i32 i = 0; i < in; ++i) {
+        const f32 a = xr[i];
+        f32* gwi = gw + static_cast<std::size_t>(i) * o_n;
+        for (i32 o = 0; o < o_n; ++o) gwi[o] += a * dr[o];
+      }
+    }
+    if (l == 0 && !dx) break;
+    // Input gradient: dx[r][i] = sum_o d[r][o] w[i][o] = d . w^T (with w transposed once: [o][i]).
+    wt.resize(static_cast<std::size_t>(in) * static_cast<std::size_t>(o_n));
+    for (i32 i = 0; i < in; ++i)
+      for (i32 o = 0; o < o_n; ++o) wt[static_cast<std::size_t>(o) * in + i] = w[static_cast<std::size_t>(i) * o_n + o];
+    std::vector<f32> zero(static_cast<std::size_t>(in), 0.0f);
+    prev.resize(static_cast<std::size_t>(batch) * static_cast<std::size_t>(in));
+    dense(d, batch, o_n, in, wt.data(), zero.data(), prev.data());
     if (l > 0) {
       // Through the ELU of the layer below: y > 0 passes, else dy/dx = y + 1.
       for (std::size_t k = 0; k < prev.size(); ++k) {
@@ -113,7 +146,7 @@ void Mlp::backward(const Cache& cache, const f32* dout, f32* grad, f32* dx) cons
         if (y <= 0) prev[k] *= y + 1;
       }
       delta.swap(prev);
-    } else if (dx) {
+    } else {
       std::memcpy(dx, prev.data(), sizeof(f32) * prev.size());
     }
   }

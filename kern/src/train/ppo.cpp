@@ -3,6 +3,8 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <numeric>
 
@@ -197,6 +199,29 @@ void Ppo::update(IterationStats& stats) {
   for (std::size_t k = rows - 1; k > 0; --k) std::swap(perm[k], perm[rng_.next() % (k + 1)]);
   const std::vector<f32> old_std = std_;
   const i32 A = act_;
+  // The old policy is the one before this update, seen through today's normalisers: the rollout
+  // used normalisers that kept learning while it ran, so its stored means, log-probabilities and
+  // values are re-evaluated once here (rsl_rl relies on thousands of environments to make that
+  // drift negligible; a phone runs a few dozen).
+  {
+    const std::size_t chunk = 256;
+    std::vector<f32> xo(chunk * static_cast<std::size_t>(obs_)), xcr(chunk * static_cast<std::size_t>(crit_));
+    for (std::size_t at = 0; at < rows; at += chunk) {
+      const i32 n = static_cast<i32>(min_of(chunk, rows - at));
+      actor_norm_.apply(obs_buf_.data() + at * obs_, n, xo.data());
+      critic_norm_.apply(crit_buf_.data() + at * crit_, n, xcr.data());
+      actor_.forward(xo.data(), n, mu_buf_.data() + at * A);
+      critic_.forward(xcr.data(), n, value_buf_.data() + at);
+      for (i32 k = 0; k < n; ++k) {
+        f32 logp = 0;
+        for (i32 j = 0; j < A; ++j) {
+          const f32 sd = std_[static_cast<std::size_t>(j)], d = act_buf_[(at + static_cast<std::size_t>(k)) * A + j] - mu_buf_[(at + static_cast<std::size_t>(k)) * A + j];
+          logp += -0.5f * d * d / (sd * sd) - std::log(sd) - 0.5f * kLog2Pi;
+        }
+        logp_buf_[at + static_cast<std::size_t>(k)] = logp;
+      }
+    }
+  }
   std::vector<f32> xa(size * static_cast<std::size_t>(obs_)), xc(size * static_cast<std::size_t>(crit_)), ro(xa.size()), rc(xc.size());
   std::vector<f32> mu(size * static_cast<std::size_t>(A)), value(size), dmu(mu.size()), dv(size), dstd(static_cast<std::size_t>(A));
   std::vector<f32> gactor(actor_.params().size()), gcritic(critic_.params().size());
@@ -226,6 +251,7 @@ void Ppo::update(IterationStats& stats) {
           }
         }
         kl /= static_cast<f64>(size);
+        if (std::getenv("KERN_PPO_DEBUG")) std::printf("    epoch %d mb %d kl %.5f lr %.2e\n", epoch, b, kl, lr_);
         if (kl > cfg_.desired_kl * 2.0) lr_ = max_of(1e-5f, lr_ / 1.5f);
         else if (kl < cfg_.desired_kl / 2.0 && kl > 0.0) lr_ = min_of(1e-2f, lr_ * 1.5f);
         actor_adam_.lr = critic_adam_.lr = lr_;

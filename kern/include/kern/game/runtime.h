@@ -404,6 +404,9 @@ class GameWorld {
     f32 action[14] = {};            // the last action
   };
   bool walker_probe(ActorId id, WalkerProbe& out) const;
+  /// A shove: adds `velocity` (real m/s, world frame) to every part of walker `id` (training's
+  /// push_by_setting_velocity on the whole robot).
+  bool walker_push(ActorId id, Vec3 velocity);
   /// The last call its voice made ("greet", "chirp", "wheee", ...), "" before the first.
   std::string walker_said(ActorId id) const;
   /// Its servo joints now (radians, the MJCF angle) with their ranges: the policy's 14, the mouth.

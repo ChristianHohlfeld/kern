@@ -76,6 +76,11 @@ class JumpTask : public Task {
   std::string name() const override { return "jump"; }
   f32 episode_seconds() const override { return 3; }
   i32 privileged() const override { return 8; }
+  void progress(i32 iteration) override {
+    // Pollen's action-rate stages (velocity / kick): -0.1 -> -1.0 by iteration 1500.
+    static const std::pair<i32, f32> stages[] = {{0, -0.1f}, {500, -0.2f}, {750, -0.4f}, {1000, -0.6f}, {1250, -0.8f}, {1500, -1.0f}};
+    for (const auto& [at, w] : stages) if (iteration >= at) action_rate_weight_ = w;
+  }
   Start reset(Rng& rng) override {
     Start s;
     s.yaw = rng.uniform(-180, 180);
@@ -107,14 +112,17 @@ class JumpTask : public Task {
     r.add("upright", 2, upright(p));
     r.add("pose_legs", 1, pose_match(p.joint, kLegs, 10, 0.5f));
     r.add("pose_neck", 1, pose_match(p.joint, kNeck, 4, 0.3f));
-    // Sim2real regularisers (velocity's weights at stage 0).
-    r.add("action_rate", -0.1f, action_rate(t));
+    // Sim2real regularisers (velocity's weights; the action rate ramps in, below).
+    r.add("action_rate", action_rate_weight_, action_rate(t));
     r.add("body_ang_vel", -0.05f, p.spin.x * p.spin.x + p.spin.y * p.spin.y);
     r.add("self_collisions", -1, p.self_contact ? 1.0f : 0.0f);
     terminal = fell(p);
     if (terminal) r.add("fall", -4, 1, false);
     return r.sum();
   }
+
+ private:
+  f32 action_rate_weight_ = -0.1f;
 };
 
 }  // namespace

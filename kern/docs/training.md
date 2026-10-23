@@ -21,7 +21,7 @@ werden wie dort als Gewicht × Term × dt summiert.
 | 2. MLP mit Backprop und Adam | fertig |
 | 3. PPO (Rezept wie rsl_rl: GAE, Clip, adaptive Lernrate, asymmetrischer Critic) | fertig |
 | 4. ONNX-Export im Format von Pollens Netzen | fertig |
-| 5. Variation (Domain Randomization), Training parallel auf allen Kernen | offen |
+| 5. Variation (Domain Randomization), Training parallel auf allen Kernen | fertig (Abstimmung läuft) |
 | 6. Training im Browser (Web Worker, Desktop und Handy) | offen |
 | 7. Das Sprung-Netz trainieren und als Fertigkeit einbinden | offen |
 
@@ -130,3 +130,44 @@ PPO folgt rsl_rls Implementierung, mit der Pollen seine Netze trainiert:
     rechnet bis 1e-4 genau dasselbe wie der Actor im Trainer.
   - Eine exportierte Datei lädt und rechnet auch mit ONNX Runtime, der Laufzeit des Roboters (lokal
     geprüft).
+
+## 5. Variation und natives Training (`tools/kern_train.cpp`)
+
+### Variation je Episode
+
+Die Werte sind auf Pollens Velocity- und Kick-Rezepte abgestimmt (`Task::Noise`). Der Critic sieht
+den sauberen Zustand.
+
+- **Start:** Gier zufällig, ±3° Neigung, 0–5 mm Fallhöhe.
+- **Sohlenreibung:** Faktor 0,7–1,3.
+- **Was der Actor sieht:**
+  - Gyro ±0,03, Schwerkraft ±0,01
+  - Gelenkwinkel ±0,001 und je Episode ein Encoder-Bias von ±0,015 je Gelenk
+  - Gelenkgeschwindigkeit ±0,25
+- **Stöße:** alle 3–6 s ±0,3 m/s in x und y, auf jedes Teil der Ente (`walker_push`).
+  - Die Stöße setzen wie bei Pollen erst ein, wenn die Fertigkeit entsteht: 0 bis Iteration 500,
+    27 % bis 1000, dann voll.
+- **Action-Rate-Gewicht:** steigt wie bei Pollen von −0,1 auf −1,0 bis Iteration 1500.
+- **Noch nicht nachgebildet:** Schwerpunkt-, Massen- und Armature-Variation, Gelenkreibung,
+  IMU-Verzögerung. Folgt, wenn das Netz damit auf dem Roboter hakt.
+
+### Lauf
+
+```
+kern/tools/train.sh                    # baut kern/build/kern_train (nativ, -O3, alle Kerne)
+kern/build/kern_train --task jump --envs 64 --iterations 1500 --out jump.onnx --log jump.csv
+kern/build/kern_train --eval jump.onnx --task jump   # sauberer Roboter: Höhe, Flugzeit, Stürze
+```
+
+- **Fortschritt:** Jede Iteration schreibt eine Zeile (CSV mit `--log`).
+- **Export:** alle 50 Iterationen eine ONNX-Datei.
+
+### Geschwindigkeit
+
+- **Physik:** etwa 750 Regeltakte/s je Kern; das ist der Engpass. Ein Takt sind 4 Weltschritte mit
+  je 16 Box3D-Substeps, wie im Studio.
+- **Lernen:** 512/256/128-Netze mit 17–22 GFLOP/s auf einem Kern.
+- **Ein Detail gegenüber rsl_rl:** Vor dem Update werden Mittelwerte, Log-Wahrscheinlichkeiten und
+  Werte der alten Policy mit den aktuellen Normalisierern neu berechnet. rsl_rl verlässt sich darauf,
+  dass bei 4096 Umgebungen die Normalisierer im Rollout kaum wandern; bei einigen Dutzend
+  Umgebungen verfälscht das sonst KL und Ratio.

@@ -9,11 +9,6 @@
 
 namespace kern::train {
 
-f32 Rng::normal() {
-  const f32 u1 = max_of(1e-7f, uniform()), u2 = uniform();
-  return std::sqrt(-2.0f * std::log(u1)) * std::cos(6.28318531f * u2);
-}
-
 struct DuckEnv::Impl {
   Renderer renderer;
   std::unique_ptr<game::GameWorld> world;
@@ -44,6 +39,11 @@ DuckEnv::~DuckEnv() = default;
 
 game::GameWorld& DuckEnv::world() { return *impl_->world; }
 
+i32 DuckEnv::push_interval() {
+  const Task::Noise& n = task_->noise;
+  return static_cast<i32>(std::lround(rng_.uniform(n.push_every_min, n.push_every_max) / kControlDt));
+}
+
 void DuckEnv::reset() {
   const Task::Start s = task_->reset(rng_);
   game::Level l = impl_->base;
@@ -60,6 +60,9 @@ void DuckEnv::reset() {
   return_ = 0;
   std::memset(previous_action_, 0, sizeof previous_action_);
   std::memset(last_action_, 0, sizeof last_action_);
+  const Task::Noise& n = task_->noise;
+  for (f32& b : bias_) b = task_->randomize ? rng_.uniform(-n.encoder_bias, n.encoder_bias) : 0.0f;
+  next_push_ = push_interval();
   w.walker_probe(duck_, probe_);
   observe();
 }
@@ -68,8 +71,18 @@ void DuckEnv::observe() {
   game::GameWorld& w = *impl_->world;
   w.walker_observation(duck_, obs_.data());
   task_->command(obs_.data());
+  // The critic sees the clean state; the actor what the robot's sensors give (noise, bias).
   std::memcpy(critic_.data(), obs_.data(), sizeof(f32) * kObs);
   if (task_->privileged()) task_->privileged(probe_, critic_.data() + kObs);
+  if (task_->randomize) {
+    const Task::Noise& n = task_->noise;
+    for (i32 i = 0; i < 3; ++i) obs_[static_cast<std::size_t>(i)] += rng_.uniform(-n.gyro, n.gyro);
+    for (i32 i = 3; i < 6; ++i) obs_[static_cast<std::size_t>(i)] += rng_.uniform(-n.gravity, n.gravity);
+    for (i32 j = 0; j < kActions; ++j) {
+      obs_[static_cast<std::size_t>(6 + j)] += bias_[j] + rng_.uniform(-n.joint_pos, n.joint_pos);
+      obs_[static_cast<std::size_t>(20 + j)] += rng_.uniform(-n.joint_vel, n.joint_vel);
+    }
+  }
 }
 
 Env::Step DuckEnv::step(const f32* action) {
@@ -83,6 +96,11 @@ Env::Step DuckEnv::step(const f32* action) {
     w.step_once();
   } while (!w.walker_tick_due(duck_) && ++guard < 64);
   ++step_;
+  if (task_->randomize && step_ >= next_push_) {
+    const f32 p = task_->noise.push * push_scale;
+    w.walker_push(duck_, {rng_.uniform(-p, p), rng_.uniform(-p, p), 0});
+    next_push_ = step_ + push_interval();
+  }
   w.walker_probe(duck_, probe_);
   Step r;
   r.reward = task_->reward(Tick{probe_, last_action_, previous_action_, step_}, r.terminal);

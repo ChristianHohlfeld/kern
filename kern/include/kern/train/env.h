@@ -4,6 +4,7 @@
 // See docs/training.md.
 #pragma once
 
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,7 +26,10 @@ struct Rng {
   }
   f32 uniform() { return static_cast<f32>(next() >> 40) * (1.0f / 16777216.0f); }  // [0, 1)
   f32 uniform(f32 lo, f32 hi) { return lo + (hi - lo) * uniform(); }
-  f32 normal();  // standard normal (Box-Muller)
+  f32 normal() {  // standard normal (Box-Muller)
+    const f32 u1 = uniform(), u2 = uniform();
+    return std::sqrt(-2.0f * std::log(u1 > 1e-7f ? u1 : 1e-7f)) * std::cos(6.28318531f * u2);
+  }
 };
 
 constexpr i32 kObs = 61, kActions = 14;
@@ -53,12 +57,24 @@ class Task {
     f32 dz = 0;                        // real metres above the standing pose
     f32 foot_friction = 1;             // the soles' friction scale
   };
+  /// Randomisation of the episode (matched to Pollen's velocity / kick recipes): noise on what the
+  /// actor observes, an encoder bias per joint, shoves at random intervals.
+  struct Noise {
+    f32 gyro = 0.03f, gravity = 0.01f, joint_pos = 0.001f, joint_vel = 0.25f;  // uniform +-
+    f32 encoder_bias = 0.015f;          // per joint and episode, uniform +-
+    f32 push_every_min = 3, push_every_max = 6;  // real seconds
+    f32 push = 0.3f;                    // real m/s, x and y uniform +-
+  };
+  Noise noise;
+  bool randomize = true;  // off: the clean robot (evaluation)
   virtual Start reset(Rng& rng) = 0;
   /// Writes the command slots 48..60 of the observation (the unified layout: twist, head, body).
   virtual void command(f32 observation[kObs]) { for (i32 i = 48; i < kObs; ++i) observation[i] = 0; }
   virtual void privileged(const game::GameWorld::WalkerProbe& p, f32* out) { (void)p; (void)out; }
   /// The reward for the last tick; terminal when the episode failed (no value after it).
   virtual f32 reward(const Tick& t, bool& terminal) = 0;
+  /// The training's progress (PPO iterations so far): curricula ramp weights and ranges with it.
+  virtual void progress(i32 iteration) { (void)iteration; }
   /// The reward terms of the last call, weight x term x dt each (for the report).
   std::vector<std::pair<const char*, f32>> terms;
 };
@@ -109,9 +125,12 @@ class DuckEnv : public Env {
   game::GameWorld& world();
   game::ActorId duck() const { return duck_; }
   const game::GameWorld::WalkerProbe& probe() const { return probe_; }
+  /// The shoves' strength as a share of Task::Noise::push (the curriculum ramps it in).
+  f32 push_scale = 1;
 
  private:
   void observe();
+  i32 push_interval();
   struct Impl;
   std::unique_ptr<Impl> impl_;
   std::unique_ptr<Task> task_;
@@ -120,6 +139,8 @@ class DuckEnv : public Env {
   i32 step_ = 0, max_steps_ = 0;
   f32 return_ = 0;
   f32 previous_action_[kActions] = {}, last_action_[kActions] = {};
+  f32 bias_[kActions] = {};
+  i32 next_push_ = 0;
   std::vector<f32> obs_, critic_;
   game::GameWorld::WalkerProbe probe_;
 };
