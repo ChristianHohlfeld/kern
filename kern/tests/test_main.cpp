@@ -3857,6 +3857,38 @@ TEST(micro_duck_roams_on_its_own_with_its_tof) {
   CHECK(std::find(states.begin(), states.end(), "TurnInPlace") != states.end());
 }
 
+TEST(micro_duck_looks_around_when_left_alone) {
+  // robotd's idle look-around (idle_head.rs): standing with nothing to do, after [idle] after_s it
+  // glances about - the head camera's view swings - and it keeps standing. Its camera is the real
+  // mount: the IMX219's 62 degrees run vertically (mounted a quarter turn off).
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, false);
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  Camera cam;
+  Mat4 m;
+  f32 early_lo = 9, early_hi = -9, lo = 9, hi = -9, min_up = 1;
+  for (int i = 0; i < 60 * 40; ++i) {  // 40 s simulated (20 s real)
+    f.world->step(1.0f / 60, {});
+    CHECK(f.world->walker_camera(duck, cam));
+    f.world->actor_matrix(duck, m);
+    min_up = min_of(min_up, m.m[10]);
+    const Vec3 d = cam.target - cam.eye;
+    f32 yaw = std::atan2(d.y, d.x) - std::atan2(m.m[1], m.m[0]);
+    yaw = std::atan2(std::sin(yaw), std::cos(yaw));
+    const f32 t = static_cast<f32>(i) / 60 / 2;  // real seconds
+    if (t > 1 && t < 3.5f) { early_lo = min_of(early_lo, yaw); early_hi = max_of(early_hi, yaw); }
+    if (t > 6) { lo = min_of(lo, yaw); hi = max_of(hi, yaw); }
+  }
+  if (std::getenv("KERN_DUCK_PRINT")) std::printf("idle: early yaw span %.3f, later %.3f, min up %.2f\n", early_hi - early_lo, hi - lo, min_up);
+  CHECK(early_hi - early_lo < 0.06f);  // still the first seconds: only after after_s (2 s) + 2 s of no head command
+  CHECK(hi - lo > 0.2f);               // then it looks around
+  CHECK(min_up > 0.9f);
+  CHECK(std::fabs(cam.fov - 62 * 3.14159265f / 180) < 1e-4f);
+}
+
 TEST(micro_duck_blueprint_nodes_drive_and_sense) {
   // The level's Logic drives the duck: autonomy off, walk forward; its camera sees the cube ahead.
   GameFixture f;

@@ -83,8 +83,13 @@ constexpr f32 kTofMaxRange = 4.0f;          // VL53L8CX, metres (real)
 constexpr f32 kTofRate = 15;                // frames per second (real)
 constexpr f32 kTofFloorSafety = 0.85f;      // Reprojector::FLOOR_SAFETY
 constexpr f32 kTofMinRange = 0.10f;         // Reprojector::MIN_RANGE_M (horizontal)
-constexpr f32 kCameraHfov = 62 * rt::kDegree;  // IMX219 behind its M12 lens, full width
-constexpr f32 kCameraAspect = 16.0f / 9.0f;
+// IMX219 behind its M12 lens: 62 degrees across the 16:9 frame's long axis. The camera is mounted a
+// quarter turn off (mediad rotate = 90), so the long axis is vertical in the world: upright, the
+// picture is 9:16, 62 degrees high and 2 atan(tan 31 x 9/16) = 37.4 degrees wide (the calibrated
+// fy gives the same 37.4).
+constexpr f32 kCameraLong = 62 * rt::kDegree;
+constexpr f32 kCameraAspect = 9.0f / 16.0f;  // width / height, upright
+constexpr f32 kFallGravityZ = -0.5f, kFallDebounce = 0.2f;  // robotd's fall verdict (real seconds)
 
 const DuckSiteDef* site(const char* name) {
   for (const DuckSiteDef& s : kDuckSites)
@@ -347,7 +352,7 @@ bool GameWorld::walker_camera(ActorId id, Camera& out) const {
   out.eye = head.position + head.rotation.rotate(cam->pos * kDuckScale);
   out.target = out.eye + head.rotation.rotate(cam->x);
   out.up = head.rotation.rotate(cam->z);
-  out.fov = 2 * std::atan(std::tan(kCameraHfov / 2) / kCameraAspect);
+  out.fov = kCameraLong;  // vertical: the frame's long axis stands upright (see kCameraAspect)
   out.near = 0.01f * kDuckScale;
   out.far = 400;
   return true;
@@ -410,13 +415,13 @@ bool GameWorld::walker_sees(ActorId id, ActorId target, bool& visible, f32& bear
   Camera cam;
   Mat4 m;
   if (!w || !target || !walker_camera(w->actor, cam) || !actor_matrix(target, m)) return false;
-  // The target's centre in the camera's frame: inside the picture (62 x 37 degrees) and not hidden.
+  // The target's centre in the camera's frame: inside the picture (37.4 wide x 62 high) and not hidden.
   const Vec3 to = m.translation() - cam.eye, f = normalize(cam.target - cam.eye), u = normalize(cam.up), r = cross(f, u);
   const f32 x = dot(to, f), y = dot(to, r), z = dot(to, u);
   distance = length(to);
   bearing = std::atan2(-y, x);
   if (x <= 0) return true;
-  const f32 tan_h = std::tan(kCameraHfov / 2), tan_v = std::tan(cam.fov / 2);
+  const f32 tan_v = std::tan(cam.fov / 2), tan_h = tan_v * kCameraAspect;
   if (std::fabs(y) > x * tan_h || std::fabs(z) > x * tan_v) return true;
   const physics::RayHit hit = physics_.cast_ray_ignoring(cam.eye, to, Span<const physics::Body>(w->bodies, 15));
   auto it = actor_of_body_.find(hit.body.id);
@@ -441,7 +446,10 @@ void GameWorld::sense_walker(WalkerBrain& w) {
   const physics::Pose tp = physics_.pose(w.trunk);
   const Quat qi{-tp.rotation.x, -tp.rotation.y, -tp.rotation.z, tp.rotation.w};
   out.gravity = qi.rotate({0, 0, -1});
-  out.fallen = out.gravity.z > -0.5f;
+  // The daemon's fall verdict (robotd-params fall_gravity_z, fall_debounce_ms): projected gravity
+  // z above -0.5 for 200 ms. sense_walker runs once per control tick.
+  w.tilted_for = out.gravity.z > kFallGravityZ ? w.tilted_for + kControlPeriod : 0.0f;
+  out.fallen = w.tilted_for >= kFallDebounce;
   const Vec3 v = physics_.linear_velocity(w.trunk);
   out.speed = std::hypot(v.x, v.y);
   if (sim_time_ + 1e-6 < w.next_tof) return;
@@ -531,8 +539,12 @@ void GameWorld::drive_walkers(f32 h) {
       } else if (w.autonomous) {
         std::memcpy(cmd, w.auto_cmd, sizeof cmd);
       }
-      if (w.look_left != 0) { head[2] = w.look_cmd[0]; head[1] = w.look_cmd[1]; }
-      else if (w.autonomous && w.manual_left <= 0) std::memcpy(head, w.auto_head, sizeof head);
+      bool steered = w.quack > 0;  // something asks the head for a pose this tick
+      if (w.look_left != 0) { head[2] = w.look_cmd[0]; head[1] = w.look_cmd[1]; steered = true; }
+      else if (w.autonomous && w.manual_left <= 0) {
+        std::memcpy(head, w.auto_head, sizeof head);
+        for (f32 v : head) steered = steered || v != 0;
+      }
       if (w.quack > 0) head[1] += .35f;  // the quack nods
       cmd[0] = clamp(cmd[0], -kMaxForward, kMaxForward);
       cmd[1] = clamp(cmd[1], -kMaxStrafe, kMaxStrafe);
@@ -540,6 +552,15 @@ void GameWorld::drive_walkers(f32 h) {
       for (int i = 0; i < 4; ++i) head[i] = clamp(head[i], -kHeadRange[i], kHeadRange[i]);
       for (int i = 0; i < 3; ++i) w.command[i] += kCommandAlpha * (cmd[i] - w.command[i]);
       for (int i = 0; i < 4; ++i) w.head[i] += kCommandAlpha * (head[i] - w.head[i]);
+      // Still, as robotd decides it: nothing asks it to move or is moving it, nobody has steered the
+      // head lately, it is upright. Then the idle look-around rides on the smoothed head command.
+      w.head_age = steered ? 0.0f : w.head_age + kControlPeriod;
+      bool still = !w.sensors.fallen && cmd[0] == 0 && cmd[1] == 0 && cmd[2] == 0;
+      for (f32 v : w.command) still = still && std::fabs(v) < 1e-3f;
+      f32 idle[4];
+      idle_walker(w, still, kControlPeriod, idle);
+      f32 head_cmd[4];
+      for (int i = 0; i < 4; ++i) head_cmd[i] = clamp(w.head[i] + idle[i], -kHeadRange[i], kHeadRange[i]);
       w.quack = max_of(0.0f, w.quack - kControlPeriod);
       w.manual_left = max_of(0.0f, w.manual_left - kControlPeriod);
       if (w.drive_left > 0) w.drive_left = max_of(0.0f, w.drive_left - kControlPeriod);  // < 0 holds until the next command
@@ -561,7 +582,7 @@ void GameWorld::drive_walkers(f32 h) {
       }
       std::memcpy(w.joint_speed, speed, sizeof speed);
       for (int i = 0; i < 3; ++i) obs[48 + i] = w.command[i];
-      for (int i = 0; i < 4; ++i) obs[51 + i] = w.head[i];
+      for (int i = 0; i < 4; ++i) obs[51 + i] = head_cmd[i];
       // body command (x, y, z, roll, pitch, yaw) stays 0: the stand pose
       micro_duck_policy(obs, w.action);
       for (i32 j = 0; j < kJoints; ++j) {

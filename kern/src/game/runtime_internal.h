@@ -64,6 +64,7 @@ struct GameWorld::WalkerBrain {
   physics::Body bodies[15];        // trunk + links: what its own sensors do not see
   WalkerSensors sensors;
   f64 next_tof = 0;                // simulation time of the next ToF frame
+  f32 tilted_for = 0;              // real seconds the trunk has been tipped past the fall limit
   // Who drives (each control tick, in this order): the player's stick, then a Logic command, then
   // the autonomous brain; times are real seconds.
   bool autonomous = true;
@@ -73,6 +74,10 @@ struct GameWorld::WalkerBrain {
   // The autonomous brain (walker_brain.cpp).
   struct Brain;
   std::shared_ptr<Brain> brain;
+  // The idle look-around (robotd's idle_head.rs, walker_brain.cpp), on top of the head command.
+  struct Idle;
+  std::shared_ptr<Idle> idle;
+  f32 head_age = 0;                // real seconds since something last steered the head
   f32 auto_cmd[3] = {}, auto_head[4] = {};
   std::string state = "";
 };

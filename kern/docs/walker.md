@@ -180,25 +180,40 @@ Wie der VL53L8CX des Roboters (Quellen: `kinematics/src/tof.rs`, `tof/` im micro
 
 ### Kopfkamera
 
-- IMX219 hinter M12-Optik, 62° horizontal, 16:9.
+- IMX219 hinter M12-Optik: 62° über die lange Seite des 16:9-Bildes (`mediad/src/camera.rs`).
+- Eingebaut um eine Vierteldrehung gedreht (`mediad` `rotate = 90`). Aufrecht ist das Bild daher
+  hochkant, 9:16: 62° hoch und 37,4° breit (die Kalibrierung mit fy = 1062 ergibt dieselben 37,4°).
+  Kern rendert es genau so, und **Robot Camera Sees** prüft gegen dieses Sichtfeld.
 - Studio zeigt sie beim Spielen oben rechts im Viewport (Show-Flag **Robot Camera**), daneben das
   ToF-Gitter: rot = Hindernis, heller = näher; grün = Boden; gelb = zu nah.
 - Logic fragt sie mit **Robot Camera Sees** ab: im Bild und nicht verdeckt (Ray-Cast).
 
 ### IMU
 
-Gravitation im Rumpf-Frame. „Gefallen“ heißt gz > −0,5 (`duck-control/src/safety.rs`).
+Gravitation im Rumpf-Frame. „Gefallen“ heißt wie im Daemon gz > −0,5, und zwar 200 ms lang
+(`robotd-params`: `fall_gravity_z`, `fall_debounce_ms`). Ein kurzes Kippen beim Stolpern zählt
+nicht.
 
 ## 9. Autonomes Verhalten
 
-Fährt niemand die Ente, entscheidet sie selbst (`src/game/walker_brain.cpp`). Das ist die
-Verhaltens-Schicht des echten Roboters: Zustände, die dieselben Kommandos geben wie ein Gamepad
-(Twist und Kopfpose für die Policy).
+Fährt niemand die Ente, entscheidet sie selbst (`src/game/walker_brain.cpp`). Die Zustände geben
+dieselben Kommandos wie ein Gamepad: Twist und Kopfpose für die Policy.
+
+**Quellenlage, ehrlich:** Die Verhaltensmaschine des echten Roboters steht in `autonomous.rs` im
+Repository `apirrone/microduck_runtime`. Der Zugriff darauf wurde in dieser Sitzung verweigert, und
+das öffentliche `pollen-robotics/microduck` hat sie noch nicht portiert (dort „the biggest untracked
+gap“). Deshalb gilt:
+
+- **Original:** die Zustandsnamen, die Sensoren und ihre Filter (Abschnitt 8), das Sturzurteil,
+  die Glättung und die Grenzen der Kommandos sowie der Blick in die Runde im Stehen (unten,
+  portiert aus `robotd/src/idle_head.rs`).
+- **Kerns eigene Werte:** Dauern, Wahrscheinlichkeiten, Geschwindigkeiten, Energie,
+  Erkundungsraster und Ausweich-Abstände. Sie werden ersetzt, sobald `autonomous.rs` lesbar ist.
 
 | Zustand | Was die Ente tut |
 |---|---|
-| Chill | steht, bewegt den Kopf leicht |
-| LookAround | steht und schaut sich um (Kopf ±57°) |
+| Chill | steht; nach 2 s Ruhe schaut sie sich um (Idle-Look-around, unten) |
+| LookAround | wie Chill, für kürzere Pausen zwischen zwei Erkundungen |
 | Wander | läuft mit 0,3 m/s auf die am wenigsten besuchte freie Richtung zu; der Kopf schaut in die Kurve und leicht nach unten |
 | TurnInPlace | dreht auf der Stelle zur gewählten Richtung |
 | BackOff | etwas zu nah: kurz rückwärts und weg |
@@ -210,12 +225,38 @@ Die Steuerung dahinter:
 - **Energie:** sinkt beim Laufen, steigt beim Stehen. Sie entscheidet zwischen Ruhe und Erkunden.
 - **Erkundungsgedächtnis:** ein Raster aus Zellen von 0,5 m. Gezählt werden Besuche, die langsam
   vergessen werden, und Zellen, in denen der ToF ein Hindernis sah. Das wählt die nächste Richtung.
-- **Hindernisse** liest sie nur aus frischen ToF-Bildern (jünger als 0,3 s):
+- **Hindernisse** liest sie nur aus frischen ToF-Bildern (jünger als 0,4 s, wie `TOF_STALE` im
+  Monitor des Roboters):
   - unter 0,7 m voraus: langsamer werden und ausweichen;
   - unter 0,32 m: anhalten und zur freieren Seite drehen;
   - unter 0,16 m: zurücksetzen.
 
-Wer fährt, in dieser Reihenfolge, wie beim echten Roboter:
+### Blick in die Runde (Idle-Look-around)
+
+Zeile für Zeile portiert aus `robotd/src/idle_head.rs`, mit den Standardwerten aus `[idle]`
+(`robotd-params`). Er läuft, wenn die Ente still steht, gleich ob autonom, per Logic oder per
+Stick:
+
+- **Start:** Kein Twist ist angefordert, der geglättete Twist ist unter 10⁻³, und seit 2 s hat
+  niemand den Kopf gesteuert. Dann noch einmal 2 s (`after_s`). Er blendet über 1,5 s ein und aus.
+- **Blicke:** Sie schaut irgendwohin, bis ±0,6 rad Gieren, ±0,2 Nicken und ±0,15 Hals. Mit 25 %
+  geht der Blick zur Mitte, mit 25 % kippt sie den Kopf neugierig um 0,3 rad. Ein neuer Blick
+  liegt mindestens 0,2 rad vom alten entfernt.
+- **Bewegung:** Jeder Blick folgt einer Minimum-Jerk-Kurve und dauert 0,3 s plus 1 s pro rad.
+  Gehalten wird er 1–3 s. Währenddessen springt der Blick alle 0,4–1,2 s um bis zu 0,08 / 0,05 rad.
+- **Lebendigkeit:** Eine langsame Drift von 0,04 rad bei 0,15 Hz liegt auf allen Achsen.
+- **Dösen:** Mit der Zeit wird sie ruhiger (Zeitkonstante 90 s, Untergrenze 0,5). Nach 45 s gähnt
+  sie etwa alle 90 s: Der Kopf hebt sich 3 s lang um 0,15 rad.
+- **Nicht übernommen:** Schnabel und Atmen. Kerns Ente hat keinen Mund-Servo, und das Atmen gilt
+  nur für das Steh-Netz. Beides wird wie im Original berechnet, aber nicht angewendet.
+
+*[gemessen]* Test `micro_duck_looks_around_when_left_alone`: In den ersten Sekunden steht der Kopf
+still. Danach schwenkt der Blick der Kamera um über 0,2 rad (gemessen 1,1 rad), und die Ente bleibt
+stehen.
+
+### Wer fährt
+
+In dieser Reihenfolge, wie beim echten Roboter:
 
 1. Der Stick des Spielers. Die Autonomie pausiert, bis 2 s lang keine Eingabe kam.
 2. Ein Logic-Kommando (**Walk**, **Look**).

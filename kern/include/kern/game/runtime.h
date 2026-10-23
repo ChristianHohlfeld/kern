@@ -377,6 +377,7 @@ class GameWorld {
   void drive_walkers(f32 h);
   void sense_walker(WalkerBrain& w);
   void think_walker(WalkerBrain& w, f32 dt);  // the autonomous behaviour (walker_brain.cpp)
+  void idle_walker(WalkerBrain& w, bool still, f32 dt, f32 head[4]);  // the idle look-around (walker_brain.cpp)
   WalkerBrain* walker_brain(ActorId id) const;
   void drive_servos(f32 dt);
   void drive_traffic(f32 dt);

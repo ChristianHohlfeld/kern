@@ -536,7 +536,8 @@ class StudioPage {
     const cam = this.robotEl.querySelector(".rp-cam");
     cam.style.width = r.w + "px";
     cam.style.height = r.h + "px";
-    this.robotEl.querySelector(".rp-tof").style.height = r.h + "px";
+    const tof = this.robotEl.querySelector(".rp-tof");
+    tof.style.width = tof.style.height = Math.round(Math.min(r.h / 2, 160)) + "px";
     this.robotEl.querySelector(".rp-state").textContent = r.fallen ? "Fallen" : r.state || "";
     this.robotEl.querySelector(".rp-near").textContent = r.nearest >= 0 ? `${r.nearest.toFixed(2)} m` : "clear";
     const g = this.robotEl.querySelector("canvas").getContext("2d");

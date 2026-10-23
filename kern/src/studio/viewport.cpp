@@ -666,15 +666,16 @@ void Studio::render_viewport(Viewport& v, f64 now_ms) {
 }
 
 void Studio::render_robot_camera(Viewport& v) {
-  // What the robot sees: its head camera (the real duck's IMX219, 62 degrees, 16:9) in the corner of
-  // the viewport that plays, while a walker runs.
+  // What the robot sees: its head camera (the real duck's IMX219, 62 degrees across 16:9, mounted a
+  // quarter turn off, so upright the picture is 9:16) in the corner of the viewport that plays, while
+  // a walker runs.
   if (!v.flags.robot_camera || play_ == PlayState::editing || v.index != active_view_ || world_->walkers().empty()) return;
   ActorId who = 0;
   for (ActorId w : world_->walkers()) if (w == world_->player()) who = w;
   Camera cam;
   if (!world_->walker_camera(who, cam)) return;
   const i32 margin = static_cast<i32>(12 * v.dpr);
-  const i32 w = clamp(v.rect.w / 4, static_cast<i32>(150 * v.dpr), static_cast<i32>(420 * v.dpr)), h = static_cast<i32>(static_cast<f32>(w) * 9 / 16);
+  const i32 h = clamp(v.rect.h * 2 / 5, static_cast<i32>(160 * v.dpr), static_cast<i32>(420 * v.dpr)), w = static_cast<i32>(static_cast<f32>(h) * 9 / 16);
   if (v.rect.w < w + 2 * margin || v.rect.h < h + 2 * margin) return;
   RenderParams p;
   p.layers = layer::scene;

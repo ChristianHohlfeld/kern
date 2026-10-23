@@ -52,6 +52,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Micro Duck idle look-around (port in `kern/src/game/walker_brain.cpp`)
+
+The idle look-around (`GameWorld::WalkerBrain::Idle`) is a C++ port of `robotd/src/idle_head.rs`
+and the `[idle]` defaults of `robotd-params` from Pollen Robotics' microduck
+(https://github.com/pollen-robotics/microduck, commit 942e58e), licensed under the Apache License,
+Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Changes: translated to C++, ticked from
+Kern's control step instead of the wall clock, seeded from the actor id, the beak and the breath
+computed but not applied.
+
 ## Test data
 
 `tests/fixtures/konstanz-osm-sample.json` contains OpenStreetMap data,
