@@ -82,6 +82,9 @@ details p { margin: 6px 0; }
     <div class="stat"><b id="s-ret">-</b><span>mittlere Episoden-Rückgabe</span></div>
     <div class="stat"><b id="s-len">-</b><span>Episodenlänge (s)</span></div>
     <div class="stat"><b id="s-std">-</b><span>Aktionsrauschen (std)</span></div>
+    <div class="stat"><b id="s-jump">-</b><span>echte Sprünge (sauberer Roboter)</span></div>
+    <div class="stat"><b id="s-height">-</b><span>Sprunghöhe (mm)</span></div>
+    <div class="stat"><b id="s-flight">-</b><span>Flugzeit (ms)</span></div>
   </section>
   <section class="panel">
     <canvas id="chart"></canvas>
@@ -89,6 +92,7 @@ details p { margin: 6px 0; }
   </section>
   <details class="panel">
     <summary>Wie es funktioniert</summary>
+    <p>Der Sprung lernt in zwei Schritten: Zuerst ahmt das Netz ein Vorbild nach, einen Sprung, den eine Suche (CMA-ES) in derselben Physik gefunden hat. Danach übt es mit PPO und allen Variationen (Massen, Schwerpunkte, Servos, Sensoren), bis es den Sprung selbst sicher kann. Zur Laufzeit gibt es nur das Netz.</p>
     <p>Jeder Worker führt seine eigenen Enten in Kerns Engine (dieselben Servos, Sensoren und derselbe 50-Hz-Regler wie im Kern Studio) und handelt mit der aktuellen Policy. Der Lerner sammelt ihre Schritte und verbessert die Policy mit PPO, dem Rezept, mit dem Pollen Robotics die Netze des Roboters trainiert. Heraus kommt eine ONNX-Datei im Format von Pollens Netzen; Kern Studio und der Roboter selbst können sie laden.</p>
     <p>Diesen Tab offen lassen, solange er lernt; ein Handy ans Ladekabel. Mehr Worker nutzen mehr Kerne. Gleicher Seed und gleich viele Enten ergeben Bit für Bit dasselbe Netz, auf jedem Gerät.</p>
     <p>Alle 25 Iterationen wird das Netz auf diesem Gerät für Kern Studio gespeichert: Die Bewegung „jump“ des Micro Duck (Logik-Knoten Robot Move, Bewegung „jump“) nutzt dann das neueste Sprung-Netz, in offenen Studio-Tabs sofort.</p>

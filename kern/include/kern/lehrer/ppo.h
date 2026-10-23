@@ -106,6 +106,17 @@ class Ppo {
   bool warm_start(const std::vector<i32>& dims, const std::vector<std::vector<f32>>& weights_out_in,
                   const std::vector<std::vector<f32>>& biases, const std::vector<f32>& mean, const std::vector<f32>& div,
                   const std::vector<i32>& new_inputs);
+  /// Imitation (behaviour cloning): fits the actor's mean to `target` actions for `n` observations
+  /// (mean squared error, Adam with its own moments, minibatches of `batch` in a fixed order seeded
+  /// by `seed`). An unfrozen actor normaliser first takes in the observations. Returns the last
+  /// epoch's mean squared error per action.
+  f32 imitate(const std::vector<f32>& observations, const std::vector<f32>& target, i32 epochs, i32 batch, f32 learning_rate, u64 seed);
+  /// Sets the action noise (std) of every action, e.g. smaller after imitation.
+  void set_stddev(f32 std);
+  /// A frozen actor: updates train only the critic (and leave the learning rate as it is) - a
+  /// critic that has never seen the policy's returns first learns them, before its advantages
+  /// steer an actor that already acts well (after imitation).
+  void set_actor_frozen(bool frozen) { actor_frozen_ = frozen; }
   /// The whole learner (networks, normalisers, std, Adam, schedule) for checkpoints.
   std::vector<u8> save() const;
   bool load(const u8* data, std::size_t size);
@@ -137,6 +148,7 @@ class Ppo {
   Rollout local_;
   i32 iteration_ = 0;
   i64 total_steps_ = 0;
+  bool actor_frozen_ = false;
   // The learner's batch: every row of every rollout.
   std::vector<f32> obs_buf_, crit_buf_, act_buf_, mu_buf_, logp_buf_, value_buf_, return_buf_, adv_buf_, reward_, last_crit_;
   std::vector<u8> live_, timeout_;

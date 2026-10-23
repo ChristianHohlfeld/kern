@@ -5,6 +5,7 @@
 #include "kern/core/dmath.h"
 
 #include "kern/lehrer/env.h"
+#include "kern/lehrer/vorbild.h"
 #include "kern/game/walker.h"
 
 namespace kern::lehrer {
@@ -75,6 +76,12 @@ class StandTask : public Task {
 
 class JumpTask : public Task {
  public:
+  JumpTask(const JumpDemo* demo, f32 imitate) : imitate_(imitate) {
+    if (demo && imitate > 0) teacher_ = std::make_unique<JumpTeacher>(*demo);
+  }
+  void before_action(const f32* o, const game::GameWorld::WalkerProbe& p, i32 step) override {
+    if (teacher_) teacher_->act(o, p, step, label_);
+  }
   std::string name() const override { return "jump"; }
   f32 episode_seconds() const override { return game::kJumpSeconds; }
   i32 privileged() const override { return 9; }
@@ -95,6 +102,7 @@ class JumpTask : public Task {
     s.foot_friction = rng.uniform(0.7f, 1.3f);
     flown_ = false;
     have_z0_ = false;
+    if (teacher_) teacher_->reset();
     return s;
   }
   void command(f32 o[kObs], i32 step) override {
@@ -142,10 +150,16 @@ class JumpTask : public Task {
     // the duck stays upright (a dive or a tumble is no jump).
     const f32 e = dz - reference(ph);
     r.add("track_height", 4, up * kern::dm::exp(-e * e / (0.02f * 0.02f)));
-    r.add("airborne", 10, flight && airborne ? up : 0.0f);
+    r.add("airborne", 20, flight && airborne ? up : 0.0f);
     r.add("lift", 20, takeoff ? up * clamp(p.velocity.z, 0.0f, 1.0f) : 0.0f);
     r.add("landed", 6, ph >= 0.42f && flown_ && both ? up : 0.0f);
     r.add("extra_hop", -4, ph >= 0.5f && airborne ? 1.0f : 0.0f);  // one jump, then it stands
+    // While practising after imitation: stay close to what the demonstration would do.
+    if (teacher_) {
+      f32 e = 0;
+      for (i32 j = 0; j < kActions; ++j) e += (t.action[j] - label_[j]) * (t.action[j] - label_[j]);
+      r.add("imitate", imitate_, kern::dm::exp(-e / kActions / (0.3f * 0.3f)));
+    }
     // Upright, at home before and after, straight up (no drift, no turn).
     r.add("upright", 2, up);
     r.add("pose_legs", 1, ph < 0.15f || ph > 0.55f ? pose_match(p.joint, kLegs, 10, 0.5f) : 0.0f);
@@ -166,13 +180,16 @@ class JumpTask : public Task {
  private:
   static f32 phase(i32 step) { return static_cast<f32>(step) * kControlDt / game::kJumpSeconds; }
   f32 action_rate_weight_ = -0.1f, fall_penalty_ = -2.0f;
+  f32 imitate_ = 0;
+  std::unique_ptr<JumpTeacher> teacher_;
+  f32 label_[kActions] = {};
   f32 z0_ = 0;
   bool have_z0_ = false, flown_ = false;
 };
 
 }  // namespace
 
-std::unique_ptr<Task> make_jump_task() { return std::make_unique<JumpTask>(); }
+std::unique_ptr<Task> make_jump_task(const JumpDemo* demo, f32 imitate) { return std::make_unique<JumpTask>(demo, imitate); }
 std::unique_ptr<Task> make_stand_task() { return std::make_unique<StandTask>(); }
 
 }  // namespace kern::lehrer

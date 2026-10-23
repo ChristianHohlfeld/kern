@@ -15,9 +15,24 @@ const task = enc.encode("jump"), config = enc.encode('{"steps":8}');
 const tp = put(task), cp = put(config);
 check(e.kern_lehrer_create(tp, task.length, 2, 5, 0) === 1, "collector");
 check(e.kern_lehrer_learner(tp, task.length, cp, config.length, 3) === 1, "learner");
-const policy = take(e.kern_lehrer_policy());
+let policy = take(e.kern_lehrer_policy());
 check(policy.length > 100000, "policy");
 check(e.kern_lehrer_set_policy(put(policy), policy.length >> 2) === 1, "set policy");
+// Imitation (the jump's recipe): a collector's share of a round, then the learner fits it.
+check(e.kern_lehrer_imitation_left() === 8 && e.kern_lehrer_imitation_episodes() === 96, "imitation rounds");
+const share = take(e.kern_lehrer_dagger(0, 0, 1));
+const ticks = new DataView(share.buffer).getUint32(0, true);
+check(ticks > 10 && share.length === 4 + ticks * 75 * 4, "imitation share");
+const sframed = new Uint8Array(4 + share.length);
+new DataView(sframed.buffer).setUint32(0, share.length, true);
+sframed.set(share, 4);
+const ip = e.kern_lehrer_imitate(put(sframed), sframed.length, 1);
+check(ip !== 0, "imitate");
+const im = JSON.parse(kern.string(ip, e.kern_lehrer_result_length()));
+check(im.round === 1 && im.samples === ticks && im.episodes === 5, "imitation report " + JSON.stringify(im));
+check(e.kern_lehrer_imitation_left() === 7, "imitation left");
+policy = take(e.kern_lehrer_policy());
+check(e.kern_lehrer_set_policy(put(policy), policy.length >> 2) === 1, "set imitated policy");
 e.kern_lehrer_progress(1);
 const t0 = performance.now();
 const rollout = take(e.kern_lehrer_collect(8));
@@ -41,4 +56,4 @@ check(onnx.length > 50000 && new TextDecoder().decode(onnx).includes("actions"),
   const first = want.findIndex((w, i) => w !== got[i]);
   check(first < 0, "deterministic: differs from tick " + first);
 }
-console.log(`Lehrer wasm ok (bit-identical with native): 16 duck steps in ${ms.toFixed(0)} ms, learn ${stats.learnSeconds.toFixed(2)} s, onnx ${onnx.length} bytes`);
+console.log(`Lehrer wasm ok (bit-identical with native): imitation round of ${ticks} ticks, 16 duck steps in ${ms.toFixed(0)} ms, learn ${stats.learnSeconds.toFixed(2)} s, onnx ${onnx.length} bytes`);

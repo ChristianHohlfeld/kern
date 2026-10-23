@@ -14,6 +14,7 @@
 #include "kern/lehrer/onnx_export.h"
 #include "kern/lehrer/ppo.h"
 #include "kern/lehrer/recipe.h"
+#include "kern/lehrer/vorbild.h"
 
 using namespace kern;
 using namespace kern::lehrer;
@@ -23,12 +24,14 @@ namespace {
 struct TrainHost {
   std::string task;
   Recipe recipe;
+  u64 seed = 1;
   std::vector<std::unique_ptr<DuckEnv>> envs;
   std::vector<Env*> env_ptrs;
   Collector collector;
   Policy policy;
   bool has_policy = false;
   std::unique_ptr<Ppo> learner;
+  std::unique_ptr<JumpImitation> imitation;
   std::vector<u8> bytes;
   std::vector<f32> floats;
   std::string text;
@@ -50,6 +53,7 @@ KERN_EXPORT(kern_lehrer_create) i32 kern_lehrer_create(const char* task, u32 tas
   g->task = std::string(task, task_length);
   if (!make_task(g->task)) return 0;
   g->recipe = recipe_for(g->task);
+  g->seed = seed;
   g->envs.clear();
   g->env_ptrs.clear();
   g->collector = Collector(seed, first);
@@ -103,11 +107,102 @@ KERN_EXPORT(kern_lehrer_learner) i32 kern_lehrer_learner(const char* task, u32 t
     inum("epochs", r.ppo.epochs);
     inum("minibatches", r.ppo.minibatches);
     if (c["warmStart"].is_string()) r.warm_start = c["warmStart"].as_string();
+    if (c["imitate"].is_bool()) r.imitate = c["imitate"].as_bool();
   }
   g->task = name;
   g->recipe = r;
   g->learner = make_learner(r, seed);
+  g->imitation.reset();
+  if (g->learner && r.imitate) g->imitation = std::make_unique<JumpImitation>(r, seed);
   return g->learner ? 1 : 0;
+}
+
+/// Steps per environment and iteration of the learner's recipe (what the collectors run).
+KERN_EXPORT(kern_lehrer_steps) i32 kern_lehrer_steps() { return g && g->learner ? g->recipe.ppo.steps_per_env : 0; }
+
+/// How the learner's network jumps now (clean robot, `episodes` episodes) as JSON: jumps,
+/// episodes, heightMm, flightS, falls.
+KERN_EXPORT(kern_lehrer_evaluate) const char* kern_lehrer_evaluate(i32 episodes) {
+  if (!g || !g->learner || g->task != "jump") return nullptr;
+  const JumpReport r = evaluate_jump([](void* u, const f32* o, f32* a) { static_cast<Ppo*>(u)->act(o, a); }, g->learner.get(), max_of(1, episodes), 1000,
+                                     g->recipe.substeps);
+  json::Value v = json::Value::object();
+  v.set("jumps", r.jumps);
+  v.set("episodes", r.episodes);
+  v.set("heightMm", static_cast<f64>(r.height_mm));
+  v.set("flightS", static_cast<f64>(r.flight_s));
+  v.set("falls", r.falls);
+  g->text = json::stringify(v);
+  g->length = static_cast<u32>(g->text.size());
+  return g->text.c_str();
+}
+
+/// A collector's share of an imitation round (vorbild.h, dagger_episodes): episodes first ..
+/// first + count - 1 of round `round`, driven by the policy it was handed. Returns u32 ticks, then
+/// ticks x 61 observations and ticks x 14 teacher actions (f32).
+KERN_EXPORT(kern_lehrer_dagger) const u8* kern_lehrer_dagger(i32 round, i32 first, i32 count) {
+  if (!g || !g->has_policy) return nullptr;
+  std::vector<f32> obs, act;
+  dagger_episodes(g->recipe, g->seed, round, first, count, &g->policy, obs, act);
+  const u32 ticks = static_cast<u32>(act.size() / kActions);
+  g->bytes.assign(4 + (obs.size() + act.size()) * sizeof(f32), 0);
+  std::memcpy(g->bytes.data(), &ticks, 4);
+  std::memcpy(g->bytes.data() + 4, obs.data(), obs.size() * sizeof(f32));
+  std::memcpy(g->bytes.data() + 4 + obs.size() * sizeof(f32), act.data(), act.size() * sizeof(f32));
+  g->length = static_cast<u32>(g->bytes.size());
+  return g->bytes.data();
+}
+
+/// Episodes per imitation round (the recipe's).
+KERN_EXPORT(kern_lehrer_imitation_episodes) i32 kern_lehrer_imitation_episodes() { return g ? g->recipe.imitation_episodes : 0; }
+
+/// Imitation rounds still to do before the practice (0: none, or done).
+KERN_EXPORT(kern_lehrer_imitation_left) i32 kern_lehrer_imitation_left() {
+  if (!g || !g->learner || !g->imitation) return 0;
+  return g->recipe.imitation_rounds - g->imitation->rounds_done();
+}
+
+/// One imitation round (vorbild.h) in the learner from the collectors' shares (`count` buffers of
+/// kern_lehrer_dagger laid one after the other, each prefixed with its byte size as a u32, in
+/// episode order); with count 0 the learner runs the whole round itself. After the last round the
+/// practice begins. Returns JSON: round, rounds, samples, error and how the network jumps now.
+KERN_EXPORT(kern_lehrer_imitate) const char* kern_lehrer_imitate(const u8* data, u32 bytes, u32 count) {
+  if (!g || !g->learner || !g->imitation || kern_lehrer_imitation_left() <= 0) return nullptr;
+  ImitationReport r;
+  if (count == 0) {
+    r = g->imitation->round(*g->learner, {}, true);
+  } else {
+    std::vector<f32> obs, act;
+    std::size_t at = 0;
+    for (u32 k = 0; k < count; ++k) {
+      if (at + 8 > bytes) return nullptr;
+      u32 n = 0, ticks = 0;
+      std::memcpy(&n, data + at, 4);
+      std::memcpy(&ticks, data + at + 4, 4);
+      const std::size_t need = 4 + static_cast<std::size_t>(ticks) * (kObs + kActions) * sizeof(f32);
+      if (n != need || at + 4 + n > bytes) return nullptr;
+      const f32* f = reinterpret_cast<const f32*>(data + at + 8);  // kern_alloc'd: 4-byte aligned
+      std::vector<f32> part(f, f + static_cast<std::size_t>(ticks) * (kObs + kActions));
+      obs.insert(obs.end(), part.begin(), part.begin() + static_cast<std::ptrdiff_t>(ticks) * kObs);
+      act.insert(act.end(), part.begin() + static_cast<std::ptrdiff_t>(ticks) * kObs, part.end());
+      at += 4 + n;
+    }
+    r = g->imitation->round_from(*g->learner, obs, act, {}, true);
+  }
+  if (kern_lehrer_imitation_left() == 0) begin_practice(*g->learner, g->recipe);
+  json::Value v = json::Value::object();
+  v.set("round", r.rounds);
+  v.set("rounds", g->recipe.imitation_rounds);
+  v.set("samples", r.samples);
+  v.set("error", r.mse);
+  v.set("jumps", r.student.jumps);
+  v.set("episodes", r.student.episodes);
+  v.set("heightMm", r.student.height_mm);
+  v.set("flightS", r.student.flight_s);
+  v.set("falls", r.student.falls);
+  g->text = json::stringify(v);
+  g->length = static_cast<u32>(g->text.size());
+  return g->text.c_str();
 }
 
 /// The learner's current policy (Policy::serialize floats; length in bytes).
@@ -134,6 +229,7 @@ KERN_EXPORT(kern_lehrer_learn) const char* kern_lehrer_learn(const u8* data, u32
     at += n;
     ptrs.push_back(&rollouts[k]);
   }
+  before_learning(*g->learner, g->recipe);
   const IterationStats s = g->learner->learn(ptrs);
   json::Value v = json::Value::object();
   v.set("iteration", s.iteration);

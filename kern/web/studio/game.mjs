@@ -25,6 +25,9 @@ function defaultAmbientOcclusion() {
 }
 
 
+/** The networks Kern trained itself (kern/policies/, docs/lehrer.md); all others are Pollen's. */
+const KERN_POLICIES = new Set(["jump.onnx"]);
+
 /** Networks Kern Lehrer saved on this device: IndexedDB "kern-lehrer", store "policies", key =
  *  file name ("jump.onnx"), value = the ONNX bytes. [[file, Uint8Array], ...]; `only` picks one. */
 export function trainedPolicies(only) {
@@ -112,9 +115,10 @@ export class StudioEngine {
     }
   }
   /** Loads the robot's policy set (microduck/<file>.onnx next to the page; the dev page reads the
-   *  repository's copy, so does the repository's single-file build in generated/). A file that fails is fetched again later; until then the move it
+   *  repository's copy, so does the repository's single-file build in generated/) and Kern's own
+   *  trained networks (policies/<file>.onnx: jump.onnx, docs/lehrer.md). A file that fails is fetched again later; until then the move it
    *  drives is unavailable (the duck stands and says why). */
-  async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/microduck/"] : /\/generated\/[^/]*$/.test(location.pathname) ? ["../kern/third_party/microduck/"] : ["microduck/"]) {
+  async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/microduck/", "../../policies/"] : /\/generated\/[^/]*$/.test(location.pathname) ? ["../kern/third_party/microduck/", "../kern/policies/"] : ["microduck/", "policies/"]) {
     if (!this.trainedWatched) { this.trainedWatched = true; this.watchTrainedPolicies(); }
     if (this.policiesLoading) return this.policiesLoading;
     // A file that failed is asked for again later (5 s, 10 s, 20 s ... at most every minute).
@@ -123,7 +127,8 @@ export class StudioEngine {
     if (!files.length) return;
     for (const f of files) retry.set(f, {at: Infinity, n: retry.get(f)?.n ?? 0});
     this.policiesLoading = Promise.all(files.map(async file => {
-      for (const base of bases) {
+      // Kern's own networks live in policies/, Pollen's in microduck/ (no request that must fail).
+      for (const base of bases.filter(b => /policies\/$/.test(b) === KERN_POLICIES.has(file))) {
         try {
           const r = await fetch(base + file);
           if (!r.ok) continue;

@@ -24,6 +24,7 @@
 #include "kern/lehrer/onnx_export.h"
 #include "kern/lehrer/ppo.h"
 #include "kern/lehrer/recipe.h"
+#include "kern/lehrer/vorbild.h"
 
 using namespace kern;
 using namespace kern::lehrer;
@@ -32,11 +33,15 @@ namespace {
 
 struct Options {
   std::string task = "jump", out, eval, log, checkpoint, resume, warm, trace;
-  std::string calibrate, holdout, profile, compare, examples;
+  std::string calibrate, holdout, profile, compare, examples, demo, demo_search, demo_check;
+  i32 rounds = 0, round_episodes = 0, keep_every = 0;
+  f32 practice_std = 0, imitate_reward = -1;
   i32 envs = 0, threads = 0, iterations = 600, steps = 0, save_every = 25, episodes = 10;
   i32 substeps = 0, eval_every = 10, stop_after_jump = 0, fingerprint = 0;
   f32 init_std = 0, learning_rate = 0, entropy = -1;  // 0 / -1: the recipe's
-  std::vector<i32> critic;
+  std::vector<i32> critic, actor;
+  i32 epochs = 0, minibatches = 0, adaptive = -1;
+  f32 kl = 0;
   u64 seed = 1;
 };
 
@@ -104,7 +109,8 @@ int evaluate(const Options& o) {
     std::fprintf(stderr, "cannot read %s: %s\n", o.eval.c_str(), err.c_str());
     return 1;
   }
-  print_report(o.eval.c_str(), evaluate_jump(act_onnx, &p, o.episodes, 1000, game::kWalkerSubsteps));
+  print_report((o.eval + " (clean robot)").c_str(), evaluate_jump(act_onnx, &p, o.episodes, 1000, game::kWalkerSubsteps));
+  print_report((o.eval + " (randomised: build, servos, sensors, start)").c_str(), evaluate_jump(act_onnx, &p, o.episodes, 5000, game::kWalkerSubsteps, true));
   return 0;
 }
 
@@ -200,6 +206,42 @@ int compare(const Options& o) {
   return 0;
 }
 
+bool load_demo(const std::string& name, JumpDemo& d) {
+  if (name == "builtin") { d = builtin_jump_demo(); return true; }
+  const std::vector<u8> bytes = read_file(name);
+  std::string err;
+  if (bytes.empty() || !jump_demo_from_json(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), d, &err)) {
+    std::fprintf(stderr, "cannot read the demonstration %s: %s\n", name.c_str(), err.c_str());
+    return false;
+  }
+  return true;
+}
+
+int demo_search(const Options& o) {
+  const i32 threads = o.threads > 0 ? o.threads : max_of(1, static_cast<i32>(std::thread::hardware_concurrency()));
+  const i32 gens = o.iterations > 0 && o.iterations != 600 ? o.iterations : 120;
+  std::printf("searching the jump's demonstration: CMA-ES, %d generations, %d threads\n", gens, threads);
+  const JumpDemo d = search_jump_demo(gens, o.seed, threads, [](i32 g, f32 score, const JumpReport& r) {
+    std::printf("gen %4d  score %6.1f | clean: up %.1f mm, flight %.0f ms, %s\n", g, score, r.height_mm, r.flight_s * 1000,
+                r.falls ? "fell" : r.jumps ? "a real jump" : "no real jump");
+    std::fflush(stdout);
+  });
+  const std::string text = to_json(d);
+  write_file(o.demo_search, std::vector<u8>(text.begin(), text.end()));
+  print_report("the demonstration", evaluate_jump_demo(d, 10, 1000));
+  std::printf("wrote %s\n", o.demo_search.c_str());
+  return 0;
+}
+
+int demo_check(const Options& o) {
+  JumpDemo d;
+  if (!load_demo(o.demo_check, d)) return 1;
+  print_report("the demonstration (clean)", evaluate_jump_demo(d, o.episodes, 1000));
+  print_report("the demonstration (randomised)", evaluate_jump_demo(d, o.episodes, 5000, true));
+  std::printf("score over 10 episodes (1 clean, 9 randomised): %.1f\n", score_jump_demo(d, 10, 100));
+  return 0;
+}
+
 int examples(const Options& o) {
   const game::ServoProfile p = game::xl330_profile();
   auto bench = [&](const char* name, ServoLoad load, int kind) {
@@ -248,6 +290,11 @@ int main(int argc, char** argv) {
     else if (a == "--entropy") o.entropy = static_cast<f32>(std::atof(next()));
     else if (a == "--substeps") o.substeps = std::atoi(next());
     else if (a == "--critic") o.critic = parse_dims(next());
+    else if (a == "--actor") o.actor = parse_dims(next());
+    else if (a == "--epochs") o.epochs = std::atoi(next());
+    else if (a == "--minibatches") o.minibatches = std::atoi(next());
+    else if (a == "--adaptive-lr") o.adaptive = std::atoi(next());
+    else if (a == "--kl") o.kl = static_cast<f32>(std::atof(next()));
     else if (a == "--warm-start") o.warm = next();
     else if (a == "--checkpoint") o.checkpoint = next();
     else if (a == "--resume") o.resume = next();
@@ -260,19 +307,31 @@ int main(int argc, char** argv) {
     else if (a == "--profil") o.profile = next();
     else if (a == "--abgleich") o.compare = next();
     else if (a == "--beispiele") o.examples = next();
+    else if (a == "--vorbild") o.demo = next();
+    else if (a == "--vorbild-suchen") o.demo_search = next();
+    else if (a == "--vorbild-pruefen") o.demo_check = next();
+    else if (a == "--nachahmen") o.rounds = std::atoi(next());
+    else if (a == "--episoden") o.round_episodes = std::atoi(next());
+    else if (a == "--uebungs-std") o.practice_std = static_cast<f32>(std::atof(next()));
+    else if (a == "--keep-every") o.keep_every = std::atoi(next());
+    else if (a == "--nachahmungs-lohn") o.imitate_reward = static_cast<f32>(std::atof(next()));
     else {
       std::fprintf(stderr,
                    "usage: kern_lehrer [--task jump|stand] [--envs N] [--threads N] [--iterations 600] [--steps 24] [--seed 1]\n"
                    "                  [--out task.onnx] [--log log.csv] [--checkpoint run.ckpt] [--resume run.ckpt] [--save-every 25]\n"
                    "                  [--warm-start velstand|none|file.onnx] [--init-std 0.3] [--lr 1e-3] [--entropy 0.005]\n"
-                   "                  [--critic 256,128] [--substeps 16] [--eval-every 10] [--stop-after-jump]\n"
+                   "                  [--critic 256,128] [--actor 512,256,128] [--epochs 5] [--minibatches 4] [--adaptive-lr 1] [--kl 0.01]\n"
+                   "                  [--substeps 16] [--eval-every 10] [--stop-after-jump] [--profil servo.json]\n"
                    "       kern_lehrer --fingerprint 400       one state hash per control tick (determinism)\n"
                    "       kern_lehrer --eval policy.onnx [--episodes 10]\n"
                    "       kern_lehrer --trace policy.onnx [--task jump]   one clean episode tick by tick (height, contacts, reward terms)\n"
                    "       kern_lehrer --kalibrieren bench1.csv,bench2.csv [--pruefen held.csv] [--profil start.json] [--out servo.json]\n"
                    "       kern_lehrer --abgleich robot.csv [--profil servo.json]   how far the simulation is from a robot log\n"
                    "       kern_lehrer --beispiele DIR    example bench and robot logs (made in the simulation) in the formats above\n"
-                   "       training with --profil servo.json builds the ducks with that servo profile\n");
+                   "       training with --profil servo.json builds the ducks with that servo profile\n"
+                   "       kern_lehrer --vorbild-suchen demo.json [--iterations 120]   search the jump's demonstration (CMA-ES)\n"
+                   "       kern_lehrer --vorbild-pruefen builtin|demo.json             how the demonstration jumps\n"
+                   "       training with --vorbild builtin|demo.json [--nachahmen 5] [--episoden 64] [--uebungs-std 0.2]: imitate first, then practise\n");
       return 2;
     }
   }
@@ -287,6 +346,8 @@ int main(int argc, char** argv) {
   if (!o.calibrate.empty()) return calibrate(o);
   if (!o.compare.empty()) return compare(o);
   if (!o.examples.empty()) return examples(o);
+  if (!o.demo_search.empty()) return demo_search(o);
+  if (!o.demo_check.empty()) return demo_check(o);
   if (o.out.empty()) o.out = o.task + ".onnx";
   const i32 threads = o.threads > 0 ? o.threads : max_of(1, static_cast<i32>(std::thread::hardware_concurrency()));
   if (o.envs <= 0) o.envs = 16 * threads;
@@ -297,9 +358,23 @@ int main(int argc, char** argv) {
   if (o.learning_rate > 0) recipe.ppo.learning_rate = o.learning_rate;
   if (o.entropy >= 0) recipe.ppo.entropy_coef = o.entropy;
   if (!o.critic.empty()) recipe.ppo.critic_hidden = o.critic;
+  if (!o.actor.empty()) recipe.ppo.actor_hidden = o.actor;
+  if (o.epochs > 0) recipe.ppo.epochs = o.epochs;
+  if (o.minibatches > 0) recipe.ppo.minibatches = o.minibatches;
+  if (o.adaptive >= 0) recipe.ppo.adaptive_lr = o.adaptive != 0;
+  if (o.kl > 0) recipe.ppo.desired_kl = o.kl;
   if (o.substeps > 0) recipe.substeps = o.substeps;
   if (!o.warm.empty()) recipe.warm_start = o.warm;
   if (!load_profile(o, recipe.servo)) return 1;
+  if (!o.demo.empty()) {
+    if (o.demo == "none") recipe.imitate = false;
+    else if (!load_demo(o.demo, recipe.demo)) return 1;
+    else recipe.imitate = true;
+  }
+  if (o.rounds > 0) recipe.imitation_rounds = o.rounds;
+  if (o.round_episodes > 0) recipe.imitation_episodes = o.round_episodes;
+  if (o.practice_std > 0) recipe.practice_std = o.practice_std;
+  if (o.imitate_reward >= 0) recipe.imitate_reward = o.imitate_reward;
 
   // The compute: this machine's threads, each stepping its own group of ducks (backend.h). The
   // result depends on the number of ducks, not on the number of threads.
@@ -321,6 +396,24 @@ int main(int argc, char** argv) {
     if (bytes.empty() || !ppo.load(bytes.data(), bytes.size())) { std::fprintf(stderr, "cannot resume from %s\n", o.resume.c_str()); return 1; }
     std::printf("resumed at iteration %d (%lld steps)\n", ppo.iteration(), static_cast<long long>(ppo.total_steps()));
   }
+  if (recipe.imitate && o.resume.empty()) {
+    // Imitate the demonstration first (vorbild.h), then practise with PPO.
+    std::printf("imitating the demonstration: %d rounds of %d episodes\n", recipe.imitation_rounds, recipe.imitation_episodes);
+    const auto t0 = std::chrono::steady_clock::now();
+    const ImitationReport r = imitate_jump(ppo, recipe, o.seed, backend.update_parallel(),
+                                           [&](i32 round, const ImitationReport& rr) {
+                                             std::printf("  round %d: %d samples, error %.5f | ", round, rr.samples, rr.mse);
+                                             print_report("the network", rr.student);
+                                             std::fflush(stdout);
+                                           });
+    std::printf("imitation done in %.0f s\n", std::chrono::duration<f64>(std::chrono::steady_clock::now() - t0).count());
+    begin_practice(ppo, recipe);
+    (void)r;
+    // What imitation alone gives (and where practice can start again from: --resume).
+    const std::string stem = o.out.size() > 5 && o.out.substr(o.out.size() - 5) == ".onnx" ? o.out.substr(0, o.out.size() - 5) : o.out;
+    write_file(stem + "_nachgeahmt.onnx", export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task)));
+    if (!o.checkpoint.empty()) write_file(o.checkpoint + ".nachgeahmt", ppo.save());
+  }
   FILE* log = o.log.empty() ? nullptr : std::fopen(o.log.c_str(), o.resume.empty() ? "w" : "a");
   if (log && o.resume.empty())
     std::fprintf(log, "iteration,steps,seconds,mean_reward,mean_return,mean_length,episodes,value_loss,entropy,mean_std,learning_rate,steps_per_second,jumps,height_mm,flight_s,falls\n");
@@ -329,6 +422,7 @@ int main(int argc, char** argv) {
   const auto start = std::chrono::steady_clock::now();
   bool jumped = false;
   for (i32 it = ppo.iteration() + 1; it <= o.iterations; ++it) {
+    before_learning(ppo, recipe);
     const IterationStats s = train_iteration(ppo, backend);
     const f64 seconds = std::chrono::duration<f64>(std::chrono::steady_clock::now() - start).count();
     const f64 sps = static_cast<f64>(o.envs) * recipe.ppo.steps_per_env / (s.collect_seconds + s.learn_seconds);
@@ -350,6 +444,12 @@ int main(int argc, char** argv) {
                    s.mean_return, s.mean_length, s.episodes, s.value_loss, s.entropy, s.mean_std, s.learning_rate, sps, evaluated ? rep.jumps : -1,
                    rep.height_mm, rep.flight_s, rep.falls);
       std::fflush(log);
+    }
+    if (o.keep_every > 0 && it % o.keep_every == 0) {  // snapshots to choose from afterwards
+      char name[64];
+      std::snprintf(name, sizeof name, "_it%05d.onnx", it);
+      const std::string stem = o.out.size() > 5 && o.out.substr(o.out.size() - 5) == ".onnx" ? o.out.substr(0, o.out.size() - 5) : o.out;
+      write_file(stem + name, export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task)));
     }
     if (it % o.save_every == 0 || it == o.iterations) {
       if (!jumped || !o.stop_after_jump) write_file(o.out, export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task)));

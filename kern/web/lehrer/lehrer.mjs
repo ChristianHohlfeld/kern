@@ -10,7 +10,7 @@ $("workers").value = Math.min(cores, 8);
 let module = null;
 let running = false, paused = false;
 let learner = null, collectors = [];
-let policy = null, iteration = 0, history = [], onnx = null, wakeLock = null;
+let policy = null, iteration = 0, history = [], onnx = null, wakeLock = null, steps = 24;
 
 function status(text, error = false) {
   $("status").textContent = text;
@@ -59,7 +59,28 @@ async function start() {
     const config = {};
     if (Number($("initstd").value) > 0) config.initStd = Number($("initstd").value);
     if (Number($("lr").value) > 0) config.learningRate = Number($("lr").value);
-    policy = (await call(learner, { type: "learner", task, seed, config }, "policy")).policy;
+    const made = await call(learner, { type: "learner", task, seed, config }, "policy");
+    policy = made.policy;
+    steps = made.steps || 24;
+    // First imitation of the demonstration (the jump's recipe), round by round, then practice.
+    let left = made.imitationLeft || 0;
+    while (running && left > 0) {
+      const round = made.imitationLeft - left;
+      status(`Nachahmen: Runde ${round + 1} von ${made.imitationLeft} ...`);
+      // The round's episodes spread over the collectors (worker i: its share, in episode order).
+      const episodes = made.imitationEpisodes, k = collectors.length;
+      const shares = await Promise.all(collectors.map((w, i) => {
+        const first = Math.floor(i * episodes / k), count = Math.floor((i + 1) * episodes / k) - first;
+        return call(w, { type: "dagger", policy: policy.slice(0), round, first, count }, "share").then(d => d.share);
+      }));
+      const d = await call(learner, { type: "imitate", shares }, "imitated", shares);
+      policy = d.policy;
+      left = d.left;
+      const r = d.report;
+      showJump(r);
+      status(`Nachahmen: Runde ${r.round} von ${r.rounds}, ${r.samples.toLocaleString()} Beispiele, Fehler ${r.error.toFixed(4)}`);
+    }
+    if (made.imitationLeft && running) await exportOnnx(task);
     loop(task).catch(error => { status(error.message, true); stop(); });
   } catch (error) {
     status(error.message, true);
@@ -69,7 +90,6 @@ async function start() {
 
 async function loop(task) {
   const total = Math.max(1, Number($("iterations").value) || 1);
-  const steps = 24;
   while (running && iteration < total) {
     if (paused) { await new Promise(r => setTimeout(r, 200)); continue; }
     const t0 = performance.now();
@@ -80,7 +100,10 @@ async function loop(task) {
     iteration = learned.stats.iteration;
     const seconds = (performance.now() - t0) / 1000;
     show(learned.stats, seconds, collectors.length * Number($("envs").value) * steps);
-    if (iteration % 25 === 0 || iteration === total) await exportOnnx(task);
+    if (iteration % 25 === 0 || iteration === total) {
+      if (task === "jump") showJump((await call(learner, { type: "evaluate", episodes: 5 }, "evaluated")).report);
+      await exportOnnx(task);
+    }
   }
   if (running) {
     status(`Fertig: ${iteration} Iterationen. Das Netz herunterladen oder direkt in Kern Studio nutzen.`);
@@ -129,6 +152,14 @@ function show(s, seconds, steps) {
   $("s-std").textContent = s.meanStd.toFixed(3);
   status(`Lernt: Iteration ${s.iteration}, sammeln ${s.collectSeconds.toFixed(2)} s, lernen ${s.learnSeconds.toFixed(2)} s`);
   draw();
+}
+
+/** How the network jumps now (5 episodes on the clean robot). */
+function showJump(r) {
+  if (!r) return;
+  $("s-jump").textContent = `${r.jumps}/${r.episodes}`;
+  $("s-height").textContent = r.heightMm.toFixed(1);
+  $("s-flight").textContent = Math.round(r.flightS * 1000);
 }
 
 function draw() {

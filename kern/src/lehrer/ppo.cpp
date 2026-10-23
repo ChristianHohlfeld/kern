@@ -404,7 +404,7 @@ void Ppo::update(IterationStats& stats) {
         critic_.forward(k.xc.data(), static_cast<i32>(k.n), k.value.data(), &k.cc);
       });
       // Adaptive learning rate from the KL divergence between the old and the new policy.
-      if (cfg_.adaptive_lr && cfg_.desired_kl > 0) {
+      if (cfg_.adaptive_lr && cfg_.desired_kl > 0 && !actor_frozen_) {
         f64 kl = 0;
         for (const Chunk& k : part)
           for (std::size_t r = 0; r < k.n; ++r) {
@@ -472,7 +472,8 @@ void Ppo::update(IterationStats& stats) {
         entropy += 0.5f + 0.5f * kLog2Pi + kern::dm::log(policy_.stddev[static_cast<std::size_t>(j)]);
         first.dstd[static_cast<std::size_t>(j)] += -cfg_.entropy_coef / policy_.stddev[static_cast<std::size_t>(j)];
       }
-      actor_adam_.step({Adam::Block{policy_.actor.params().data(), first.gactor.data(), first.gactor.size()}, Adam::Block{policy_.stddev.data(), first.dstd.data(), first.dstd.size()}});
+      if (!actor_frozen_)
+        actor_adam_.step({Adam::Block{policy_.actor.params().data(), first.gactor.data(), first.gactor.size()}, Adam::Block{policy_.stddev.data(), first.dstd.data(), first.dstd.size()}});
       critic_adam_.step({Adam::Block{critic_.params().data(), first.gcritic.data(), first.gcritic.size()}});
       for (f32& sd : policy_.stddev) sd = max_of(kMinStd, sd);
       sloss_sum += sloss / static_cast<f64>(size);
@@ -487,6 +488,68 @@ void Ppo::update(IterationStats& stats) {
     stats.entropy = static_cast<f32>(ent_sum / updates);
   }
 }
+
+f32 Ppo::imitate(const std::vector<f32>& observations, const std::vector<f32>& target, i32 epochs, i32 batch, f32 learning_rate, u64 seed) {
+  const std::size_t n = observations.size() / static_cast<std::size_t>(obs_);
+  if (n == 0 || target.size() != n * static_cast<std::size_t>(act_)) return 0;
+  if (!cfg_.freeze_actor_normalizer) policy_.normalizer.update(observations.data(), static_cast<i32>(n));
+  std::vector<f32> x(observations.size());
+  policy_.normalizer.apply(observations.data(), static_cast<i32>(n), x.data());
+  Mlp& actor = policy_.actor;
+  Adam adam;
+  adam.lr = learning_rate;
+  adam.max_norm = cfg_.max_grad_norm;
+  Rng rng(seed);
+  std::vector<std::size_t> order(n);
+  for (std::size_t i = 0; i < n; ++i) order[i] = i;
+  // The minibatch's rows in kLearnChunks fixed parts (as the PPO update): the sum, and so the
+  // result, does not depend on how many threads compute them.
+  constexpr i32 kChunks = 8;
+  struct Part { std::vector<f32> xb, out, dout, grad; Mlp::Cache cache; f64 loss = 0; std::size_t lo = 0, n = 0; };
+  std::vector<Part> part(kChunks);
+  const ParallelFor run = parallel_ ? parallel_ : ParallelFor([](i32 k, const std::function<void(i32)>& fn) { for (i32 i = 0; i < k; ++i) fn(i); });
+  std::vector<f32> grad(actor.params().size());
+  f64 epoch_loss = 0;
+  for (i32 e = 0; e < epochs; ++e) {
+    for (std::size_t i = n; i > 1; --i) std::swap(order[i - 1], order[static_cast<std::size_t>(rng.next() % i)]);
+    epoch_loss = 0;
+    for (std::size_t lo = 0; lo < n; lo += static_cast<std::size_t>(batch)) {
+      const std::size_t m = std::min(static_cast<std::size_t>(batch), n - lo);
+      for (i32 c = 0; c < kChunks; ++c) {
+        part[static_cast<std::size_t>(c)].lo = lo + m * static_cast<std::size_t>(c) / kChunks;
+        part[static_cast<std::size_t>(c)].n = lo + m * static_cast<std::size_t>(c + 1) / kChunks - part[static_cast<std::size_t>(c)].lo;
+      }
+      run(kChunks, [&](i32 c) {
+        Part& p = part[static_cast<std::size_t>(c)];
+        p.loss = 0;
+        p.grad.assign(actor.params().size(), 0.0f);
+        if (!p.n) return;
+        p.xb.resize(p.n * static_cast<std::size_t>(obs_));
+        p.out.resize(p.n * static_cast<std::size_t>(act_));
+        p.dout.resize(p.out.size());
+        for (std::size_t r = 0; r < p.n; ++r)
+          std::memcpy(p.xb.data() + r * static_cast<std::size_t>(obs_), x.data() + order[p.lo + r] * static_cast<std::size_t>(obs_), sizeof(f32) * static_cast<std::size_t>(obs_));
+        actor.forward(p.xb.data(), static_cast<i32>(p.n), p.out.data(), &p.cache);
+        for (std::size_t r = 0; r < p.n; ++r)
+          for (i32 j = 0; j < act_; ++j) {
+            const f32 d = p.out[r * static_cast<std::size_t>(act_) + static_cast<std::size_t>(j)] - target[order[p.lo + r] * static_cast<std::size_t>(act_) + static_cast<std::size_t>(j)];
+            p.loss += static_cast<f64>(d) * d;
+            p.dout[r * static_cast<std::size_t>(act_) + static_cast<std::size_t>(j)] = 2 * d / static_cast<f32>(m * static_cast<std::size_t>(act_));
+          }
+        actor.backward(p.cache, p.dout.data(), p.grad.data());
+      });
+      std::fill(grad.begin(), grad.end(), 0.0f);
+      for (const Part& p : part) {
+        epoch_loss += p.loss;
+        for (std::size_t k = 0; k < grad.size(); ++k) grad[k] += p.grad[k];
+      }
+      adam.step(actor.params(), grad);
+    }
+  }
+  return static_cast<f32>(epoch_loss / static_cast<f64>(n * static_cast<std::size_t>(act_)));
+}
+
+void Ppo::set_stddev(f32 std) { std::fill(policy_.stddev.begin(), policy_.stddev.end(), std); }
 
 bool Ppo::warm_start(const std::vector<i32>& dims, const std::vector<std::vector<f32>>& weights, const std::vector<std::vector<f32>>& biases,
                      const std::vector<f32>& mean, const std::vector<f32>& div, const std::vector<i32>& new_inputs) {

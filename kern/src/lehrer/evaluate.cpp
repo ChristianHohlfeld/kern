@@ -5,11 +5,12 @@
 
 namespace kern::lehrer {
 
-JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 substeps) {
+JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 substeps, bool randomized) {
   JumpReport rep;
   for (i32 e = 0; e < episodes; ++e) {
     DuckEnv env(make_jump_task(), seed + static_cast<u64>(e) * 7919u, substeps > 0 ? substeps : game::kWalkerSubsteps);
-    env.task().randomize = false;
+    env.task().randomize = randomized;
+    if (randomized) env.task().progress(100000);  // the curricula at their end: the full ranges
     env.reset();
     const f32 z0 = env.probe().position.z;
     f32 apex = 0, flight = 0, longest = 0;

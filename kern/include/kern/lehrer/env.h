@@ -82,6 +82,9 @@ class Task {
   /// control tick `step` of the episode (0 = its first).
   virtual void command(f32 observation[kObs], i32 step) { (void)step; for (i32 i = 48; i < kObs; ++i) observation[i] = 0; }
   virtual void privileged(const game::GameWorld::WalkerProbe& p, f32* out) { (void)p; (void)out; }
+  /// Before each action: the clean observation (61, with this task's commands), the state and the
+  /// tick (a task that rewards imitation asks its teacher here).
+  virtual void before_action(const f32* observation, const game::GameWorld::WalkerProbe& probe, i32 step) { (void)observation; (void)probe; (void)step; }
   /// The reward for the last tick; terminal when the episode failed (no value after it).
   virtual f32 reward(const Tick& t, bool& terminal) = 0;
   /// The training's progress (PPO iterations so far): curricula ramp weights and ranges with it.
@@ -92,7 +95,10 @@ class Task {
 
 /// The jump (Kern's own skill, docs/lehrer.md): from a stand, leave the ground with both feet as
 /// high as it can, land and stand again.
-std::unique_ptr<Task> make_jump_task();
+struct JumpDemo;
+/// With `demo` and `imitate` > 0 the reward also has the term "imitate": imitate x how close the
+/// action is to what the demonstration's teacher would do (vorbild.h; while practising).
+std::unique_ptr<Task> make_jump_task(const JumpDemo* demo = nullptr, f32 imitate = 0);
 /// Stand still at home (the pipeline's smoke test: quick to learn, easy to check).
 std::unique_ptr<Task> make_stand_task();
 
@@ -179,7 +185,8 @@ struct JumpReport {
   f32 success() const { return episodes ? static_cast<f32>(jumps) / static_cast<f32>(episodes) : 0.0f; }
 };
 using ActFn = void (*)(void* user, const f32* observation, f32* action);
-JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 substeps = 0);
+/// `randomized`: the training's full variation (build, servos, sensors, start) instead of the clean robot.
+JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 substeps = 0, bool randomized = false);
 
 }  // namespace kern::lehrer
 

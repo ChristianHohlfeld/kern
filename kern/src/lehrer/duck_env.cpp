@@ -97,6 +97,7 @@ void DuckEnv::observe() {
   // The critic sees the clean state; the actor what the robot's sensors give (noise, bias).
   std::memcpy(critic_.data(), obs_.data(), sizeof(f32) * kObs);
   if (task_->privileged()) task_->privileged(probe_, critic_.data() + kObs);
+  task_->before_action(critic_.data(), probe_, step_);
   if (task_->randomize) {
     const Task::Noise& n = task_->noise;
     // The IMU's latency: this tick's reading or the last one (re-drawn every imu_lag_period ticks).
