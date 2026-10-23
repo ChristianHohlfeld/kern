@@ -18,7 +18,7 @@ werden wie dort als Gewicht × Term × dt summiert.
 | Schritt | Stand |
 |---|---|
 | 1. Headless-Simulation: Ente ohne GPU, extern gesteuert, Episoden, Sprung-Aufgabe | fertig |
-| 2. MLP mit Backprop und Adam | offen |
+| 2. MLP mit Backprop und Adam | fertig |
 | 3. PPO (Rezept wie rsl_rl: GAE, Clip, adaptive Lernrate, asymmetrischer Critic) | offen |
 | 4. ONNX-Export im Format von Pollens Netzen | offen |
 | 5. Variation (Domain Randomization), Training parallel auf allen Kernen | offen |
@@ -78,3 +78,19 @@ werden wie dort als Gewicht × Term × dt summiert.
 | fall | −4 (einmalig) | über 60° gekippt oder Rumpf unter 5 cm: Episode endet |
 
 Die Gewichte sind ein erster Entwurf. Sie werden mit dem Training abgestimmt (Schritt 7).
+
+## 2. Netze (`src/train/nn.cpp`)
+
+- **`Mlp`:** Schichten mit ELU dazwischen und linearer Ausgabe, wie rsl_rls Actor und Critic
+  (512/256/128).
+  - Gewichte liegen eingangsweise (`w[i * out + o]`). Vorwärts- und Rückwärtsrechnung sind damit
+    zusammenhängende Schleifen, die der Compiler vektorisiert.
+  - Initialisierung wie PyTorchs `nn.Linear`.
+  - Test: Der Gradient stimmt mit finiten Differenzen überein, für Parameter und Eingaben.
+- **`Adam`:** mit PyTorchs Standardwerten; der Gradient wird vorher auf die Gesamtnorm 1 begrenzt
+  (rsl_rl `max_grad_norm`).
+- **`Normalizer`:** wie rsl_rls EmpiricalNormalization: laufender Mittelwert und laufende Varianz,
+  y = (x − Mittel) / (σ + 0,01). Der Export schreibt das als Sub und Div ins ONNX, wie in Pollens
+  Netzen.
+- **Test:** Adam lernt sin(x) (mittlerer quadratischer Fehler < 0,01). Der Normalisierer stimmt mit
+  Mittelwert und Varianz des ganzen Datensatzes überein.

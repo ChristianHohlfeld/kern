@@ -17,6 +17,7 @@
 #include "kern/game/runtime.h"
 #include "kern/game/walker.h"
 #include "kern/train/env.h"
+#include "kern/train/nn.h"
 #include "kern/studio/studio.h"
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
@@ -4239,6 +4240,88 @@ TEST(micro_duck_rolls_forward_on_its_skates) {
   CHECK(r.driving.find("walk") != std::string::npos);
   CHECK(d > 0.3f);
   CHECK(r.min_up > 0.8f);
+}
+
+TEST(train_mlp_gradient_matches_finite_differences) {
+  train::Rng rng(3);
+  train::Mlp net;
+  net.init({5, 7, 6, 3}, rng);
+  const i32 batch = 4;
+  std::vector<f32> x(batch * 5), c(batch * 3), out(batch * 3);
+  for (f32& v : x) v = rng.uniform(-1.5f, 1.5f);
+  for (f32& v : c) v = rng.uniform(-1, 1);
+  auto loss = [&]() {
+    net.forward(x.data(), batch, out.data());
+    f64 L = 0;
+    for (std::size_t k = 0; k < out.size(); ++k) L += static_cast<f64>(out[k]) * c[k];
+    return L;
+  };
+  train::Mlp::Cache cache;
+  net.forward(x.data(), batch, out.data(), &cache);
+  std::vector<f32> grad(net.params().size(), 0.0f), dx(x.size());
+  net.backward(cache, c.data(), grad.data(), dx.data());
+  f64 worst = 0;
+  for (std::size_t k = 0; k < net.params().size(); ++k) {
+    const f32 keep = net.params()[k];
+    net.params()[k] = keep + 1e-2f;
+    const f64 up = loss();
+    net.params()[k] = keep - 1e-2f;
+    const f64 down = loss();
+    net.params()[k] = keep;
+    worst = std::max(worst, std::fabs((up - down) / 2e-2 - grad[k]));
+  }
+  CHECK(worst < 2e-3);
+  f64 worst_x = 0;
+  for (std::size_t k = 0; k < x.size(); ++k) {
+    const f32 keep = x[k];
+    x[k] = keep + 1e-2f;
+    const f64 up = loss();
+    x[k] = keep - 1e-2f;
+    const f64 down = loss();
+    x[k] = keep;
+    worst_x = std::max(worst_x, std::fabs((up - down) / 2e-2 - dx[k]));
+  }
+  CHECK(worst_x < 2e-3);
+  // Batched forward = one row at a time.
+  std::vector<f32> one(3);
+  net.forward(x.data() + 5, 1, one.data());
+  net.forward(x.data(), batch, out.data());
+  CHECK(std::memcmp(one.data(), out.data() + 3, sizeof(f32) * 3) == 0);
+}
+
+TEST(train_adam_fits_a_curve_and_the_normaliser_tracks) {
+  train::Rng rng(9);
+  train::Mlp net;
+  net.init({1, 32, 32, 1}, rng);
+  train::Adam adam;
+  adam.lr = 3e-3f;
+  const i32 batch = 64;
+  std::vector<f32> x(batch), y(batch), out(batch), d(batch), grad;
+  f32 mse = 1;
+  for (i32 it = 0; it < 1500; ++it) {
+    for (i32 b = 0; b < batch; ++b) { x[b] = rng.uniform(-3.14159f, 3.14159f); y[b] = std::sin(x[b]); }
+    train::Mlp::Cache cache;
+    net.forward(x.data(), batch, out.data(), &cache);
+    mse = 0;
+    for (i32 b = 0; b < batch; ++b) { d[b] = 2 * (out[b] - y[b]) / batch; mse += (out[b] - y[b]) * (out[b] - y[b]) / batch; }
+    grad.assign(net.params().size(), 0.0f);
+    net.backward(cache, d.data(), grad.data());
+    adam.step(net.params(), grad);
+  }
+  CHECK(mse < 0.01f);
+  // The running normaliser agrees with the whole data's mean and variance.
+  train::Normalizer n;
+  n.init(2);
+  std::vector<f32> data;
+  for (i32 i = 0; i < 300; ++i) { data.push_back(rng.uniform(2, 6)); data.push_back(rng.normal() * 3 - 1); }
+  for (i32 i = 0; i < 300; i += 50) n.update(data.data() + i * 2, 50);
+  f64 m0 = 0, m1 = 0, v0 = 0, v1 = 0;
+  for (i32 i = 0; i < 300; ++i) { m0 += data[i * 2]; m1 += data[i * 2 + 1]; }
+  m0 /= 300; m1 /= 300;
+  for (i32 i = 0; i < 300; ++i) { v0 += (data[i * 2] - m0) * (data[i * 2] - m0); v1 += (data[i * 2 + 1] - m1) * (data[i * 2 + 1] - m1); }
+  v0 /= 300; v1 /= 300;
+  CHECK(std::fabs(n.mean()[0] - m0) < 1e-4 && std::fabs(n.mean()[1] - m1) < 1e-4);
+  CHECK(std::fabs(n.divisor()[0] - (std::sqrt(v0) + 0.01)) < 1e-4 && std::fabs(n.divisor()[1] - (std::sqrt(v1) + 0.01)) < 1e-4);
 }
 
 TEST(micro_duck_observation_between_ticks_is_what_its_controller_sees) {
