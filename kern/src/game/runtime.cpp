@@ -17,6 +17,8 @@ namespace kern::game {
 namespace {
 
 constexpr f32 kDeg = kPi / 180.0f;
+constexpr f32 kHitSpeed = 2;              // m/s: a hit for logic ("game.hit") and camera shake
+constexpr f32 kMinImpactThreshold = 0.05f;  // m/s: the softest touch an impact sound can ask for
 
 f32 smoothstep(f32 a, f32 b, f32 x) {
   const f32 t = clamp((x - a) / (b - a), 0.0f, 1.0f);
@@ -1129,8 +1131,11 @@ physics::Body GameWorld::create_body(const BodyPlan& plan) {
   if (!body.valid()) return body;
   // Events cost: Box3D reports contact / sensor / hit events when a shape asks for them,
   // so only the shapes whose events the game reads enable them ("Sensor Events", "Hit Events").
-  const bool impact_sound = owner && owner->body && !owner->body->impact_sound.empty() && owner->body->impact_sound != "none";
+  const std::string body_sound = owner && owner->body ? owner->body->impact_sound : std::string();
   for (const ShapePlan& sp : plan.shapes) {
+    // The collider's own impact sound, else its body's ("auto").
+    const std::string& sound = sp.source.impact_sound == "auto" ? body_sound : sp.source.impact_sound;
+    const bool impact_sound = !sound.empty() && sound != "none" && sound != "auto";
     physics::ShapeSettings ss;
     ss.kind = sp.kind;
     ss.center = sp.center;
@@ -1153,7 +1158,9 @@ physics::Body GameWorld::create_body(const BodyPlan& plan) {
     ss.material.contact_events = player;
     ss.material.hit_events = plan.motion == Motion::dynamic && (player || impact_sound || logic_events_);
     ss.material.user = sp.actor;
-    if (!physics_.create_shape(body, ss).valid()) {
+    const physics::Shape shape = physics_.create_shape(body, ss);
+    if (shape.valid() && impact_sound) shape_sound_[shape.id] = sound;
+    if (!shape.valid()) {
       const std::string why = last_error();
       events_.push_back("Collider of \"" + (level_.find(sp.actor) ? level_.find(sp.actor)->name : std::string("?")) + "\" skipped: " + why);
     }
@@ -1183,7 +1190,17 @@ bool GameWorld::start(const Level& level, SimMode mode) {
   edit_level_ = level;
   physics::WorldSettings ws;
   ws.gravity = level.world.gravity;
-  ws.hit_event_threshold = 2;
+  // Box3D reports hits from this approach speed on. Logic and camera shake use kHitSpeed; impact
+  // sounds may ask for softer touches (a small robot's plastic taps and steps).
+  ws.hit_event_threshold = kHitSpeed;
+  auto sounds = [](const std::string& s) { return !s.empty() && s != "none" && s != "auto"; };
+  for (const Actor& a : level.actors) {
+    if (!a.body || a.body->motion != Motion::dynamic) continue;
+    bool any = sounds(a.body->impact_sound);
+    for (const ColliderComponent& c : a.colliders) any |= sounds(c.impact_sound);
+    if (any) ws.hit_event_threshold = min_of(ws.hit_event_threshold, max_of(kMinImpactThreshold, a.body->impact_threshold));
+  }
+  shape_sound_.clear();
   if (!physics_.create(ws)) return false;
   mode_ = mode;
   paused_ = false;
@@ -1876,6 +1893,7 @@ void GameWorld::handle_events() {
     }
     u32 n = 0;
     for (const physics::HitEvent& h : physics_.hits()) {
+      if (h.approach_speed < kHitSpeed) continue;  // softer touches only sound
       if (++n > 32) break;
       const ActorId a = who(h.shape_a, h.body_a), b = who(h.shape_b, h.body_b);
       const std::vector<std::pair<std::string, logic::Value>> extra{{"speed", logic::Value::number(h.approach_speed)},
@@ -1890,20 +1908,21 @@ void GameWorld::handle_events() {
   for (const physics::HitEvent& h : physics_.hits()) {
     if (player_ && body_of_actor_.count(player_)) {
       const physics::Body pb = body_of_actor_[player_]->body;
-      if (h.body_a == pb || h.body_b == pb) shake_ = max_of(shake_, clamp(h.approach_speed / 30.0f, 0.15f, 0.8f));
+      if ((h.body_a == pb || h.body_b == pb) && h.approach_speed >= kHitSpeed) shake_ = max_of(shake_, clamp(h.approach_speed / 30.0f, 0.15f, 0.8f));
     }
     if (impacts >= 6) continue;  // at most a handful per step; the mixer would steal them anyway
-    for (const physics::Body hb : {h.body_a, h.body_b}) {
+    for (const auto& [hs, hb] : {std::pair{h.shape_a, h.body_a}, std::pair{h.shape_b, h.body_b}}) {
       const ActorId id = actor_for_body(hb);
       const Actor* a = id ? level_.find(id) : nullptr;
-      if (!a || !a->body || a->body->impact_sound.empty() || a->body->impact_sound == "none") continue;
-      const f32 threshold = max_of(0.05f, a->body->impact_threshold);
+      const auto ss = shape_sound_.find(hs.id);
+      if (!a || !a->body || ss == shape_sound_.end()) continue;
+      const f32 threshold = max_of(kMinImpactThreshold, a->body->impact_threshold);
       if (h.approach_speed < threshold) continue;
       f32& last = last_impact_[id];
       if (last > 0 && sim_time_ - last < 0.09f) continue;
       last = sim_time_ + 1e-6f;
       const f32 strength = clamp((h.approach_speed - threshold) / (threshold * 5) + 0.2f, 0.2f, 1.0f);
-      std::string sound = a->body->impact_sound;
+      std::string sound = ss->second;
       if (sound == "builtin:impact" && h.approach_speed < threshold * 2.2f) sound = "builtin:impact_light";
       const f32 mass = physics_.mass(hb);
       const f32 pitch = clamp(1.25f - std::log10(max_of(0.1f, mass)) * 0.18f, 0.6f, 1.6f);

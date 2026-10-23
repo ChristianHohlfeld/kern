@@ -455,6 +455,7 @@ json::Value actor_to_json(const Actor& a) {
       x.set("category", k.category);
       x.set("mask", k.mask);
       x.set("group", k.group);
+      if (k.impact_sound != "auto") x.set("impactSound", k.impact_sound);
       list.push(std::move(x));
     }
     c.set("colliders", std::move(list));
@@ -718,6 +719,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
         kr.uinteger("category", k.category);
         kr.uinteger("mask", k.mask);
         kr.integer("group", k.group, -32768, 32767);
+        kr.string("impactSound", k.impact_sound);
         if (!kr.ok) return false;
         a.colliders.push_back(k);
       }
@@ -1123,6 +1125,7 @@ std::vector<Issue> validate(const Level& level) {
       if (!sound_reference_ok(level, ref)) warn(std::string(what) + " \"" + std::string(ref) + "\" does not exist (it is silent)");
     };
     if (a.body) sound(a.body->impact_sound, "impact sound");
+    for (const ColliderComponent& c : a.colliders) sound(c.impact_sound, "collider impact sound");
     for (const JointComponent& j : a.joints) sound(j.break_sound, "joint break sound");
     if (a.controller) { sound(a.controller->engine_sound, "engine sound"); sound(a.controller->jump_sound, "jump sound"); sound(a.controller->boost_sound, "boost sound"); }
     if (a.weapon) { sound(a.weapon->fire_sound, "fire sound"); sound(a.weapon->reload_sound, "reload sound"); }

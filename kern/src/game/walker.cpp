@@ -86,6 +86,7 @@ constexpr f32 kServoDamping = 0.053f;     // N*m*s/rad
 constexpr f32 kServoFriction = 0.0048f;   // N*m
 constexpr f32 kServoTorque = 0.963f;     // N*m
 constexpr f32 kArmature = 0.0018f;       // kg*m^2: rotor inertia through the gearbox (MJCF chosen_actuator)
+constexpr f32 kDuckImpactThreshold = 0.12f;  // m/s: from here a touch sounds (plastic tap, footstep)
 constexpr f32 kWheelArmature = 0.0001f;  // kg*m^2: a roller wheel's bearing (MJCF passive_joint)
 
 // Timing in real (unscaled) seconds; Kern's simulation runs sqrt(S) slower.
@@ -189,7 +190,10 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
     }
     a.body->allow_sleep = false;
     a.body->angular_damping = 0;  // MuJoCo bodies have none; the servos damp
-    a.body->impact_sound = "";
+    // Its plastic taps when shells and housings touch the floor or each other; the soles step
+    // (their colliders below). Soft touches count: the robot is small and light.
+    a.body->impact_sound = "builtin:plastic";
+    a.body->impact_threshold = kDuckImpactThreshold;
     if (i == 0) {
       ControllerComponent c;
       c.mode = ControlMode::walker;
@@ -242,6 +246,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
         c.points.push_back({p[0], p[1], p[2]});
       }
       c.friction = h.friction;
+      if (h.sole) c.impact_sound = "builtin:plastic_step";
       a.colliders.push_back(c);
     }
     for (const char* shell : kDuckShellBodies)

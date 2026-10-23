@@ -109,6 +109,9 @@ struct ColliderComponent {
   bool sensor = false;
   u32 category = 1, mask = 0xffffffffu;  // collision channels
   i32 group = 0;
+  /// Played when this collider hits something: "auto" = its body's impact sound, "" / "none" =
+  /// silent. Lets parts of one body sound different (a sole steps, a plastic shell taps).
+  std::string impact_sound = "auto";
 };
 
 enum class JointKind : u8 { hinge, slider, ball, fixed, distance, wheel, motor, parallel, no_collision };

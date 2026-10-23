@@ -96,6 +96,7 @@ constexpr FieldDef kCollider[] = {
     {"category", "Channel bits", F::uinteger, 0, 4294967295.0, 1},
     {"mask", "Collides with bits", F::uinteger, 0, 4294967295.0, 1},
     {"group", "Group index", F::integer, -32768, 32767, 1},
+    {"impactSound", "Impact sound", F::sound_auto, 0, 0, 0, "", nullptr, "Sound"},
 };
 constexpr FieldDef kJoint[] = {
     {"kind", "Type", F::choice, 0, 0, 0, "", kJoints},
