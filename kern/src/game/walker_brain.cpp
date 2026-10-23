@@ -787,7 +787,12 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
       const f64 dist = std::hypot(dx, dy), bearing = wrap_angle(std::atan2(dy, dx) - pose[2]);
       b.cmd[0] = b.cmd[1] = b.cmd[2] = 0;
       std::fill(std::begin(b.head), std::end(b.head), 0.0);
-      b.head[1] = -std::clamp(std::atan2(0.12, std::max(dist, 0.05)) - 0.3, 0.0, 0.8);  // look down at it (positive up)
+      // Keep it in the picture: the head pitches down (to the training's 1.1 rad), and close by the
+      // neck bows too - neck -1.1 with head 1.1 points the camera 87 deg down and sees 6-15 cm in
+      // front of the trunk (test micro_duck_camera_sees_the_floor_in_front_when_looking_down).
+      // While it walks the head looks down only so far: bowing the neck shifts its weight forward
+      // and the gait suffers.
+      b.head[1] = -std::clamp(std::atan2(0.12, std::max(dist, 0.05)) - 0.3, 0.0, 0.8);  // positive up
       if (dist > 0.25) {
         b.cmd[0] = std::fabs(bearing) > 0.6 ? 0.0 : std::clamp(dist * 1.2, kMinWalkVx, kMaxLinear);
         b.cmd[2] = std::clamp(bearing * 1.5, -1.0, 1.0);
@@ -806,6 +811,8 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
       } else {
         // There: head up (the kick and the pick were trained with the head at home), let the steps
         // die out, then go.
+        // (No look down here: bowing neck and head - which would show the target at 6-15 cm - shifts
+        // the weight forward, the feet step, and the spot is lost. It goes by where it saw it.)
         b.head[1] = 0;
         b.settle += dt;
         if (b.settle > (b.ball ? 3.0 : 1.2) && sn.speed / S_ < 0.01) {

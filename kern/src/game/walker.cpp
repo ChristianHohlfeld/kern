@@ -657,12 +657,13 @@ bool GameWorld::walker_command(ActorId id, f32 forward, f32 strafe, f32 turn, f3
   return any;
 }
 
-bool GameWorld::walker_look(ActorId id, f32 yaw, f32 pitch, f32 hold) {
+bool GameWorld::walker_look(ActorId id, f32 yaw, f32 pitch, f32 hold, f32 neck) {
   bool any = false;
   for (auto& w : walkers_)
     if (!id || w->actor == id) {
       w->look_cmd[0] = yaw;
       w->look_cmd[1] = pitch;
+      w->look_neck = neck;
       w->look_left = hold > 0 ? hold : -1;
       any = true;
     }
@@ -1056,7 +1057,7 @@ void GameWorld::drive_walkers(f32 h) {
       f32 head_alpha = kCommandAlpha, body_target[3] = {0, 0, 0};
       bool body_active = false;
       const bool brain = w.autonomous && w.manual_left <= 0 && w.drive_left == 0;
-      if (w.look_left != 0) { head[2] = w.look_cmd[0]; head[1] = w.look_cmd[1]; steered = true; }
+      if (w.look_left != 0) { head[2] = w.look_cmd[0]; head[1] = w.look_cmd[1]; head[0] = w.look_neck; steered = true; }
       else if (w.autonomous && w.manual_left <= 0) {
         std::memcpy(head, w.auto_head, sizeof head);
         head_alpha = w.auto_head_alpha;  // autod sends its own rate with robot.head

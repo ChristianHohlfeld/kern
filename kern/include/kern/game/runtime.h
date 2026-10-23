@@ -351,7 +351,7 @@ class GameWorld {
   /// Commands for walker `id` (0 = all): twist in the robot's real units (m/s, rad/s), head deltas
   /// (radians). They override autonomy for `hold` seconds (0 = until the next command).
   bool walker_command(ActorId id, f32 forward, f32 strafe, f32 turn, f32 hold);
-  bool walker_look(ActorId id, f32 yaw, f32 pitch, f32 hold);
+  bool walker_look(ActorId id, f32 yaw, f32 pitch, f32 hold, f32 neck = 0);  // neck: neck pitch (rad), as the head command's first slot
   /// Autonomy on / off (on: it roams on its own whenever nobody drives it).
   bool walker_set_autonomous(ActorId id, bool on);
   bool walker_quack(ActorId id);

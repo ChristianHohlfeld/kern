@@ -4511,6 +4511,51 @@ TEST(micro_duck_answers_and_melts_when_petted) {
   CHECK(answered);
 }
 
+TEST(micro_duck_camera_sees_the_floor_in_front_when_looking_down) {
+  // The head camera (IMX219, 62 x 37.4 deg, upright) with the head looking down as far as the
+  // training's head command goes: what of the floor in front does it see? A sock lies about 6 cm
+  // (real) ahead of the trunk when the beak takes it.
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  const f32 aheads[] = {0.06f, 0.10f, 0.15f, 0.20f, 0.30f, 0.50f};
+  const f32 looks[][2] = {{0, 0}, {0.6f, 0}, {1.1f, 0}, {1.1f, 1.1f}, {1.1f, -1.1f}};
+  for (const auto& look : looks) {
+    const f32 pitch = look[0], neck = look[1];
+    GameFixture f;
+    game::Level l = game::basic_level();
+    for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+    const game::ActorId duck = add_duck(l, {0, 0, 0}, false);
+    std::vector<game::ActorId> marks;
+    std::vector<bool> seen;
+    for (f32 x : aheads) {
+      game::Actor m;
+      m.name = "Mark";
+      m.transform.position = {x * 4, 0, 0.025f};
+      m.mesh = game::MeshComponent{};
+      m.mesh->shape = game::Shape::sphere;
+      m.mesh->radius = 0.025f;
+      marks.push_back(l.add(m).id);
+    }
+    f.world->sync(l);
+    CHECK(f.world->start(l, game::SimMode::simulate));
+    f.world->walker_look(duck, 0, pitch, 0, neck);
+    for (int i = 0; i < 300; ++i) f.world->step(1.0f / 100, {});
+    Camera cam;
+    CHECK(f.world->walker_camera(duck, cam));
+    const Vec3 dir = normalize(cam.target - cam.eye);
+    if (print) std::printf("neck %.1f head pitch command %.1f: camera at %.3f m (real) high, looking %.0f deg below the horizon; sees:", neck, pitch, cam.eye.z / 4, -std::asin(dir.z) * 57.3f);
+    for (std::size_t k = 0; k < marks.size(); ++k) {
+      bool visible = false;
+      f32 bearing = 0, distance = 0;
+      f.world->walker_sees(duck, marks[k], visible, bearing, distance);
+      if (print) std::printf(" %.2f m %s", aheads[k], visible ? "yes" : "no");
+      seen.push_back(visible);
+    }
+    if (print) std::printf("\n");
+    if (neck < -1.0f) CHECK(seen[0] && seen[1]);   // bowed fully: the sock at the beak's spot is in the picture
+    if (neck == 0 && pitch == 0) CHECK(!seen[0]);  // looking ahead it is not
+  }
+}
+
 TEST(micro_duck_plays_with_a_ball_on_its_own) {
   // Autonomous: a ball 30 cm (real) away, a little to the side. The duck sees it with its head
   // camera, walks up until the ball lies in front of its left foot and kicks it.

@@ -94,7 +94,7 @@ struct GameWorld::WalkerBrain {
   bool autonomous = true;
   f32 manual_left = 0;             // the player touched the controls this recently
   f32 drive_left = 0, look_left = 0;  // Logic commands (< 0 = until the next one)
-  f32 drive_cmd[3] = {}, look_cmd[2] = {};
+  f32 drive_cmd[3] = {}, look_cmd[2] = {}, look_neck = 0;
   // The autonomous brain (walker_brain.cpp).
   struct Brain;
   std::shared_ptr<Brain> brain;
