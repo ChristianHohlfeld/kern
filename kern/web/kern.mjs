@@ -525,9 +525,11 @@ export class KernRenderer {
 
   setLighting(values = {}) {
     for (const key of ["sunDirection", "sunColor", "skyColor", "groundColor", "fogColor", "fogDensity", "exposure", "envIntensity",
-      "envZenith", "envHorizon", "envGround", "night", "skySun", "skyMoon"])
+      "envZenith", "envHorizon", "envGround", "night", "skySun", "skyMoon", "atmosphere"])
       if (values[key] !== undefined) this[key] = Array.isArray(values[key]) ? [...values[key]] : values[key];
   }
+  // atmosphere: { heightFalloff, sunScatter, horizon } – ground haze, sun glow in the haze, sky meets fog.
+  // Unset = plain fog as before.
 
   pushCamera() {
     const f32 = this.kern.f32, o = this.descPtr >> 2;
@@ -544,6 +546,9 @@ export class KernRenderer {
     f32[o + 17] = Number.isFinite(this.envIntensity) ? this.envIntensity : .9;
     f32.set(this.envZenith, o + 18); f32.set(this.envHorizon, o + 21); f32.set(this.envGround, o + 24);
     this.kern.exports.kern_lighting_set(this.lightPtr);
+    const atm = this.atmosphere;
+    if (atm && this.kern.exports.kern_atmosphere_set)
+      this.kern.exports.kern_atmosphere_set(+atm.heightFalloff || 0, +atm.sunScatter || 0, +atm.horizon || 0);
     const s = this.skyPtr >> 2, sky = this.sky;
     f32.set(this.skySun || this.sunDirection, s);
     f32.set(this.skyMoon || [.4, .5, .76], s + 3);

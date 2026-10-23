@@ -1,6 +1,7 @@
 #include "kern/gfx/renderer.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "kern/scene/bvh.h"
 
@@ -85,6 +86,8 @@ bool Renderer::init_gpu() {
   u_.exposure = p.location("uExposure");
   u_.env_intensity = p.location("uEnvIntensity");
   u_.grade = p.location("uGrade");
+  u_.fog_height_falloff = p.location("uFogHeightFalloff");
+  u_.fog_sun_scatter = p.location("uFogSunScatter");
   u_.point_count = p.location("uPointLightCount");
   u_.point_pos_range = p.location("uPointPosRange[0]");
   u_.point_color_intensity = p.location("uPointColorIntensity[0]");
@@ -582,6 +585,8 @@ void Renderer::set_frame_uniforms(const Mat4& vp) {
   c.set_vec3(u_.env_horizon, l.env_horizon);
   c.set_vec3(u_.env_ground, l.env_ground);
   c.set_float(u_.fog_density, l.fog_density);
+  c.set_float(u_.fog_height_falloff, l.fog_height_falloff > 0 ? l.fog_height_falloff : 0.0f);
+  c.set_float(u_.fog_sun_scatter, clamp(l.fog_sun_scatter, 0.0f, 1.0f));
   c.set_float(u_.exposure, l.exposure);
   c.set_float(u_.env_intensity, std::isfinite(l.env_intensity) ? l.env_intensity : 0.9f);
   c.set_int(u_.grade, options_.grade ? 1 : 0);
@@ -720,7 +725,17 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   set_frame_uniforms(vp);
   for (Mesh* m : opaque_) draw_mesh(*m, stats);
 
-  if (params.sky && !camera.orthographic) sky_pass_.draw(camera, aspect, sky, lighting.exposure, start / 1000.0);
+  if (params.sky && !camera.orthographic) {
+    SkyAtmosphere atmosphere;
+    atmosphere.fog_color = lighting.fog_color;
+    atmosphere.sun_color = lighting.sun_color;
+    atmosphere.sun_direction = lighting.sun_direction;
+    atmosphere.sun_scatter = lighting.fog_density > 0 ? clamp(lighting.fog_sun_scatter, 0.0f, 1.0f) : 0.0f;
+    // How fogged the far end of the view is: thin fog gives only a thin horizon haze.
+    const f32 far_fog = lighting.fog_density * min_of(camera.far, 2000.0f);
+    atmosphere.horizon = clamp(lighting.fog_horizon, 0.0f, 1.0f) * (1 - std::exp(-far_fog * far_fog));
+    sky_pass_.draw(camera, aspect, sky, lighting.exposure, start / 1000.0, atmosphere);
+  }
   program_.use();
   cull_state_ = -1;
 

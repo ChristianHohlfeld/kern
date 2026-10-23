@@ -270,6 +270,14 @@ KERN_EXPORT(kern_lighting_get) void kern_lighting_get(f32* f) {
   store3(f, KERN_LI_ENV_HORIZON, l.env_horizon);
   store3(f, KERN_LI_ENV_GROUND, l.env_ground);
 }
+// Atmosphere on top of the lighting block (kept separate so the 27-slot layout stays as it is).
+// All 0 = the plain FogExp2 as before.
+KERN_EXPORT(kern_atmosphere_set) void kern_atmosphere_set(f32 height_falloff, f32 sun_scatter, f32 horizon) {
+  Lighting& l = R().lighting;
+  l.fog_height_falloff = height_falloff > 0 ? height_falloff : 0;
+  l.fog_sun_scatter = sun_scatter;
+  l.fog_horizon = horizon;
+}
 KERN_EXPORT(kern_sky_set) void kern_sky_set(const f32* f) {
   SkyState& s = R().sky;
   s.sun = vec3_at(f, KERN_SK_SUN);

@@ -102,6 +102,7 @@ uniform vec4 uMaterial;
 uniform vec3 uSunDirection, uSunColor, uSkyColor, uGroundColor, uEye, uFogColor;
 uniform vec3 uEnvZenith, uEnvHorizon, uEnvGround, uEmissive;
 uniform float uFogDensity, uExposure, uAlphaCutoff, uEnvIntensity, uSunShadowBias;
+uniform float uFogHeightFalloff, uFogSunScatter;
 uniform sampler2D uTexture;
 uniform sampler2DShadow uSunShadowMap;
 uniform mat4 uSunShadowProjection;
@@ -192,8 +193,23 @@ constexpr const char* kFragmentLighting = R"GLSL(
   if (uGrade == 1) rgb = gradeColor(rgb);
   rgb = linearToSrgb(clamp(rgb, 0.0, 1.0));
   // FogExp2 after the colour-space conversion, as three.js applies it.
-  float fog = 1.0 - exp(-pow(uFogDensity * length(vWorld - uEye), 2.0));
-  rgb = mix(rgb, uFogColor, clamp(fog, 0.0, 1.0));
+  vec3 toFrag = vWorld - uEye;
+  float fogDist = length(toFrag);
+  float fogOptical = uFogDensity * fogDist;
+  if (uFogHeightFalloff > 0.0) {
+    // Mean of exp(-k z) along the view ray: dense near the ground, clear above the roofs.
+    float k = uFogHeightFalloff, z0 = max(uEye.z, 0.0), z1 = max(vWorld.z, 0.0), dz = z1 - z0;
+    fogOptical *= abs(k * dz) > 1e-4 ? (exp(-k * z0) - exp(-k * z1)) / (k * dz) : exp(-k * z0);
+  }
+  float fog = 1.0 - exp(-fogOptical * fogOptical);
+  vec3 fogColor = uFogColor;
+  if (uFogSunScatter > 0.0 && fogDist > 1e-4) {
+    // In-scattering: the haze glows in the sun's colour around the sun.
+    float mu = max(dot(toFrag / fogDist, sun), 0.0);
+    vec3 sunHaze = linearToSrgb(acesFilmic(uSunColor * 0.45));
+    fogColor = mix(fogColor, sunHaze, uFogSunScatter * pow(mu, 8.0));
+  }
+  rgb = mix(rgb, fogColor, clamp(fog, 0.0, 1.0));
   outColor = vec4(clamp(rgb, 0.0, 1.0), alpha);
 }
 )GLSL";

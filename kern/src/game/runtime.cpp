@@ -802,6 +802,10 @@ f32 GameWorld::apply_lighting(Vec3 eye) {
   l.ground_color = mix3({0.125f, 0.094f, 0.054f}, {0.012f, 0.012f, 0.02f}, night);
   l.fog_color = mix3(mix3({0.474f, 0.584f, 0.716f}, {0.62f, 0.45f, 0.36f}, dusk * 0.6f), {0.03f, 0.04f, 0.07f}, night);
   l.fog_density = w.fog_density;
+  // Ground haze that clears above the roofs, glows toward the sun and meets the sky at the horizon.
+  l.fog_height_falloff = 0.012f;
+  l.fog_sun_scatter = 0.55f * (1 - night * 0.7f);
+  l.fog_horizon = 0.85f;
   l.env_intensity = 0.9f - 0.78f * night;
   l.env_zenith = mix3({0.05f, 0.2f, 0.62f}, {0.012f, 0.022f, 0.06f}, night);
   l.env_horizon = mix3({0.52f, 0.66f, 0.86f}, {0.05f, 0.075f, 0.13f}, night);
