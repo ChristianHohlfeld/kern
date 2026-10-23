@@ -124,8 +124,9 @@ class JumpTask : public Task {
     r.add("action_rate", action_rate_weight_, action_rate(t));
     r.add("body_ang_vel", -0.05f, p.spin.x * p.spin.x + p.spin.y * p.spin.y);
     r.add("self_collisions", -1, p.self_contact ? 1.0f : 0.0f);
-    r.add("body_contact", -2, p.body_contact ? 1.0f : 0.0f);  // only the soles meet the floor
-    terminal = fell(p);
+    // Only the soles meet the floor: anything else touching it ends the episode like a fall (as
+    // locomotion tasks end on a base contact) - else leaning on the beak or tail is the safe bet.
+    terminal = fell(p) || p.body_contact;
     if (terminal) r.add("fall", -20, 1, false);  // a fall must cost more than a jump earns
     return r.sum();
   }

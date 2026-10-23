@@ -76,8 +76,7 @@ werden wie dort als Gewicht × Term × dt summiert.
 | action_rate | −0,1 → −1,0 | Änderung der Aktion (steigt wie bei Pollen bis Iteration 1500) |
 | body_ang_vel | −0,05 | Drehrate des Rumpfs um x und y |
 | self_collisions | −1 | eigene Teile berühren sich |
-| body_contact | −2 | ein anderes Teil als die Sohlen berührt den Boden |
-| fall | −20 (einmalig) | über 60° gekippt oder Rumpf unter 5 cm: Episode endet |
+| fall | −20 (einmalig) | über 60° gekippt, Rumpf unter 5 cm oder ein anderes Teil als die Sohlen am Boden: Episode endet |
 
 Der Critic sieht zusätzlich, ob die Ente in dieser Episode schon gesprungen ist (9. Wert).
 
@@ -89,6 +88,9 @@ Was die ersten Läufe zeigten (je einige Hunderttausend Schritte auf 2 Kernen):
 - **Zweiter Lauf:** Die Ente sprang 91 mm hoch, fiel aber jedes Mal (Hechtsprung). Seitdem zählen
   die Sprungterme nur, soweit sie aufrecht bleibt. Eine Landung auf beiden Sohlen zahlt, und ein
   Sturz kostet −20 statt −4.
+- **Dritter und vierter Lauf** (Startrauschen 1,0 bzw. 0,4): Die Ente fiel nicht mehr, stützte sich
+  aber auf ein anderes Teil. Seitdem beendet jeder Bodenkontakt außer den Sohlen die Episode wie ein
+  Sturz.
 
 Die Gewichte sind ein erster Entwurf. Sie werden mit dem Training abgestimmt (Schritt 7).
 
