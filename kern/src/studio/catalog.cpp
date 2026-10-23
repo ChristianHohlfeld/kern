@@ -30,6 +30,7 @@ constexpr Item kItems[] = {
     {"drone", "Drone", "Players", "drone", "Flyer: Space / E up, Q / Ctrl down"},
     {"micro_duck", "Micro Duck", "Players", "duck", "Pollen Robotics' biped robot on its trained networks: W/S walk, A/D turn, Space quacks, 1 sit, 2 pick up, 3/4 kick, 5 roll, 6 beak"},
     {"micro_duck_rollers", "Micro Duck (Rollers)", "Players", "duck", "The Micro Duck on its roller skates: roller.onnx skates, 2 crouches"},
+    {"micro_duck_sock", "Sock", "Physics", "ball", "A crumpled sock at Micro Duck scale (soft lumps on springs): the duck picks it up with 2 or on its own"},
     // Gameplay building blocks (work without any logic graph).
     {"orb", "Orb", "Gameplay", "orb", "Glowing pickup worth 1 point"},
     {"star", "Star", "Gameplay", "star", "Spinning pickup worth 10 points"},
@@ -310,6 +311,8 @@ ActorId Studio::spawn(const std::string& item, std::optional<Vec3> at, const std
     gun.mesh->size = {0.75f, 0.07f, 0.12f};
     gun.mesh->collision = false;
     add(gun, {0.35f, -0.22f, 0.35f}, root);
+  } else if (item == "micro_duck_sock") {
+    for (game::Actor& a : game::micro_duck_sock_actors()) actors.push_back(std::move(a));
   } else if (item == "micro_duck" || item == "micro_duck_rollers") {
     for (game::Actor& a : game::micro_duck_actors(item == "micro_duck_rollers")) actors.push_back(std::move(a));
   } else if (item == "target_dummy") {

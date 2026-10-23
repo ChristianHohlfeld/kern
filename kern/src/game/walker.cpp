@@ -86,6 +86,7 @@ constexpr f32 kServoDamping = 0.053f;     // N*m*s/rad
 constexpr f32 kServoFriction = 0.0048f;   // N*m
 constexpr f32 kServoTorque = 0.963f;     // N*m
 constexpr f32 kArmature = 0.0018f;       // kg*m^2: rotor inertia through the gearbox (MJCF chosen_actuator)
+constexpr f32 kDuckImpactThreshold = 0.12f;  // m/s: from here a touch sounds (plastic tap, footstep)
 constexpr f32 kWheelArmature = 0.0001f;  // kg*m^2: a roller wheel's bearing (MJCF passive_joint)
 
 // Timing in real (unscaled) seconds; Kern's simulation runs sqrt(S) slower.
@@ -111,6 +112,7 @@ constexpr f32 kCameraAspect = 9.0f / 16.0f;  // width / height, upright
 constexpr f32 kFallGravityZ = -0.5f, kFallDebounce = 0.2f;  // robotd's fall verdict (real seconds)
 // The mouth (duck-control model.rs): closed -5 deg (held shut against the pads), open 30 deg.
 constexpr f32 kMouthClosed = -5 * rt::kDegree, kMouthOpen = 30 * rt::kDegree;
+constexpr f32 kHoldingAngle = 2 * rt::kDegree;  // Kern: shut on nothing the beak rests at its pads (0.0 deg); a sock holds it 3.6-7.8
 f32 mouth_target(f32 open) { return kMouthClosed + clamp(std::isfinite(open) ? open : 0.0f, 0.0f, 1.0f) * (kMouthOpen - kMouthClosed); }
 
 const DuckSiteDef* site(const char* name) {
@@ -158,6 +160,49 @@ std::vector<Actor> scaled(std::vector<Actor> v) {
 
 }  // namespace
 
+std::vector<Actor> micro_duck_sock_actors() {
+  // A crumpled sock, real size x kWalkerScale: seven 12.5 mm lumps of fabric in a loose heap 3.4 cm
+  // high (four on the floor, two on them, one on top), each lump tied to its neighbours by a soft
+  // spring (Box3D distance joints): it gives under the beak, and what the beak pinches pulls the rest
+  // along. 25 g in all (x S^3 in the world).
+  const f32 S = kWalkerScale, r = 0.00625f * S, d = 0.0065f * S, h = 0.0107f * S;
+  const Vec3 lumps[] = {{-d, -d, r}, {d, -d, r}, {-d, d, r}, {d, d, r}, {0, -d, r + h}, {0, d, r + h}, {0, 0, r + 2 * h}};
+  std::vector<Actor> out;
+  for (int k = 0; k < 7; ++k) {
+    Actor a;
+    a.name = k == 0 ? "Sock" : "Sock Lump";
+    a.tags.push_back("sock");
+    a.parent = k == 0 ? 0 : 1;
+    a.transform.position = k == 0 ? lumps[0] : lumps[k] - lumps[0];
+    a.mesh = MeshComponent{};
+    a.mesh->shape = Shape::sphere;
+    a.mesh->radius = r;
+    a.mesh->collision = false;
+    a.mesh->material.color = {0.93f, 0.36f, 0.45f};
+    a.mesh->material.roughness = 0.95f;
+    a.body = BodyComponent{};
+    a.body->mass = 0.025f * S * S * S / 7;
+    ColliderComponent c;
+    c.shape = ColliderShape::sphere;
+    c.radius = r;
+    c.friction = 1;  // cotton on TPU and wood
+    a.colliders.push_back(c);
+    for (int m = 0; m < k; ++m) {
+      if (length(lumps[k] - lumps[m]) > 0.025f * S) continue;
+      JointComponent j;
+      j.kind = JointKind::distance;
+      j.target = static_cast<ActorId>(m + 1);
+      j.collide_connected = true;  // the lumps touch, they do not pass through each other
+      j.enable_spring = true;
+      j.spring_hertz = 15;
+      j.spring_damping = 0.7f;
+      a.joints.push_back(j);
+    }
+    out.push_back(std::move(a));
+  }
+  return out;
+}
+
 std::vector<Actor> micro_duck_actors(bool rollers) {
   std::vector<Actor> out;  // parent / joint target = index + 1 (the catalog's convention)
   const Vec3 root = kDuckLinks[0].pos;
@@ -189,7 +234,10 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
     }
     a.body->allow_sleep = false;
     a.body->angular_damping = 0;  // MuJoCo bodies have none; the servos damp
-    a.body->impact_sound = "";
+    // Its plastic taps when shells and housings touch the floor or each other; the soles step
+    // (their colliders below). Soft touches count: the robot is small and light.
+    a.body->impact_sound = "builtin:plastic";
+    a.body->impact_threshold = kDuckImpactThreshold;
     if (i == 0) {
       ControllerComponent c;
       c.mode = ControlMode::walker;
@@ -242,6 +290,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
         c.points.push_back({p[0], p[1], p[2]});
       }
       c.friction = h.friction;
+      if (h.sole) c.impact_sound = "builtin:plastic_step";
       a.colliders.push_back(c);
     }
     for (const char* shell : kDuckShellBodies)
@@ -362,7 +411,12 @@ constexpr f32 kStandingActionScale = 1.0f;
 constexpr f32 kHeadLowpass = 1.0f, kLegsLowpass = 1.0f;            // 1 = pass-through
 constexpr f32 kStandingThreshold = 0.05f;                          // DEFAULT_STANDING_THRESHOLD (twist)
 constexpr f32 kChainWindow = 0.15f;                                // CHAIN_WINDOW
-constexpr f32 kPickClose = 0.42f;                                  // Kern: the beak shuts here (phase)
+constexpr f32 kActuatorTravel = 3.14159265f;                       // safety.rs ACTUATOR_MIN / MAX (rad)
+// Kern: robotd leaves the beak to the operator's trigger during a ground pick. The controller opens
+// it near the bottom (opened on the way down, the jaw lands on what it should take) and bites while
+// the beak is lowest (docs/walker.md section 12).
+constexpr f32 kPickOpen = 0.16f;
+constexpr f32 kPickClose = 0.24f;
 
 struct SkillDef {
   std::string name, file;
@@ -409,6 +463,13 @@ const PolicySet& policy_set() {
         d.duration = static_cast<f32>(p["duration_s"].as_number());
         d.chain = p["chain"].as_bool();
         if (p["action_scale"].is_number()) d.action_scale = static_cast<f32>(p["action_scale"].as_number());
+        // A constant command (command.value) and the unwind after it (unwind_s with command.idle).
+        const json::Value& value = cmd["value"], &idle = cmd["idle"];
+        for (int i = 0; i < 3; ++i) {
+          if (value.is_array() && value.items().size() > static_cast<std::size_t>(i)) d.command[i] = static_cast<f32>(value.items()[i].as_number());
+          if (idle.is_array() && idle.items().size() > static_cast<std::size_t>(i)) d.unwind[i] = static_cast<f32>(idle.items()[i].as_number());
+        }
+        if (p["unwind_s"].is_number()) d.unwind_s = static_cast<f32>(p["unwind_s"].as_number());
         out.skills.push_back(std::move(d));
       }
     }
@@ -455,7 +516,7 @@ std::string GameWorld::walker_skill(ActorId id, std::string_view name) {
     if (!walker_policy(d.file)) return d.file + " is not loaded";
     if (const char* why = move_blocked(*w)) return why;
     w->pick_phase = 0;
-    if (!w->rollers) w->mouth_open = 1;  // the beak opens on the way down and shuts at the bottom
+    if (!w->rollers) w->mouth_open = 0;  // shut on the way down; opens at the bottom, then bites
     return "";
   }
   const i32 index = skill_index(name);  // Controller::start_skill
@@ -708,6 +769,14 @@ bool GameWorld::walker_sees(ActorId id, ActorId target, bool& visible, f32& bear
   return true;
 }
 
+bool GameWorld::walker_holding(ActorId id) const {
+  // The mouth servo's own encoder: told to shut, it stops short of its pads - something is in the beak.
+  const WalkerBrain* w = walker_brain(id);
+  if (!w || !w->mouth || w->rollers) return false;
+  const bool shutting = w->mouth->servo_target <= mouth_target(0) + 1e-4f;
+  return shutting && physics_.joint_angle(w->mouth->joint) > kHoldingAngle;
+}
+
 std::string GameWorld::walker_state(ActorId id) const {
   const WalkerBrain* w = walker_brain(id);
   if (!w) return {};
@@ -839,6 +908,7 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     w.driving = w.sit == Sit::sitting ? "sit" : "rise";
   } else if (w.rollers) {
     net = walker_policy("roller.onnx");
+    for (int i = 51; i < 61; ++i) obs[i] = 0;  // trained without head or body commands
     w.driving = "walk";
   } else if (w.alpha_gait && twist <= kStandingThreshold && walker_policy("alpha_stand.onnx")) {
     net = walker_policy("alpha_stand.onnx");
@@ -848,18 +918,23 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     net = walker_policy(w.alpha_gait ? "alpha_walking.onnx" : "velstand.onnx");
     w.driving = "walk";
   }
-  if (!net) {  // the set is still loading (the page fetches it): walk meanwhile
-    net = walker_policy("velstand.onnx");
-    scale = kActionScaleWalk;
-    w.driving = "walk";
+  if (!net) {
+    // Its network is not loaded (the page fetches the set, and fetches again after a failure): no
+    // other network stands in for it - the servos hold the home pose, and the duck says why once.
+    const std::string file = w.rollers ? "roller.onnx" : "alpha_walking.onnx";
+    if (w.driving != "waiting") say("Micro Duck: " + file + " is not loaded yet, it stands until it is");
+    std::fill(std::begin(w.action), std::end(w.action), 0.0f);
+    w.driving = "waiting";
+  } else {
+    net->run(obs, w.action);
   }
-  net->run(obs, w.action);
   for (i32 j = 0; j < kJoints; ++j) {
     const f32 a = std::isfinite(w.action[j]) ? w.action[j] : 0.0f;
     w.action[j] = a;  // raw: the observation feeds the policy its own output back
-    // The servo's goal stays inside the joint's range (the MJCF range; Box3D holds the same as a
-    // hard limit).
-    f32 t = clamp(kDuckLinks[j + 1].home + scale * a, kDuckLinks[j + 1].lower, kDuckLinks[j + 1].upper);
+    // The servo's goal stays inside the XL330's travel (robotd safety.rs: one turn, centred), not the
+    // joint's range: training leaves the target free (MJCF ctrlrange +-10), a goal past the range
+    // presses the joint into its stop - Box3D's hard limit, the MJCF range, as in MuJoCo.
+    f32 t = clamp(kDuckLinks[j + 1].home + scale * a, -kActuatorTravel, kActuatorTravel);
     if (w.has_previous) {
       const f32 alpha = j >= 5 && j < 9 ? kHeadLowpass : kLegsLowpass;
       t = alpha * t + (1 - alpha) * w.previous_target[j];
@@ -872,6 +947,7 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     const PhaseDef& d = w.rollers ? set.crouch : set.pick;
     const f32 before = w.pick_phase;
     w.pick_phase += kControlPeriod / d.period;
+    if (!w.rollers && before < kPickOpen && w.pick_phase >= kPickOpen) w.mouth_open = 1;  // open at the bottom
     if (!w.rollers && before < kPickClose && w.pick_phase >= kPickClose) w.mouth_open = 0;  // bite
     if (w.pick_phase >= d.end_phase) w.pick_phase = -1;
   }

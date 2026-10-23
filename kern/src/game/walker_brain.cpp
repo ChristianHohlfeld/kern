@@ -36,8 +36,18 @@ constexpr f32 kAheadCone = 0.6f;           // rad: what counts as ahead
 constexpr f32 kTofFresh = 0.4f;            // s: older ToF frames are not trusted (robotctl's TOF_STALE)
 constexpr f32 kCell = 0.5f;                // m: exploration memory cells
 constexpr f32 kForget = 0.02f;             // visits decay per second (old places become new again)
+// Fetching socks (Kern): where the beak takes a sock from - the policy lowers it to the same spot
+// every time - and how close to it the duck has to stand; tests/test_main.cpp micro_duck_picks_up_a_sock
+// measures the spot.
+constexpr f32 kBiteAhead = 0.0588f, kBiteLeft = 0.0075f;  // m ahead of / left of the trunk
+constexpr f32 kBiteTolerance = 0.004f;     // m: closer than this, it bends down
+constexpr f32 kSockForget = 6.0f;          // s: a sock not seen this long is given up
+constexpr f32 kSockCooldown = 40.0f;       // s: a sock dropped or missed four times is left alone
+// Fetching on its own is still being tuned (the approach does not yet stop where the beak bites):
+// off until tests/test_main.cpp micro_duck_fetches_a_sock_on_its_own passes. The pick itself works.
+constexpr bool kFetchSocks = false;
 
-enum class S : u8 { chill, look_around, wander, turn, back_off, zoomies, get_up };
+enum class S : u8 { chill, look_around, wander, turn, back_off, zoomies, get_up, fetch, pick, carry };
 const char* state_name(S s) {
   switch (s) {
     case S::chill: return "Chill";
@@ -47,6 +57,9 @@ const char* state_name(S s) {
     case S::back_off: return "BackOff";
     case S::zoomies: return "Zoomies";
     case S::get_up: return "GetUp";
+    case S::fetch: return "Fetch";
+    case S::pick: return "Pick";
+    case S::carry: return "Carry";
   }
   return "";
 }
@@ -65,6 +78,14 @@ struct GameWorld::WalkerBrain::Brain {
   // Exploration memory: visits per cell (world cells of kCell real metres) and cells seen blocked.
   std::unordered_map<i64, f32> visits;
   std::unordered_map<i64, f32> blocked;
+  // Socks: the one it is after, where it saw it last (world, the trunk's odometry), and the ones it
+  // leaves alone for a while (sock root actor -> seconds).
+  ActorId sock = 0;
+  Vec3 sock_at{};
+  f32 sock_seen = 99, settle = 0, carry_for = 0;
+  i32 tries = 0;
+  bool picked = false;
+  std::unordered_map<ActorId, f32> sock_rest;
   f32 rand01() {
     rng ^= rng << 13;
     rng ^= rng >> 17;
@@ -127,6 +148,50 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt) {
     if (b.upright_for > 1.0f) b.enter(S::chill, b.range(2, 4));
   }
 
+  // ---- socks: what the head camera sees (a detector on the picture: the sock is in its view and
+  // nothing hides it), remembered in odometry -------------------------------------------------------
+  for (auto it = b.sock_rest.begin(); it != b.sock_rest.end();) it = (it->second -= dt) <= 0 ? b.sock_rest.erase(it) : std::next(it);
+  b.sock_seen += dt;
+  if (kFetchSocks && !w.rollers && w.mouth) {
+    f32 best = 1e9f;
+    for (const Actor& a : level_.actors) {
+      if (a.parent != 0 || std::find(a.tags.begin(), a.tags.end(), "sock") == a.tags.end() || b.sock_rest.count(a.id)) continue;
+      if (b.state == S::carry || b.state == S::pick) break;
+      // The sock's lumps: it, and its children.
+      Vec3 sum{};
+      int n = 0;
+      bool seen = false;
+      for (const Actor& c : level_.actors) {
+        if (c.id != a.id && c.parent != a.id) continue;
+        Mat4 m;
+        if (!actor_matrix(c.id, m)) continue;
+        sum = sum + m.translation();
+        ++n;
+        bool visible = false;
+        f32 bearing = 0, distance = 0;
+        if (!seen && walker_sees(w.actor, c.id, visible, bearing, distance)) seen = visible;
+      }
+      if (!n) continue;
+      const Vec3 at = sum * (1.0f / static_cast<f32>(n));
+      if (at.z > 0.03f * S_) continue;  // not lying on the floor (in a beak)
+      if (b.sock == a.id && !seen && b.sock_seen < kSockForget) continue;  // keeps the memory
+      if (!seen) continue;
+      const f32 d = std::hypot(at.x - tp.position.x, at.y - tp.position.y);
+      if (d < best) {
+        best = d;
+        if (b.sock != a.id) b.tries = 0;
+        b.sock = a.id;
+        b.sock_at = at;
+        b.sock_seen = 0;
+      }
+    }
+    if (b.sock && b.sock_seen >= kSockForget && b.state == S::fetch) { b.sock = 0; b.enter(S::look_around, 2); }
+    if (b.sock && !s.fallen && b.sock_seen < kSockForget && b.state != S::fetch && b.state != S::pick && b.state != S::carry && b.state != S::back_off && b.state != S::get_up) {
+      b.settle = 0;
+      b.enter(S::fetch, 60);
+    }
+  }
+
   // ---- choosing the next state ------------------------------------------------------------------
   auto pick_heading = [&]() {
     // The least visited reachable direction (8 candidates, 1 m out), a little randomness.
@@ -144,7 +209,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt) {
     }
     return best;
   };
-  if (b.state != S::get_up && b.time >= b.length) {
+  if (b.state != S::get_up && b.state != S::fetch && b.state != S::pick && b.state != S::carry && b.time >= b.length) {
     const f32 r = b.rand01();
     if (b.state == S::wander || b.state == S::zoomies || b.state == S::turn || b.state == S::back_off) {
       if (b.energy < 0.25f || r < 0.3f) b.enter(r < 0.15f ? S::look_around : S::chill, b.range(3, 7));
@@ -197,10 +262,75 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt) {
     case S::back_off:
       cmd[0] = -0.15f;
       cmd[2] = 0;  // straight back: backing and turning at once tips it
-      if (b.time > b.length) { b.enter(S::turn, 4); }
+      if (b.time > b.length) {
+        if (b.sock && b.sock_seen < kSockForget) b.enter(S::fetch, 60), b.settle = 0;
+        else b.enter(S::turn, 4);
+      }
       break;
     case S::get_up:
       break;
+    case S::fetch: {
+      // Walk up to the sock until it lies where the beak bites, then stand still, then bend down.
+      const Vec3 left{-fwd.y, fwd.x, 0};
+      const f32 dx = (b.sock_at.x - tp.position.x) / S_, dy = (b.sock_at.y - tp.position.y) / S_;
+      const f32 ahead = dx * fwd.x + dy * fwd.y - kBiteAhead, side = dx * left.x + dy * left.y - kBiteLeft;
+      const f32 dist = std::hypot(dx, dy), bearing = std::atan2(dy, dx) - heading;
+      head[1] = clamp(std::atan2(0.09f, max_of(dist, 0.05f)) - 0.1f, 0.0f, 0.6f);  // keep it in the picture
+      if (dist > 0.25f) {  // far: walk to it, facing it
+        const f32 err = wrap(bearing);
+        cmd[0] = std::fabs(err) > 0.6f ? 0.05f : clamp(dist * 1.2f, 0.12f, kWanderSpeed);
+        cmd[2] = clamp(err * 1.5f, -kTurnRate, kTurnRate);
+        b.settle = 0;
+      } else if (std::fabs(ahead) > kBiteTolerance || std::fabs(side) > kBiteTolerance * 1.5f) {
+        // Close: small steps (forward, sideways, a turn to keep it square) - the policy's dead band
+        // swallows tiny commands, so never less than it walks on.
+        auto step = [](f32 e, f32 gain, f32 lo, f32 hi) { const f32 v = clamp(e * gain, -hi, hi); return std::fabs(v) < lo ? (v < 0 ? -lo : lo) : v; };
+        if (std::fabs(ahead) > kBiteTolerance) cmd[0] = step(ahead, 2.0f, 0.06f, 0.12f);
+        if (std::fabs(side) > kBiteTolerance * 1.5f) cmd[1] = step(side, 2.0f, 0.06f, 0.1f);
+        cmd[2] = clamp(wrap(std::atan2(side + kBiteLeft, ahead + kBiteAhead)) * 0.8f, -0.3f, 0.3f);
+        if (std::fabs(cmd[2]) < 0.05f) cmd[2] = 0;
+        b.settle = 0;
+      } else {
+        b.settle += dt;  // there: let the steps die out, then look again
+        if (b.settle > 1.2f && s.speed / S_ < 0.01f) {
+          if (walker_skill(w.actor, "pick").empty()) { b.enter(S::pick, 8); b.picked = false; b.tries++; }
+          else b.settle = 0;
+        }
+      }
+      if (b.time > 45) { b.sock_rest[b.sock] = kSockCooldown; b.sock = 0; b.enter(S::look_around, 3); }
+      break;
+    }
+    case S::pick:
+      // The pick runs on its own network (the controller); after it, the mouth encoder tells.
+      if (w.pick_phase >= 0) { b.picked = true; break; }
+      if (!b.picked && b.time < 0.5f) break;
+      if (walker_holding(w.actor)) {
+        b.carry_for = b.range(10, 20);
+        b.goal_heading = pick_heading();
+        b.enter(S::carry, b.carry_for);
+      } else if (b.tries >= 4) {
+        b.sock_rest[b.sock] = kSockCooldown;
+        b.sock = 0;
+        b.enter(S::back_off, 1.0f);
+      } else {
+        b.enter(S::back_off, 0.8f);  // a step back, and again
+      }
+      break;
+    case S::carry: {
+      // Proud: off it goes with the sock, then puts it down somewhere else.
+      const f32 err = wrap(b.goal_heading - heading);
+      cmd[0] = std::fabs(err) > 0.9f ? 0.06f : 0.2f;
+      if (ahead_close) cmd[0] = 0, b.goal_heading = heading + (s.free_left >= s.free_right ? 1.5f : -1.5f);
+      cmd[2] = clamp(err * 1.2f, -kTurnRate, kTurnRate);
+      if (!walker_holding(w.actor)) { b.sock_rest[b.sock] = kSockCooldown * 0.5f; b.sock = 0; b.enter(S::chill, 2); break; }
+      if (b.time > b.length) {  // put it down: the beak opens, the sock drops
+        w.beak_open = 0.6f;
+        b.sock_rest[b.sock] = kSockCooldown;
+        b.sock = 0;
+        b.enter(S::chill, b.range(2, 4));
+      }
+      break;
+    }
   }
   std::memcpy(w.auto_cmd, cmd, sizeof cmd);
   std::memcpy(w.auto_head, head, sizeof head);
