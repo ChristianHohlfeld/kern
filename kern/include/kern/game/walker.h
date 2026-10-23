@@ -20,6 +20,9 @@ constexpr f32 kWalkerScale = 4;
 /// are list index + 1; positions are relative to the parent.
 /// rollers: wearing the roller skates (rollers model: blades and four free wheels).
 std::vector<Actor> micro_duck_actors(bool rollers = false);
+/// A crumpled sock for the duck to pick up (seven lumps of fabric on soft springs, tagged "sock"),
+/// in the same convention.
+std::vector<Actor> micro_duck_sock_actors();
 
 /// The velstand policy (Pollen Robotics' trained network): 61 observations -> 14 joint actions.
 /// Exposed for tests; the runtime calls it from GameWorld::drive_walkers.

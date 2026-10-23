@@ -355,6 +355,9 @@ class GameWorld {
   std::string walker_skill(ActorId id, std::string_view skill);
   /// Opens (1) or closes (0) the beak.
   bool walker_mouth(ActorId id, f32 open);
+  /// Whether walker `id` holds something in its beak: told to shut, the mouth servo's encoder reads
+  /// it open by more than 5 degrees.
+  bool walker_holding(ActorId id) const;
   /// The network driving the robot now: "walk", "stand", "sit", "rise", "ground_pick", a skill.
   std::string walker_driving(ActorId id) const;
   /// The last call its voice made ("greet", "chirp", "wheee", ...), "" before the first.

@@ -112,6 +112,7 @@ constexpr f32 kCameraAspect = 9.0f / 16.0f;  // width / height, upright
 constexpr f32 kFallGravityZ = -0.5f, kFallDebounce = 0.2f;  // robotd's fall verdict (real seconds)
 // The mouth (duck-control model.rs): closed -5 deg (held shut against the pads), open 30 deg.
 constexpr f32 kMouthClosed = -5 * rt::kDegree, kMouthOpen = 30 * rt::kDegree;
+constexpr f32 kHoldingAngle = 5 * rt::kDegree;  // Kern: shut on nothing the beak rests at its pads (0 deg)
 f32 mouth_target(f32 open) { return kMouthClosed + clamp(std::isfinite(open) ? open : 0.0f, 0.0f, 1.0f) * (kMouthOpen - kMouthClosed); }
 
 const DuckSiteDef* site(const char* name) {
@@ -158,6 +159,49 @@ std::vector<Actor> scaled(std::vector<Actor> v) {
 }
 
 }  // namespace
+
+std::vector<Actor> micro_duck_sock_actors() {
+  // A crumpled sock, real size x kWalkerScale: seven 12.5 mm lumps of fabric in a loose heap 3.4 cm
+  // high (four on the floor, two on them, one on top), each lump tied to its neighbours by a soft
+  // spring (Box3D distance joints): it gives under the beak, and what the beak pinches pulls the rest
+  // along. 25 g in all (x S^3 in the world).
+  const f32 S = kWalkerScale, r = 0.00625f * S, d = 0.0065f * S, h = 0.0107f * S;
+  const Vec3 lumps[] = {{-d, -d, r}, {d, -d, r}, {-d, d, r}, {d, d, r}, {0, -d, r + h}, {0, d, r + h}, {0, 0, r + 2 * h}};
+  std::vector<Actor> out;
+  for (int k = 0; k < 7; ++k) {
+    Actor a;
+    a.name = k == 0 ? "Sock" : "Sock Lump";
+    a.tags.push_back("sock");
+    a.parent = k == 0 ? 0 : 1;
+    a.transform.position = k == 0 ? lumps[0] : lumps[k] - lumps[0];
+    a.mesh = MeshComponent{};
+    a.mesh->shape = Shape::sphere;
+    a.mesh->radius = r;
+    a.mesh->collision = false;
+    a.mesh->material.color = {0.93f, 0.36f, 0.45f};
+    a.mesh->material.roughness = 0.95f;
+    a.body = BodyComponent{};
+    a.body->mass = 0.025f * S * S * S / 7;
+    ColliderComponent c;
+    c.shape = ColliderShape::sphere;
+    c.radius = r;
+    c.friction = 1;  // cotton on TPU and wood
+    a.colliders.push_back(c);
+    for (int m = 0; m < k; ++m) {
+      if (length(lumps[k] - lumps[m]) > 0.025f * S) continue;
+      JointComponent j;
+      j.kind = JointKind::distance;
+      j.target = static_cast<ActorId>(m + 1);
+      j.collide_connected = true;  // the lumps touch, they do not pass through each other
+      j.enable_spring = true;
+      j.spring_hertz = 15;
+      j.spring_damping = 0.7f;
+      a.joints.push_back(j);
+    }
+    out.push_back(std::move(a));
+  }
+  return out;
+}
 
 std::vector<Actor> micro_duck_actors(bool rollers) {
   std::vector<Actor> out;  // parent / joint target = index + 1 (the catalog's convention)
@@ -367,7 +411,11 @@ constexpr f32 kStandingActionScale = 1.0f;
 constexpr f32 kHeadLowpass = 1.0f, kLegsLowpass = 1.0f;            // 1 = pass-through
 constexpr f32 kStandingThreshold = 0.05f;                          // DEFAULT_STANDING_THRESHOLD (twist)
 constexpr f32 kChainWindow = 0.15f;                                // CHAIN_WINDOW
-constexpr f32 kPickClose = 0.42f;                                  // Kern: the beak shuts here (phase)
+// Kern: robotd leaves the beak to the operator's trigger during a ground pick. The controller opens
+// it near the bottom (opened on the way down, the jaw lands on what it should take) and bites while
+// the beak is lowest (docs/walker.md section 12).
+constexpr f32 kPickOpen = 0.16f;
+constexpr f32 kPickClose = 0.24f;
 
 struct SkillDef {
   std::string name, file;
@@ -460,7 +508,7 @@ std::string GameWorld::walker_skill(ActorId id, std::string_view name) {
     if (!walker_policy(d.file)) return d.file + " is not loaded";
     if (const char* why = move_blocked(*w)) return why;
     w->pick_phase = 0;
-    if (!w->rollers) w->mouth_open = 1;  // the beak opens on the way down and shuts at the bottom
+    if (!w->rollers) w->mouth_open = 0;  // shut on the way down; opens at the bottom, then bites
     return "";
   }
   const i32 index = skill_index(name);  // Controller::start_skill
@@ -713,6 +761,14 @@ bool GameWorld::walker_sees(ActorId id, ActorId target, bool& visible, f32& bear
   return true;
 }
 
+bool GameWorld::walker_holding(ActorId id) const {
+  // The mouth servo's own encoder: told to shut, it stops short of its pads - something is in the beak.
+  const WalkerBrain* w = walker_brain(id);
+  if (!w || !w->mouth || w->rollers) return false;
+  const bool shutting = w->mouth->servo_target <= mouth_target(0) + 1e-4f;
+  return shutting && physics_.joint_angle(w->mouth->joint) > kHoldingAngle;
+}
+
 std::string GameWorld::walker_state(ActorId id) const {
   const WalkerBrain* w = walker_brain(id);
   if (!w) return {};
@@ -877,6 +933,7 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     const PhaseDef& d = w.rollers ? set.crouch : set.pick;
     const f32 before = w.pick_phase;
     w.pick_phase += kControlPeriod / d.period;
+    if (!w.rollers && before < kPickOpen && w.pick_phase >= kPickOpen) w.mouth_open = 1;  // open at the bottom
     if (!w.rollers && before < kPickClose && w.pick_phase >= kPickClose) w.mouth_open = 0;  // bite
     if (w.pick_phase >= d.end_phase) w.pick_phase = -1;
   }

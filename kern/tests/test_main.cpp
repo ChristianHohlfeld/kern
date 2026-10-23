@@ -3777,6 +3777,19 @@ game::ActorId add_duck(game::Level& l, Vec3 at, bool autonomous = false, bool ro
   l.world.substeps = 16;
   return base;
 }
+game::ActorId add_sock(game::Level& l, Vec3 at) {
+  std::vector<game::Actor> parts = game::micro_duck_sock_actors();
+  const game::ActorId base = l.next_id;
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    game::Actor a = parts[i];
+    a.id = base + static_cast<game::ActorId>(i);
+    if (i == 0) a.transform.position = a.transform.position + at;
+    if (a.parent) a.parent = base + a.parent - 1;
+    for (game::JointComponent& j : a.joints) if (j.target) j.target = base + j.target - 1;
+    l.add(std::move(a));
+  }
+  return base;
+}
 struct DuckRun {
   Vec3 start, end;
   f32 min_up = 1, heading0 = 0, heading1 = 0;
@@ -4180,6 +4193,85 @@ TEST(micro_duck_speaks_with_its_own_voice) {
   CHECK(!said("builtin:duck_chirp_"));
   for (int i = 0; i < 10; ++i) f.world->step(1.0f / 100, {});
   CHECK(said("builtin:duck_wheee-end_"));
+}
+
+
+TEST(micro_duck_picks_up_a_sock) {
+  // A crumpled sock (micro_duck_sock_actors: soft lumps of fabric) in front of the feet; the duck
+  // runs alpha_ground_pick with its beak opening at the bottom and biting (robotd: the operator's
+  // trigger, here the controller's phase window). Where the sock lies decides whether the beak gets
+  // it - the policy brings the beak to the same spot each time, the sock has to be there, 2.4 cm
+  // (real) ahead of the trunk. When it does, the sock comes up with the head and the mouth servo's
+  // encoder says so (walker_holding); when it does not, the encoder says that too.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  const f32 xs[] = {0.13f, 0.2f, 0.215f, 0.225f, 0.235f, 0.245f, 0.255f, 0.33f};
+  int lifted = 0, agree = 0;
+  for (f32 x : xs) {
+    GameFixture f;
+    game::Level l = game::basic_level();
+    for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+    const game::ActorId duck = add_duck(l, {0, 0, 0}, false);
+    const game::ActorId first = add_sock(l, {x, 0.03f, 0});
+    f.world->sync(l);
+    CHECK(f.world->start(l, game::SimMode::simulate));
+    for (int i = 0; i < 100; ++i) f.world->step(1.0f / 100, {});
+    CHECK(f.world->walker_skill(duck, "pick").empty());
+    for (int i = 0; i < 100 * 6; ++i) f.world->step(1.0f / 100, {});
+    // Up again, the beak shut: where is the sock, what does the encoder say?
+    f32 low = 1e9f;
+    for (game::ActorId k = first; k < first + 7; ++k) {
+      Mat4 m;
+      f.world->actor_matrix(k, m);
+      low = min_of(low, m.translation().z);
+    }
+    const bool up = low > 0.15f, holding = f.world->walker_holding(duck);
+    if (print) std::printf("sock at x %.3f: lowest lump at z %.3f, holding %d\n", x, low, holding);
+    lifted += up;
+    agree += up == holding;
+    CHECK(f.world->walker_driving(duck) != "fallen");
+  }
+  CHECK(lifted >= 2);                          // it does pick socks up
+  CHECK(lifted < static_cast<int>(sizeof xs / sizeof xs[0]));  // not wherever they lie
+  CHECK(agree == static_cast<int>(sizeof xs / sizeof xs[0]));  // and knows when it has one
+}
+
+TEST(micro_duck_fetches_a_sock_on_its_own) {
+  if (!std::getenv("KERN_DUCK_FETCH")) return;  // the behaviour is switched off (walker_brain.cpp kFetchSocks)
+  // Autonomous: a sock 30 cm (real) away in front. The duck sees it with its head camera, walks up to
+  // it until it lies where the beak bites, picks it up (again when the encoder says it missed),
+  // carries it off and puts it down.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+  const game::ActorId first = add_sock(l, {1.2f, 0.25f, 0});
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  bool carried = false, fetched = false;
+  std::string last;
+  for (int i = 0; i < 100 * 120 && !carried; ++i) {
+    f.world->step(1.0f / 100, {});
+    const std::string st = f.world->walker_state(duck);
+    fetched = fetched || st == "Fetch";
+    f32 low = 1e9f;
+    for (game::ActorId k = first; k < first + 7; ++k) {
+      Mat4 m;
+      f.world->actor_matrix(k, m);
+      low = min_of(low, m.translation().z);
+    }
+    carried = st == "Carry" && low > 0.15f && f.world->walker_holding(duck);
+    if (print && (st != last || i % 500 == 0)) {
+      Mat4 t;
+      f.world->actor_matrix(duck, t);
+      std::printf("  %6.2f s %-10s trunk %.3f %.3f sock low z %.3f\n", i / 100.0, st.c_str(), t.translation().x, t.translation().y, low);
+    }
+    last = st;
+  }
+  CHECK(fetched);
+  CHECK(carried);
 }
 
 TEST(micro_duck_roams_on_its_own_with_its_tof) {
