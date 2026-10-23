@@ -52,6 +52,14 @@ Lange Menüs scrollen, und auf Touch sind die Zeilen 40 px hoch.
 - Outliner, Details und World Settings öffnen sich über den Panels-Knopf rechts in der Toolbar als
   ein Blatt mit großen Tabs. Im Querformat erscheint es neben dem Viewport, im Hochformat von unten.
 - Der Content Drawer belegt höchstens die halbe Höhe.
+- **Play und Simulate sind immer mit einem Tipp erreichbar**, nie nur im Menü: Sie liegen zusammen mit
+  dem Panels-Knopf in einem Dock am rechten Rand der Toolbar. Der Rest der Toolbar scrollt darunter
+  durch, das Dock bleibt stehen – auch bei offenem Outliner/Details/World-Blatt, Content Drawer oder
+  Logic-Editor. Während Simulate/Play stehen dort Pause, Stop und Eject (bzw. Play zum Übernehmen des
+  Spielers); Knöpfe, die im aktuellen Zustand nichts tun, sind ausgeblendet, die übrigen haben
+  Touch-Größe (mind. 38 px).
+- Play auf Touch-Geräten füllt den ganzen Bildschirm; oben links stehen **EXIT** (Stop) und
+  **PAUSE**/**RESUME**.
 
 ## Steuerung
 
@@ -165,6 +173,29 @@ Befehle (`{"cmd": …}`):
 - Panels: `filter`, `collapse {key}`, `section {id, closed}`, `menu {name}`, `dialog {name}`, `submitDialog {name, values}`, `catalog`, `clearLog`, `ui {action}`
 - Dokumente: `new {template}`, `open {text, name}`, `restore {text, name}`, `save`, `saved`, `packageText`, `validate`, `console {text}`
 
+## Einstellungen
+
+Studio merkt sich die Einstellungen des Nutzers im Browser (`localStorage`, `kern-studio.settings.v1`,
+Format `{version: 1, values: {…}}`):
+
+- **Was dazugehört:** Preferences (Kamerageschwindigkeit, Mausempfindlichkeit, Invert Y, Orbit um die
+  Auswahl), Viewport-Layout, Grid-/Rotations-/Skalierungsraster, Welt-/lokale Achsen, Ton an/aus und pro
+  Viewport Ansichtstyp, View Mode, Sichtfeld und alle Show-Flags. Die Seite speichert außerdem
+  Panel-Größen und den Content Drawer (`kern-studio.layout.v1`).
+- **Nur eigene Entscheidungen:** Die Engine (`kern/src/studio/settings.cpp`) liefert mit
+  `take_settings()` nur die Einstellungen, die der Nutzer selbst geändert hat (per Menü, Toolbar,
+  Tastenkürzel, Dialog) oder die aus dem Speicher geladen wurden. Was nie angefasst wurde, wird nicht
+  gespeichert und folgt den Standardwerten des jeweiligen Builds. Ändert sich ein Standardwert (z. B.
+  Show › Constraints ist jetzt **aus**), gilt er für alle, die diese Einstellung nie geändert haben.
+- **Wann gespeichert wird:** alle 0,5 s, wenn sich etwas geändert hat, und bei `pagehide` bzw. beim
+  Wechsel in den Hintergrund. Unbekannte Schlüssel und ungültige Werte im Speicher werden beim Laden
+  übergangen. Dass Multiplayer-Play von selbst auf vier Viewports schaltet, gilt nicht als Wahl.
+- **Auf Standard zurücksetzen:** Edit › **Reset Settings to Defaults…** fragt im Studio-eigenen Dialog
+  nach (kein Browser-Dialog) und setzt alle Einstellungen, Panel-Größen und den Content Drawer zurück;
+  der gespeicherte Stand wird gelöscht. Levels bleiben unberührt.
+- Befehle: `settings` (aktuelle Werte und Standardwerte), `applySettings {values}`, `takeSettings`,
+  `resetSettings`.
+
 ## Wiederherstellen („Restore from last session“)
 
 Beim Start bietet Studio **Restore "…" from your last session? · Restore / Dismiss** nur an, wenn die
@@ -196,8 +227,8 @@ ungespeicherte Änderungen zeigt nichts an.
 
 ## Tests
 
-- `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave (nur bei ungespeicherten Änderungen, Löschen nach Speichern und Undo, `restore`), Packaging, Player-Modus
-- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Level öffnen auf Android über den Dateidialog, Farbwähler bleibt beim Ziehen offen, Modul-Version und schmales Fenster
+- `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave (nur bei ungespeicherten Änderungen, Löschen nach Speichern und Undo, `restore`), Einstellungen (Standardwerte, nur eigene Entscheidungen, Laden, Zurücksetzen), Packaging, Player-Modus
+- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Einstellungen (Constraints standardmäßig aus, Speichern und Neuladen, Reset im Studio-Dialog), Handy hoch und quer (Play/Simulate/Pause/Stop in jedem Zustand mit einem Tipp erreichbar), Level öffnen auf Android über den Dateidialog, Farbwähler bleibt beim Ziehen offen, Modul-Version und schmales Fenster
 
 ## Logic: Blueprints, die C++ sind
 

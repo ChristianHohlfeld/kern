@@ -11,7 +11,12 @@ namespace kern::studio {
 
 constexpr f32 kDegToRad = kPi / 180.0f;
 
+struct Viewport;
+
 namespace internal {
+
+/// Viewport `index` with its default type, view mode, field of view and show flags (settings.cpp).
+void default_view_settings(Viewport& v, u32 index);
 
 inline Mat4 inverse(const Mat4& m) {
   f64 inv[16];

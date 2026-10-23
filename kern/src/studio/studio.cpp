@@ -36,15 +36,7 @@ Studio::Studio() {
   mixer_ = std::make_unique<audio::Mixer>();
   bank_ = std::make_unique<game::SoundBank>(*mixer_);
   game_audio_ = std::make_unique<game::GameAudio>(*mixer_, *bank_);
-  for (u32 i = 0; i < 4; ++i) views_[i].index = i;
-  // Quad layout defaults like Unreal: perspective, top, front, side.
-  views_[1].type = ViewType::top;
-  views_[2].type = ViewType::front;
-  views_[3].type = ViewType::right;
-  for (u32 i = 1; i < 4; ++i) {
-    views_[i].mode = ViewMode::wireframe;
-    views_[i].flags.fog = false;
-  }
+  for (u32 i = 0; i < 4; ++i) internal::default_view_settings(views_[i], i);
 }
 
 Studio::~Studio() {

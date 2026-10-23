@@ -38,7 +38,8 @@ const char* view_type_name(ViewType t);
 const char* view_mode_name(ViewMode m);
 
 struct ShowFlags {
-  bool grid = true, icons = true, colliders = false, joints = true, contacts = false;
+  // Constraints (joints) are off by default: on, every chain, door and rope draws its debug lines.
+  bool grid = true, icons = true, colliders = false, joints = false, contacts = false;
   bool bounds = false, stats = false, fog = true, sky = true, selection = true;
   bool robot_camera = true;  // while playing: a walker's head camera picture-in-picture and its ToF
 };
@@ -202,6 +203,23 @@ class Studio {
   /// True once when the host's stored autosave belongs to this document and no longer
   /// holds unsaved work (saved, or undone back to the saved state). The host deletes it.
   bool take_autosave_discard();
+
+  // ---- user settings (docs/studio.md, "Einstellungen") ----
+  // Preferences, snapping, coordinate space, sound on/off and per viewport its type, view mode,
+  // field of view and show flags. The host keeps only the user's own choices: a setting the
+  // user never changed follows the defaults of the running build, also when they change.
+  /// Every user setting with its current value, flat: {"cameraSpeed": 4, "viewport0.show.joints": false, ...}.
+  json::Value settings_json() const;
+  /// Every user setting with its default value.
+  static json::Value default_settings_json();
+  /// Applies stored choices (unknown keys and invalid values are skipped); they count as the
+  /// user's own choices. Returns how many were applied.
+  u32 apply_settings(const json::Value& values);
+  /// Every setting back to its default; none counts as the user's choice any more.
+  void reset_settings();
+  /// The user's own choices {key: value} once after they changed (settings changed by the user
+  /// since the start or loaded with apply_settings), else null. The host stores this object.
+  json::Value take_settings();
   /// Unsaved changes: the current history state differs from the saved one.
   bool dirty() const { return history_.empty() || history_[history_index_].serial != saved_serial_; }
   const std::vector<LogLine>& log() const { return log_; }
@@ -445,6 +463,10 @@ class Studio {
   Space space_ = Space::world;
   Snap snap_;
   Preferences prefs_;
+  json::Value settings_seen_;             // settings_json() at the last take_settings
+  std::vector<std::string> settings_chosen_;  // keys the user set (sorted)
+  bool settings_due_ = false;             // take_settings has news for the host
+  void note_settings();                   // compares with settings_seen_, records the user's changes
   GizmoDrag gizmo_;
   u32 gizmo_hover_ = 0;
   PlayState play_ = PlayState::editing;
