@@ -391,8 +391,8 @@ void add_walker_nodes(logic::Library& lib) {
                  [](Context& c, GameWorld& w) { w.walker_set_autonomous(target(c), c.in_bool("enable")); },
                  "On: the robot roams on its own (camera, ToF, exploration memory) whenever nobody drives it. Off: it stands until driven.",
                  "brain behaviour wander ai duck robot"));
-  lib.add(action("walker.quack", "Quack", "Robots", {data("target", "Robot", PinType::actor, 0)}, {},
-                 [](Context& c, GameWorld& w) { w.walker_quack(target(c)); }, "The duck quacks and nods.", "sound duck robot"));
+  lib.add(action("walker.quack", "Chirp", "Robots", {data("target", "Robot", PinType::actor, 0)}, {},
+                 [](Context& c, GameWorld& w) { w.walker_quack(target(c)); }, "The duck chirps (its own voice, the robot's synth) and opens its beak.", "sound duck robot"));
   lib.add(getter("walker.tof", "Robot ToF", "Robots", {data("target", "Robot", PinType::actor, 0)},
                  {data("blocked", "Obstacle Seen", PinType::boolean), data("distance", "Nearest (m)", PinType::number), data("bearing", "Bearing (°, + left)", PinType::number),
                   data("left", "Free Left (0-1)", PinType::number), data("right", "Free Right (0-1)", PinType::number)},

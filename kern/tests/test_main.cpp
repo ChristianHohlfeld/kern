@@ -10,6 +10,7 @@
 #include "kern/physics/physics.h"
 #include "kern/core/json.h"
 #include "kern/game/demos.h"
+#include "kern/audio/synth.h"
 #include "kern/game/walker_policy.h"
 #include "kern/game/runtime.h"
 #include "kern/game/walker.h"
@@ -4030,6 +4031,69 @@ TEST(micro_duck_joints_stay_in_their_ranges) {
     CHECK(worst < 0.02f);
     CHECK(turn < 6.0f);  // no joint ever goes round
   }
+}
+
+TEST(micro_duck_speaks_with_its_own_voice) {
+  // robotd's voice: greet when it comes alive; a fresh chirp press calls and opens the beak; the
+  // wheee ride holds the speaker (a chirp during it is dropped); nothing while it walks.
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, false);
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::play));
+  auto said = [&](const char* prefix) {
+    for (const game::SoundCue& c : f.world->sound_cues())
+      if (c.sound.rfind(prefix, 0) == 0 && c.actor == duck && c.voice) return true;
+    return false;
+  };
+  for (int i = 0; i < 10; ++i) f.world->step(1.0f / 100, {});
+  CHECK(f.world->walker_said(duck) == "greet");
+  CHECK(said("builtin:duck_greet_"));
+  f.world->sound_cues().clear();
+  // The cue renders: the duck's synth through the speaker's high-pass, peak inside full scale.
+  {
+    std::vector<f32> pcm;
+    u32 ch = 0;
+    for (const char* tag : {"greet", "chirp", "peck", "inquire", "coo", "alarm"}) {
+      CHECK(audio::render_builtin(std::string("duck_") + tag + "_12345_1", 48000, pcm, ch));
+      f32 peak = 0;
+      for (f32 v : pcm) peak = max_of(peak, std::fabs(v));
+      CHECK(!pcm.empty() && peak > 0.05f && peak <= 1.0f);
+    }
+    CHECK(audio::find_builtin("duck_wheee-loop_12345_0") && audio::find_builtin("duck_wheee-loop_12345_0")->loop);
+    CHECK(!audio::find_builtin("duck_quack_1_1"));
+  }
+  // Walking: no sound.
+  game::PlayInput walk;
+  walk.move_y = 1;
+  for (int i = 0; i < 200; ++i) f.world->step(1.0f / 100, walk);
+  CHECK(!said("builtin:duck_"));
+  // A chirp: called once per press, the beak opens.
+  game::PlayInput chirp;
+  chirp.robot = 64;
+  f32 mouth = -1;
+  for (int i = 0; i < 40; ++i) {
+    f.world->step(1.0f / 100, chirp);
+    for (const auto& j : f.world->walker_joints(duck)) if (j.name == "mouth") mouth = max_of(mouth, j.angle);
+  }
+  CHECK(said("builtin:duck_chirp_"));
+  CHECK(mouth > 0.2f);  // radians: the beak opened
+  f.world->sound_cues().clear();
+  for (int i = 0; i < 40; ++i) f.world->step(1.0f / 100, chirp);  // held: no second call
+  CHECK(!said("builtin:duck_chirp_"));
+  // The wheee ride: start, loop while held; a chirp meanwhile is dropped; the end on release.
+  game::PlayInput wheee;
+  wheee.robot = 128;
+  for (int i = 0; i < 300; ++i) f.world->step(1.0f / 100, wheee);
+  CHECK(said("builtin:duck_wheee-start_") && said("builtin:duck_wheee-loop_"));
+  f.world->sound_cues().clear();
+  game::PlayInput both;
+  both.robot = 128 | 64;
+  for (int i = 0; i < 10; ++i) f.world->step(1.0f / 100, both);
+  CHECK(!said("builtin:duck_chirp_"));
+  for (int i = 0; i < 10; ++i) f.world->step(1.0f / 100, {});
+  CHECK(said("builtin:duck_wheee-end_"));
 }
 
 TEST(micro_duck_roams_on_its_own_with_its_tof) {

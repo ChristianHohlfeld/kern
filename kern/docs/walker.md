@@ -365,3 +365,33 @@ Die Ablaufsteuerung folgt `robotd/src/control.rs`:
 | Kick rechts | kippt manchmal und steht wieder auf |
 | Rolle | dreht sich ganz und steht wieder |
 | Ducken auf Rollen | ok |
+
+## 13. Stimme
+
+Die Stimme der Ente ist der Synthesizer des Roboters (`src/audio/duck_voice.cpp`). Er ist eine
+Portierung von `sounds/` aus pollen-robotics/microduck (Apache-2.0), das selbst
+apirrone/microduck_sounds portiert. Es gibt keine Samples und kein Netz.
+
+- **Eigene Stimme pro Ente:** Seed = die ersten 4 Bytes von sha256(Kennung). Der Roboter nimmt dafür
+  seine Seriennummer, Kern den Namen und die Actor-Id. Aus dem Seed folgt die Persönlichkeit:
+  Tonlage, Obertöne, Nasalität, Vibrato, Atem, Quakigkeit und Tempo.
+- **Laute:** greet, chirp (je 12 Varianten), wheee (6, in Start, Schleife und Ende), alarm, inquire,
+  peck und coo (je 10). Gespielt wird eine zufällige Variante.
+  - Zu hören ist sie durch den Lautsprecher des Roboters, also mit einem Hochpass bei 300 Hz
+    (`SPEAKER_ROLLOFF_HZ`).
+  - Ein neuer Laut schneidet den laufenden ab. Während wheee werden andere Laute verworfen.
+- **Wann sie ruft** (`robotd/src/sound.rs`, Pad-Belegung des Roboters):
+
+| Anlass | Laut |
+|---|---|
+| Sie wird lebendig (Play, Simulate) und das Gamepad kommt zurück | greet |
+| Das Gamepad ist weg | inquire |
+| Neuer Druck auf RT, Leertaste, QUACK oder den Knoten **Chirp** | chirp, der Schnabel öffnet sich |
+| LT, V oder WHEEE gehalten | wheee: Start, Schleife solange gehalten, Ende |
+| Sie setzt sich | peck |
+
+- **Wann nicht:** Im Leerlauf, beim Gehen, beim Umschauen und beim Anblick des Balls ruft sie
+  nicht. Im Beispiel-Level ruft sie beim Ball nur, weil das der Level-Blueprint ausdrücklich so
+  vorführt.
+- **Servos:** Der Roboter und sein Training modellieren keine Servogeräusche, es gibt also keine
+  Referenz. Kern spielt deshalb nur leise den eingebauten Servo-Loop des Controllers.

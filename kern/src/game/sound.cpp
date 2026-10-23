@@ -299,6 +299,13 @@ void GameAudio::end(f32 fade) {
 }
 
 void GameAudio::play_cue(const SoundCue& cue) {
+  if (cue.voice || cue.silence) {  // a new call cuts the one it was making
+    if (auto it = voices_.find(cue.actor); it != voices_.end()) {
+      mixer_.stop(it->second, 0.01f);
+      voices_.erase(it);
+    }
+    if (cue.silence) return;
+  }
   const audio::ClipId c = bank_.clip(cue.sound);
   audio::PlayParams p;
   p.volume = cue.volume;
@@ -309,8 +316,12 @@ void GameAudio::play_cue(const SoundCue& cue) {
   p.min_distance = 3;
   p.max_distance = 80;
   p.priority = cue.bus == audio::Bus::ui ? 50 : 10;
-  if (mixer_.play(c, p)) ++cues_played_;
-  else ++cues_dropped_;
+  if (const audio::VoiceId v = mixer_.play(c, p)) {
+    ++cues_played_;
+    if (cue.voice) voices_[cue.actor] = v;
+  } else {
+    ++cues_dropped_;
+  }
 }
 
 void GameAudio::update(GameWorld& world, const Camera& cam, f32 dt) {
@@ -431,7 +442,10 @@ void GameAudio::update(GameWorld& world, const Camera& cam, f32 dt) {
   }
 
   // Cues of the simulation; a cue whose clip is still rendering waits up to 0.25 s.
-  for (SoundCue& c : world.sound_cues()) waiting_.push_back({std::move(c), 0});
+  for (SoundCue& c : world.sound_cues()) {
+    if (c.silence) { play_cue(c); continue; }
+    waiting_.push_back({std::move(c), 0});
+  }
   world.sound_cues().clear();
   for (std::size_t i = 0; i < waiting_.size();) {
     Waiting& w = waiting_[i];

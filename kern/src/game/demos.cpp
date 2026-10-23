@@ -256,7 +256,8 @@ Level micro_duck_level() {
   }
   l.world.player = base;
 
-  // Level blueprint: quack once whenever the ball comes into the head camera's picture.
+  // Level blueprint (a demo of the Robots nodes, not the robot's own behaviour): chirp once whenever
+  // the ball comes into the head camera's picture.
   char text[2048];
   std::snprintf(text, sizeof text, R"({"variables":[{"name":"Ball Seen","type":"bool","value":false}],
     "nodes":[{"id":1,"type":"event.every","x":0,"y":0,"params":{"seconds":"0.25"}},{"id":2,"type":"flow.branch","x":608,"y":0},
@@ -264,7 +265,7 @@ Level micro_duck_level() {
       {"id":5,"type":"logic.not","x":288,"y":384},{"id":6,"type":"logic.and","x":416,"y":224},
       {"id":7,"type":"walker.quack","x":896,"y":-64},{"id":8,"type":"var.set","x":1152,"y":-64,"params":{"variable":"Ball Seen"}},
       {"id":9,"type":"var.set","x":896,"y":160,"params":{"variable":"Ball Seen"}}],
-    "comments":[{"id":20,"x":-64,"y":-112,"w":1472,"h":592,"text":"Quack when the ball comes into the head camera's picture"}],
+    "comments":[{"id":20,"x":-64,"y":-112,"w":1472,"h":592,"text":"Demo, not something the robot does by itself: chirp when the ball comes into the head camera's picture"}],
     "links":[[1,"then",2,"exec"],[3,"visible",6,"a"],[4,"value",5,"a"],[5,"result",6,"b"],[6,"result",2,"condition"],
       [2,"true",7,"exec"],[7,"then",8,"exec"],[3,"visible",8,"value"],[2,"false",9,"exec"],[3,"visible",9,"value"]]})",
                 static_cast<unsigned>(ball_id));

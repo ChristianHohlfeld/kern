@@ -1,4 +1,5 @@
 #include "kern/audio/synth.h"
+#include "kern/audio/duck_voice.h"
 
 #include <algorithm>
 #include <cmath>
@@ -418,10 +419,45 @@ const std::vector<BuiltinSound>& builtin_sounds() {
   return list;
 }
 
+namespace {
+
+// The Micro Duck's voice bank, rendered on demand: "duck_<tag>_<seed>_<variant>", the wheee ride as
+// "duck_wheee-start|loop|end_<seed>_<variant>" (kern/audio/duck_voice.h).
+struct DuckRef { std::string tag, segment; u32 seed = 0, variant = 0; };
+bool parse_duck(std::string_view name, DuckRef& out) {
+  if (name.rfind("duck_", 0) != 0) return false;
+  name.remove_prefix(5);
+  const std::size_t a = name.find('_'), b = name.rfind('_');
+  if (a == std::string_view::npos || b == a) return false;
+  std::string tag(name.substr(0, a));
+  if (const std::size_t dash = tag.find('-'); dash != std::string::npos) { out.segment = tag.substr(dash + 1); tag.resize(dash); }
+  auto number = [](std::string_view s, u32& v) {
+    if (s.empty() || s.size() > 10) return false;
+    u64 x = 0;
+    for (char c : s) { if (c < '0' || c > '9') return false; x = x * 10 + static_cast<u64>(c - '0'); }
+    if (x > 0xffffffffull) return false;
+    v = static_cast<u32>(x);
+    return true;
+  };
+  if (!number(name.substr(a + 1, b - a - 1), out.seed) || !number(name.substr(b + 1), out.variant)) return false;
+  out.tag = tag;
+  static constexpr const char* kTags[] = {"alarm", "greet", "inquire", "peck", "chirp", "coo", "wheee"};
+  if (std::find(std::begin(kTags), std::end(kTags), tag) == std::end(kTags)) return false;
+  if (!out.segment.empty() && (tag != "wheee" || (out.segment != "start" && out.segment != "loop" && out.segment != "end"))) return false;
+  return true;
+}
+
+}  // namespace
+
 const BuiltinSound* find_builtin(std::string_view name) {
   if (name.rfind("builtin:", 0) == 0) name.remove_prefix(8);
   for (const BuiltinSound& b : builtin_sounds())
     if (name == b.name) return &b;
+  DuckRef d;
+  if (parse_duck(name, d)) {
+    static const BuiltinSound once{"duck", "Micro Duck voice", "Robot", false}, loop{"duck", "Micro Duck voice", "Robot", true};
+    return d.segment == "loop" ? &loop : &once;
+  }
   return nullptr;
 }
 
@@ -552,6 +588,27 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
   if (name.rfind("builtin:", 0) == 0) name.remove_prefix(8);
   channels = 1;
   out.clear();
+  if (DuckRef d; parse_duck(name, d)) {
+    if (d.segment.empty()) {
+      if (!render_duck_voice(d.tag, d.seed, d.variant, rate, out)) return false;
+    } else {
+      std::vector<f32> start, loop, end;
+      render_duck_wheee(d.seed, d.variant, rate, start, loop, end);
+      out = d.segment == "start" ? start : d.segment == "loop" ? loop : end;
+    }
+    // The robot's speaker rolls off below about 300 Hz (robotd SPEAKER_ROLLOFF_HZ): heard through
+    // it, the voice has no lows - a second-order high-pass there, as the cone does.
+    const f64 w = 2 * 3.14159265358979 * 300.0 / rate, q = 0.7071;
+    const f64 alpha = std::sin(w) / (2 * q), cw = std::cos(w), a0 = 1 + alpha;
+    const f64 b0 = (1 + cw) / 2 / a0, b1 = -(1 + cw) / a0, b2 = (1 + cw) / 2 / a0, a1 = -2 * cw / a0, a2 = (1 - alpha) / a0;
+    f64 x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (f32& v : out) {
+      const f64 x = v, y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+      x2 = x1; x1 = x; y2 = y1; y1 = y;
+      v = static_cast<f32>(y);
+    }
+    return !out.empty();
+  }
   if (name == "pickup") {
     SynthPatch a = patch(Wave::pulse, 988, 0.002f, 0.05f, 0.28f, 0.42f);
     a.duty = 0.35f;

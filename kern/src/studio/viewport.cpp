@@ -164,6 +164,7 @@ game::PlayInput Studio::play_input() const {
     const char code[] = {'D', 'i', 'g', 'i', 't', static_cast<char>('1' + k), 0};
     if (held(code)) in.robot |= 1u << k;
   }
+  if (held("KeyV")) in.robot |= 128;  // the wheee ride (Space: the chirp, via jump)
   // Engine touch controls (sticks, look drag, buttons; see game/touch.h).
   const game::PlayInput& t = touch_ctl_in_;
   in.move_x = clamp(in.move_x + t.move_x, -1.0f, 1.0f);
@@ -205,11 +206,12 @@ game::PlayInput Studio::play_input() const {
     in.reload = in.reload || pad_.reload;
     in.interact = in.interact || pad_.interact;
     in.boost = in.boost || pad_.boost;
-    // Robot moves on a pad: crouch (B) sits / stands, use (X) picks, the triggers kick, reload (Y) rolls.
+    // Robot on a pad, as the duck's own pad mapping: RT chirps, LT rides the wheee (the beak opens
+    // with them); crouch (B) sits / stands, use (X) picks, reload (Y) rolls.
+    if (pad_.fire) in.robot |= 64;
+    if (pad_.aim) in.robot |= 128;
     if (pad_.crouch) in.robot |= 1;
     if (pad_.interact) in.robot |= 2;
-    if (pad_.aim) in.robot |= 4;
-    if (pad_.fire) in.robot |= 8;
     if (pad_.reload) in.robot |= 16;
     in.up = clamp(in.up + pad_.up, -1.0f, 1.0f);
   }

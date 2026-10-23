@@ -61,6 +61,14 @@ Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Changes: translated t
 Kern's control step instead of the wall clock, seeded from the actor id, the beak and the breath
 computed but not applied.
 
+## Micro Duck voice (port in `kern/src/audio/duck_voice.cpp`)
+
+The duck's voice synthesiser is a C++ port of the `sounds` crate (lib.rs, personality.rs, rng.rs,
+synth.rs, voices.rs) of Pollen Robotics' microduck (https://github.com/pollen-robotics/microduck,
+commit 942e58e), itself a port of apirrone/microduck_sounds, licensed under the Apache License,
+Version 2.0. When the duck speaks is ported from robotd/src/sound.rs and main.rs of the same
+repository. Changes: translated to C++, played through Kern's mixer.
+
 ## Micro Duck meshes (`kern/third_party/microduck/micro_duck_meshes.inc`)
 
 The Micro Duck's 3D model (STL meshes from https://github.com/pollen-robotics/microduck_rl,

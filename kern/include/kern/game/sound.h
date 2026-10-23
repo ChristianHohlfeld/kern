@@ -129,6 +129,7 @@ class GameAudio {
   u32 session_ = 0;
   std::vector<Source> sources_;
   std::vector<Waiting> waiting_;
+  std::unordered_map<ActorId, audio::VoiceId> voices_;  // each actor's voice (SoundCue::voice)
   std::string music_ref_, ambience_ref_, engine_ref_;
   audio::VoiceId music_ = 0, ambience_ = 0, engine_ = 0;
   f32 engine_volume_ = 0;

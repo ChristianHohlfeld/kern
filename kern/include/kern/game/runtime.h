@@ -77,7 +77,7 @@ std::vector<BodyPlan> plan_bodies(const Level& level);
 struct PlayInput {
   f32 move_x = 0, move_y = 0, up = 0;  // -1..1 (right, forward, up)
   bool jump = false, boost = false;
-  u32 robot = 0;                       // robot moves held (walker): 1 sit/stand, 2 pick, 4 kick left, 8 kick right, 16 roulade, 32 beak
+  u32 robot = 0;                       // robot moves held (walker): 1 sit/stand, 2 pick, 4 kick left, 8 kick right, 16 roulade, 32 beak, 64 chirp, 128 wheee
   f32 look_x = 0, look_y = 0;          // camera orbit in degrees since the last frame
   f32 zoom = 0;                        // camera distance change (wheel)
   // Remote players: the direction their camera looks (degrees) for camera-relative movement.
@@ -142,6 +142,9 @@ struct SoundCue {
   bool spatial = true;
   audio::Bus bus = audio::Bus::sfx;
   ActorId actor = 0;
+  // The actor's voice (one at a time, like a robot's one speaker): `voice` cuts whatever it was
+  // saying; `silence` only stops it.
+  bool voice = false, silence = false;
 };
 
 /// What a network client needs to show its own soldier's HUD (sent by the server per client).
@@ -354,6 +357,8 @@ class GameWorld {
   bool walker_mouth(ActorId id, f32 open);
   /// The network driving the robot now: "walk", "stand", "sit", "rise", "ground_pick", a skill.
   std::string walker_driving(ActorId id) const;
+  /// The last call its voice made ("greet", "chirp", "wheee", ...), "" before the first.
+  std::string walker_said(ActorId id) const;
   /// Its servo joints now (radians, the MJCF angle) with their ranges: the policy's 14, the mouth.
   struct WalkerJoint { std::string name; f32 angle = 0, lower = 0, upper = 0; };
   std::vector<WalkerJoint> walker_joints(ActorId id) const;
@@ -390,6 +395,9 @@ class GameWorld {
   void sense_walker(WalkerBrain& w);
   void think_walker(WalkerBrain& w, f32 dt);  // the autonomous behaviour (walker_brain.cpp)
   void run_controller(WalkerBrain& w, f32 obs[61]);  // robotd's controller: network, scale, low-pass
+  void walker_say(WalkerBrain& w, const char* tag);   // the duck's voice (one call, cutting the last)
+  void walker_wheee(WalkerBrain& w, bool held);
+  void voice_cue(WalkerBrain& w, const std::string& sound, bool silence = false);
   void idle_walker(WalkerBrain& w, bool still, f32 dt, f32 head[4]);  // the idle look-around (walker_brain.cpp)
   WalkerBrain* walker_brain(ActorId id) const;
   void drive_servos(f32 dt);

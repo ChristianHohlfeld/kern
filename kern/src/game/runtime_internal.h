@@ -57,7 +57,7 @@ struct GameWorld::WalkerBrain {
   f32 target[14] = {};             // joint targets of the last control tick (radians)
   f32 joint_speed[14] = {};        // joint speeds of the last control tick (real rad/s)
   f32 command[3] = {}, head[4] = {};  // smoothed twist (vx, vy, wz) and head command
-  f32 quack = 0;                   // real seconds left of the quack nod
+  f32 beak_open = 0;               // real seconds the beak stays open for a call
   std::vector<std::vector<f32>> pending;  // targets on their way to the servos, oldest first
   PlayInput input;
   bool has_input = false;
@@ -79,6 +79,12 @@ struct GameWorld::WalkerBrain {
   bool has_previous = false;
   u32 robot_held = 0;              // robot buttons held last tick (edges start moves)
   std::string driving = "walk";
+  // The voice (robotd sound.rs): this duck's own seed, the wheee ride, what it said last.
+  u32 voice_seed = 0, voice_rng = 1, wheee_variant = 0;
+  enum class Wheee : u8 { off, start, loop } wheee = Wheee::off;
+  f32 wheee_left = 0, beak_trigger = 0;
+  bool greeted = false, pad_was = false, chirp_held = false;
+  std::string said;
   WalkerSensors sensors;
   f64 next_tof = 0;                // simulation time of the next ToF frame
   f32 tilted_for = 0;              // real seconds the trunk has been tipped past the fall limit

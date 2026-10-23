@@ -17,6 +17,7 @@
 #include "kern/game/walker.h"
 #include "kern/game/walker_policy.h"
 #include "kern/core/json.h"
+#include "kern/audio/duck_voice.h"
 #include "runtime_internal.h"
 
 namespace kern::game {
@@ -200,7 +201,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
       c.camera_height = .45f;
       c.camera_fov = 55;
       c.engine_sound = "builtin:servo";
-      c.jump_sound = "builtin:quack";
+      c.jump_sound = "";  // its voice is the duck's own synth (robotd sound.rs), not a sample
       a.controller = c;
     } else {
       JointComponent j;
@@ -490,6 +491,11 @@ std::vector<GameWorld::WalkerJoint> GameWorld::walker_joints(ActorId id) const {
   return out;
 }
 
+std::string GameWorld::walker_said(ActorId id) const {
+  const WalkerBrain* w = walker_brain(id);
+  return w ? w->said : std::string();
+}
+
 std::string GameWorld::walker_driving(ActorId id) const {
   const WalkerBrain* w = walker_brain(id);
   return w ? w->driving : std::string();
@@ -527,6 +533,9 @@ void GameWorld::create_walkers() {
     }
     const f32 hz = clamp(level_.world.step_hz, 15.0f, 480.0f), slow = std::sqrt(kDuckScale);
     w->autonomous = a.controller->autonomous;
+    // Its own voice: the robot seeds it with sha256 of its serial; a Kern duck with its name and id.
+    w->voice_seed = audio::duck_seed_from_id(a.name + "#" + std::to_string(a.id));
+    w->voice_rng = w->voice_seed | 1u;
     w->rollers = a.controller->rollers;
     w->alpha_gait = a.controller->gait == "alpha";
     w->decimation = max_of(1, static_cast<i32>(std::lround(kControlPeriod * slow * hz)));
@@ -614,13 +623,66 @@ bool GameWorld::walker_quack(ActorId id) {
   bool any = false;
   for (auto& w : walkers_)
     if (!id || w->actor == id) {
-      const Actor* a = level_.find(w->actor);
-      cue(a && a->controller ? a->controller->jump_sound : std::string("builtin:quack"), physics_.pose(w->trunk).position + Vec3{0, 0, .1f * kDuckScale}, .9f, 1, true,
-          audio::Bus::sfx, w->actor);
-      w->quack = .3f;
+      walker_say(*w, "chirp");
+      w->beak_open = .25f;  // the beak opens with the call (robotd: the chirp trigger opens the mouth)
       any = true;
     }
   return any;
+}
+
+/// One call of the duck's voice (robotd/src/sound.rs): a random variant of the tag in this duck's
+/// own voice; a new call cuts the one it was making; while the wheee ride has the speaker, one-shots
+/// are dropped.
+void GameWorld::walker_say(WalkerBrain& w, const char* tag) {
+  if (w.wheee != WalkerBrain::Wheee::off) return;
+  const u32 n = audio::duck_variant_count(tag);
+  w.voice_rng ^= w.voice_rng << 13;
+  w.voice_rng ^= w.voice_rng >> 17;
+  w.voice_rng ^= w.voice_rng << 5;
+  const u32 variant = n ? w.voice_rng % n : 0;
+  voice_cue(w, std::string("builtin:duck_") + tag + "_" + std::to_string(w.voice_seed) + "_" + std::to_string(variant));
+  w.said = tag;
+}
+
+void GameWorld::voice_cue(WalkerBrain& w, const std::string& sound, bool silence) {
+  SoundCue c;
+  c.sound = sound;
+  c.position = physics_.pose(w.joint[8] ? w.joint[8]->b : w.trunk).position;  // the speaker is in the head
+  c.volume = 1;
+  c.spatial = true;
+  c.bus = audio::Bus::voice;
+  c.actor = w.actor;
+  c.voice = !silence;
+  c.silence = silence;
+  if (cues_.size() >= 64) cues_.erase(cues_.begin());
+  cues_.push_back(std::move(c));
+}
+
+/// The wheee ride (sound.rs Ride): start, the loop for as long as it is held, then the end.
+void GameWorld::walker_wheee(WalkerBrain& w, bool held) {
+  using Wheee = WalkerBrain::Wheee;
+  const std::string base = "_" + std::to_string(w.voice_seed) + "_" + std::to_string(w.wheee_variant);
+  if (held && w.wheee == Wheee::off) {
+    w.voice_rng ^= w.voice_rng << 13;
+    w.voice_rng ^= w.voice_rng >> 17;
+    w.voice_rng ^= w.voice_rng << 5;
+    w.wheee_variant = w.voice_rng % max_of(1u, audio::duck_variant_count("wheee"));
+    std::vector<f32> start, loop, end;
+    audio::render_duck_wheee(w.voice_seed, w.wheee_variant, 8000, start, loop, end);  // only its length
+    w.wheee_left = static_cast<f32>(start.size()) / 8000.0f;
+    w.wheee = Wheee::start;
+    voice_cue(w, "builtin:duck_wheee-start_" + std::to_string(w.voice_seed) + "_" + std::to_string(w.wheee_variant));
+    w.said = "wheee";
+  } else if (w.wheee == Wheee::start) {
+    w.wheee_left -= kControlPeriod;
+    if (w.wheee_left <= 0) {
+      if (held) { w.wheee = Wheee::loop; voice_cue(w, "builtin:duck_wheee-loop" + base); }
+      else { w.wheee = Wheee::off; voice_cue(w, "builtin:duck_wheee-end" + base); }
+    }
+  } else if (w.wheee == Wheee::loop && !held) {
+    w.wheee = Wheee::off;
+    voice_cue(w, "builtin:duck_wheee-end" + base);
+  }
 }
 
 bool GameWorld::walker_sees(ActorId id, ActorId target, bool& visible, f32& bearing, f32& distance) const {
@@ -720,16 +782,7 @@ void GameWorld::drive_walker(const PlayInput& in, f32 dt) {
   // The player's input reaches the walker's controller (drive_walkers runs every walker).
   for (auto& w : walkers_)
     if (w->actor == pw_->actor) { w->input = in; w->has_input = true; }
-  if (in.jump && !pw_->jump_latch) {
-    const Actor* a = level_.find(pw_->actor);
-    auto it = body_of_actor_.find(pw_->actor);
-    if (a && a->controller && it != body_of_actor_.end()) {
-      cue(a->controller->jump_sound, physics_.pose(it->second->body).position + Vec3{0, 0, .1f * kDuckScale}, .9f, 1, true, audio::Bus::sfx, pw_->actor);
-      for (auto& w : walkers_)
-        if (w->actor == pw_->actor) w->quack = .3f;  // a nod while it quacks (real seconds)
-    }
-  }
-  pw_->jump_latch = in.jump;
+  pw_->jump_latch = in.jump;  // the duck's voice is in drive_walkers (Space / QUACK: the chirp)
   if (auto it = body_of_actor_.find(pw_->actor); it != body_of_actor_.end()) {
     const Vec3 v = physics_.linear_velocity(it->second->body);
     hud_.speed = std::hypot(v.x, v.y);
@@ -841,9 +894,24 @@ void GameWorld::drive_walkers(f32 h) {
       const PlayInput in = w.has_input ? w.input : PlayInput{};
       const bool touched = std::fabs(in.move_x) > 0.05f || std::fabs(in.move_y) > 0.05f;
       if (touched) w.manual_left = 2.0f;  // like the real duck's pad: autonomy pauses while you drive
+      // The voice, as robotd plays it: greet when it comes alive and when the pad comes back,
+      // inquire when the pad goes, the chirp on a fresh press (the beak open while it is held),
+      // the wheee ride while held, a peck as it sits down. Nothing while it idles, walks or looks.
+      if (!w.greeted) { w.greeted = true; walker_say(w, "greet"); }
+      if (w.has_input && in.gamepad != w.pad_was) {
+        walker_say(w, in.gamepad ? "greet" : "inquire");
+        w.pad_was = in.gamepad;
+      }
+      {
+        const bool chirp = (in.robot & 64) || in.jump;
+        if (chirp && !w.chirp_held) walker_say(w, "chirp");
+        w.chirp_held = chirp;
+        walker_wheee(w, (in.robot & 128) != 0);
+        w.beak_trigger = chirp || (in.robot & 128) ? 1.0f : 0.0f;
+      }
       if (w.has_input || in.robot) {
         const u32 pressed = in.robot & ~w.robot_held;
-        if (pressed & 1) walker_skill(w.actor, "sit");
+        if ((pressed & 1) && walker_skill(w.actor, "sit").empty() && w.sit == WalkerBrain::Sit::sitting) walker_say(w, "peck");
         if (pressed & 2) walker_skill(w.actor, "pick");
         if (pressed & 4) walker_skill(w.actor, "kick_left");
         if (pressed & 8) walker_skill(w.actor, "kick_right");
@@ -863,13 +931,12 @@ void GameWorld::drive_walkers(f32 h) {
       } else if (w.autonomous) {
         std::memcpy(cmd, w.auto_cmd, sizeof cmd);
       }
-      bool steered = w.quack > 0;  // something asks the head for a pose this tick
+      bool steered = false;  // something asks the head for a pose this tick
       if (w.look_left != 0) { head[2] = w.look_cmd[0]; head[1] = w.look_cmd[1]; steered = true; }
       else if (w.autonomous && w.manual_left <= 0) {
         std::memcpy(head, w.auto_head, sizeof head);
         for (f32 v : head) steered = steered || v != 0;
       }
-      if (w.quack > 0) head[1] += .35f;  // the quack nods
       cmd[0] = clamp(cmd[0], -kMaxForward, kMaxForward);
       cmd[1] = clamp(cmd[1], -kMaxStrafe, kMaxStrafe);
       cmd[2] = clamp(cmd[2], -kMaxTurn, kMaxTurn);
@@ -886,8 +953,9 @@ void GameWorld::drive_walkers(f32 h) {
       f32 head_cmd[4];
       for (int i = 0; i < 4; ++i) head_cmd[i] = clamp(w.head[i] + idle[i], -kHeadRange[i], kHeadRange[i]);
       // The mouth (robotd: not part of any policy): what was asked, or the idle yawn.
-      if (w.mouth) w.mouth->servo_target = mouth_target(max_of(w.mouth_open, w.idle_mouth));  // -5..30 deg: pressed shut at the limit
-      w.quack = max_of(0.0f, w.quack - kControlPeriod);
+      // -5..30 deg (pressed shut at the limit): asked for, the call, the trigger held, the yawn.
+      if (w.mouth) w.mouth->servo_target = mouth_target(max_of(max_of(w.mouth_open, w.idle_mouth), max_of(w.beak_trigger, w.beak_open > 0 ? 1.0f : 0.0f)));
+      w.beak_open = max_of(0.0f, w.beak_open - kControlPeriod);
       w.manual_left = max_of(0.0f, w.manual_left - kControlPeriod);
       if (w.drive_left > 0) w.drive_left = max_of(0.0f, w.drive_left - kControlPeriod);  // < 0 holds until the next command
       if (w.look_left > 0) w.look_left = max_of(0.0f, w.look_left - kControlPeriod);
