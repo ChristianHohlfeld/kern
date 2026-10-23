@@ -68,6 +68,8 @@ constexpr const char* kVertexUniforms = R"GLSL(
 uniform int uSkinEnabled;
 uniform mat4 uBones[32];
 uniform mat4 uViewProjection;
+// Bit-identical with the depth prepass, so the forward pass meets the prepass depth exactly.
+invariant gl_Position;
 out vec3 vWorld, vNormal, vColor;
 out vec2 vUV;
 out float vOpacity;
@@ -104,6 +106,10 @@ uniform vec3 uEnvZenith, uEnvHorizon, uEnvGround, uEmissive;
 uniform float uFogDensity, uExposure, uAlphaCutoff, uEnvIntensity, uSunShadowBias;
 uniform float uFogHeightFalloff, uFogSunScatter;
 uniform sampler2D uTexture;
+uniform highp sampler2D uAoMap;  // GTAO: (visibility, view depth), AO resolution
+uniform int uAoEnabled;
+uniform vec2 uAoScale;           // AO size / drawing buffer size
+uniform vec3 uViewForward;
 uniform sampler2DShadow uSunShadowMap;
 uniform mat4 uSunShadowProjection;
 uniform int uSunShadowEnabled, uHasTexture, uUnlit, uLinearColor, uGrade, uPointLightCount;
@@ -122,6 +128,34 @@ vec3 envIrradiance(vec3 n) {
 }
 vec3 skyReflection(vec3 r, float sharpness) {
   return mix(uEnvHorizon, uEnvZenith, clamp(r.z, 0.0, 1.0) * sharpness);
+}
+// GTAO visibility at this fragment: depth-aware bilinear upsample of the AO target
+// (texels on another surface get no weight; nothing usable = unoccluded).
+float ambientVisibility() {
+  if (uAoEnabled != 1) return 1.0;
+  float w = dot(vWorld - uEye, uViewForward);
+  vec2 p = gl_FragCoord.xy * uAoScale - 0.5;
+  ivec2 b = ivec2(floor(p)), last = textureSize(uAoMap, 0) - 1;
+  vec2 f = p - floor(p);
+  float tolerance = w * 0.03 + 0.03, sum = 0.0, weights = 0.0;
+  for (int j = 0; j < 2; ++j)
+    for (int i = 0; i < 2; ++i) {
+      vec2 s = texelFetch(uAoMap, clamp(b + ivec2(i, j), ivec2(0), last), 0).rg;
+      float bilinear = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y);
+      float wt = (bilinear + 1e-3) * max(0.0, 1.0 - abs(s.g - w) / tolerance);
+      sum += s.r * wt;
+      weights += wt;
+    }
+  return weights > 1e-5 ? sum / weights : 1.0;
+}
+// Multi-bounce approximation of GTAO (Jimenez et al. 2016): light bounced between occluders brightens AO on bright albedo.
+vec3 aoMultiBounce(float v, vec3 albedo) {
+  vec3 a = 2.0404 * albedo - 0.3324, b = -4.7951 * albedo + 0.6417, c = 2.7552 * albedo + 0.6903;
+  return max(vec3(v), ((v * a + b) * v + c) * v);
+}
+// Specular occlusion from ambient visibility (Lagarde & de Rousiers 2014).
+float specularOcclusion(float NdV, float v, float rough) {
+  return clamp(pow(NdV + v, exp2(-16.0 * rough - 1.0)) - 1.0 + v, 0.0, 1.0);
 }
 )GLSL";
 
@@ -164,15 +198,20 @@ constexpr const char* kFragmentLighting = R"GLSL(
   }
   const float PI = 3.141592653589793;
   float rough = clamp(uPbr.x, 0.04, 1.0), metal = clamp(uPbr.y, 0.0, 1.0);
+  // Ambient occlusion darkens indirect light only; sun and point lights keep their own shadowing.
+  float aoVis = uUnlit == 1 ? 1.0 : ambientVisibility();
+  vec3 aoDiffuse = aoMultiBounce(aoVis, base);
   vec3 rgb = uUnlit == 1 ? base
-    : base * (1.0 - metal) * ((uSunColor * ndl * shadow + hemis + point * PI) / PI + envIrradiance(n) * uEnvIntensity);
+    : base * (1.0 - metal) * ((uSunColor * ndl * shadow + point * PI) / PI + (hemis / PI + envIrradiance(n) * uEnvIntensity) * aoDiffuse);
+  float specOcc = 1.0;
   if (uUnlit != 1 && (metal > 0.0 || rough < 0.95)) {
     vec3 V = normalize(uEye - vWorld), R = reflect(-V, n);
     float NdV = clamp(dot(n, V), 0.0, 1.0);
+    specOcc = specularOcclusion(NdV, aoVis, rough);
     vec3 F0 = mix(vec3(0.04), base, metal);
     vec3 F = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - NdV, 5.0);
     vec3 envR = mix(envIrradiance(R), skyReflection(R, 1.0), 1.0 - rough);
-    rgb += F * envR * uEnvIntensity;
+    rgb += F * envR * uEnvIntensity * specOcc;
     vec3 H = normalize(sun + V);
     float a2 = rough * rough * rough * rough;
     float NdH = clamp(dot(n, H), 0.0, 1.0);
@@ -184,8 +223,9 @@ constexpr const char* kFragmentLighting = R"GLSL(
     vec3 V = normalize(uEye - vWorld);
     float fr = pow(1.0 - abs(dot(V, n)), 3.0);
     vec3 skyRefl = skyReflection(reflect(-V, n), 0.6) * uEnvIntensity;
-    rgb = mix(rgb, skyRefl, surfaceGlass * (0.45 + 0.4 * fr));
-    rgb += surfaceGlass * mix(vec3(0.05, 0.07, 0.09), vec3(0.32, 0.4, 0.5), fr);
+    float glassOcc = specularOcclusion(abs(dot(V, n)), aoVis, 0.05);
+    rgb = mix(rgb, skyRefl * glassOcc, surfaceGlass * (0.45 + 0.4 * fr));
+    rgb += surfaceGlass * mix(vec3(0.05, 0.07, 0.09), vec3(0.32, 0.4, 0.5), fr) * glassOcc;
   }
   rgb += emissive;
   outHdr = vec4(max(rgb, vec3(0.0)), alpha);

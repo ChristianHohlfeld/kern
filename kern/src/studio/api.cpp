@@ -57,6 +57,16 @@ KERN_EXPORT(kern_studio_init) i32 kern_studio_init(i32 width, i32 height, i32 pl
   g_host->ready = true;
   return 1;
 }
+/// Ambient occlusion: quality 0 low .. 3 ultra (XeGTAO presets), half = half resolution.
+KERN_EXPORT(kern_studio_ao_set) void kern_studio_ao_set(i32 enabled, i32 quality, i32 half, f32 radius) {
+  if (!g_host || !g_host->ready) return;
+  AoOptions o;
+  o.enabled = enabled != 0;
+  o.quality = static_cast<AoQuality>(clamp(quality, 0, 3));
+  o.half_resolution = half != 0;
+  if (radius > 0) o.radius = radius;
+  g_host->renderer.set_ambient_occlusion(o);
+}
 
 KERN_EXPORT(kern_studio_resize) i32 kern_studio_resize(i32 width, i32 height) {
   return live() && g_host->renderer.resize(width, height) ? 1 : 0;

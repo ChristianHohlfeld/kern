@@ -531,6 +531,12 @@ export class KernRenderer {
   // atmosphere: { heightFalloff, sunScatter, horizon } – ground haze, sun glow in the haze, sky meets fog.
   // Unset = plain fog as before.
 
+  /** Ambient occlusion (GTAO): {enabled, quality: "low"|"medium"|"high"|"ultra", fullResolution, radius}. Default: medium, half resolution. */
+  setAmbientOcclusion({ enabled = true, quality = "medium", fullResolution = false, radius = 0 } = {}) {
+    const q = Math.max(0, ["low", "medium", "high", "ultra"].indexOf(quality));
+    this.kern.exports.kern_ao_set?.(enabled ? 1 : 0, q, fullResolution ? 0 : 1, radius);
+  }
+
   pushCamera() {
     const f32 = this.kern.f32, o = this.descPtr >> 2;
     f32.set(this.eye, o); f32.set(this.target, o + 3); f32.set(this.up, o + 6);

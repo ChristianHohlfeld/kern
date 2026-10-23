@@ -11,6 +11,19 @@ import {loadKern} from "../kern.mjs";
 export const POINTER = {down: 0, move: 1, up: 2, cancel: 3, wheel: 4, leave: 5};
 
 /** Thin wrapper over kern/src/studio/api.cpp. */
+const AO_QUALITIES = ["low", "medium", "high", "ultra"];
+/** Phones: medium at half resolution; desktop: high at full resolution. ?ao=off|low|medium|high|ultra and ?aoRes=half|full override. */
+function defaultAmbientOcclusion() {
+  const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  const o = coarse ? {quality: "medium", fullResolution: false} : {quality: "high", fullResolution: true};
+  const q = typeof location === "object" ? new URLSearchParams(location.search) : null;
+  const ao = q?.get("ao"), res = q?.get("aoRes");
+  if (ao === "off") o.enabled = false;
+  else if (AO_QUALITIES.includes(ao)) o.quality = ao;
+  if (res === "half" || res === "full") o.fullResolution = res === "full";
+  return o;
+}
+
 export class StudioEngine {
   constructor(kern) {
     this.kern = kern;
@@ -32,7 +45,16 @@ export class StudioEngine {
   }
   text(ptr) { return ptr ? this.kern.string(ptr, this.e.kern_studio_result_length()) : null; }
   result(ptr) { const t = this.text(ptr); return t == null ? null : JSON.parse(t); }
-  init(width, height, playerOnly) { return this.e.kern_studio_init(width, height, playerOnly ? 1 : 0) === 1; }
+  init(width, height, playerOnly) {
+    if (this.e.kern_studio_init(width, height, playerOnly ? 1 : 0) !== 1) return false;
+    this.setAmbientOcclusion(defaultAmbientOcclusion());
+    return true;
+  }
+  /** {enabled, quality: "low"|"medium"|"high"|"ultra", fullResolution, radius} */
+  setAmbientOcclusion({enabled = true, quality = "medium", fullResolution = false, radius = 0} = {}) {
+    const q = Math.max(0, AO_QUALITIES.indexOf(quality));
+    this.e.kern_studio_ao_set?.(enabled ? 1 : 0, q, fullResolution ? 0 : 1, radius);
+  }
   resize(width, height) { this.e.kern_studio_resize(width, height); }
   frame(time) { this.e.kern_studio_frame(time); }
   revision() { return this.e.kern_studio_revision(); }

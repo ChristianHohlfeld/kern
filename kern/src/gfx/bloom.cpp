@@ -82,6 +82,12 @@ void bind_unit(u32 unit, u32 texture) {
 
 }  // namespace
 
+void BloomPass::bind_scene() const {
+  gl::bindFramebuffer(gl::FRAMEBUFFER, main_.framebuffer);
+  const u32 buffers[2] = {gl::COLOR_ATTACHMENT0, gl::COLOR_ATTACHMENT1};
+  gl::drawBuffers(buffers, 2);
+}
+
 BloomState BloomPass::state() const {
   if (!options_.enabled) return BloomState::off;
   if (!supported_) return BloomState::unsupported;
@@ -137,7 +143,7 @@ void BloomPass::free_targets() {
   for (Target* t : {&main_, &a1_, &b1_, &a2_, &b2_}) {
     if (t->texture) gl::deleteTexture(t->texture);
     if (t->hdr) gl::deleteTexture(t->hdr);
-    if (t->depth) gl::deleteRenderbuffer(t->depth);
+    if (t->depth) gl::deleteTexture(t->depth);
     if (t->framebuffer) gl::deleteFramebuffer(t->framebuffer);
     *t = Target{};
   }
@@ -151,10 +157,16 @@ bool BloomPass::resize(i32 w, i32 h) {
   main_.hdr = make_texture(w, h, true);
   gl::bindFramebuffer(gl::FRAMEBUFFER, main_.framebuffer);
   gl::framebufferTexture2D(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT1, gl::TEXTURE_2D, main_.hdr, 0);
-  main_.depth = gl::createRenderbuffer();
-  gl::bindRenderbuffer(gl::RENDERBUFFER, main_.depth);
-  gl::renderbufferStorage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, w, h);
-  gl::framebufferRenderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, main_.depth);
+  // Depth as a texture: ambient occlusion reads it after the depth prepass.
+  main_.depth = gl::createTexture();
+  gl::bindTexture(gl::TEXTURE_2D, main_.depth);
+  gl::texImage2D(gl::TEXTURE_2D, 0, gl::DEPTH_COMPONENT24, w, h, gl::DEPTH_COMPONENT, gl::UNSIGNED_INT, nullptr, 0);
+  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST);
+  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST);
+  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE);
+  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE);
+  gl::bindTexture(gl::TEXTURE_2D, 0);
+  gl::framebufferTexture2D(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::TEXTURE_2D, main_.depth, 0);
   if (gl::checkFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE) {
     gl::bindFramebuffer(gl::FRAMEBUFFER, 0);
     free_targets();

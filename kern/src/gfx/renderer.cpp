@@ -9,6 +9,56 @@ namespace kern {
 
 namespace {
 
+// Depth prepass: the standard program's transform, operation for operation (both declare
+// invariant gl_Position), so the forward pass's LEQUAL test meets exactly this depth.
+constexpr const char* kDepthVertex = R"GLSL(#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPosition;
+layout(location=3) in vec2 aUV;
+layout(location=4) in vec4 iModel0;
+layout(location=5) in vec4 iModel1;
+layout(location=6) in vec4 iModel2;
+layout(location=7) in vec4 iModel3;
+layout(location=8) in vec4 iTint;
+layout(location=12) in vec4 aJoints;
+layout(location=13) in vec4 aWeights;
+uniform int uSkinEnabled;
+uniform mat4 uBones[32];
+uniform mat4 uViewProjection;
+invariant gl_Position;
+out vec2 vUV;
+out float vOpacity;
+void main() {
+  mat4 model = mat4(iModel0, iModel1, iModel2, iModel3);
+  vec4 local = vec4(aPosition, 1.0);
+  if (uSkinEnabled == 1) {
+    mat4 skin = aWeights.x * uBones[int(aJoints.x)] + aWeights.y * uBones[int(aJoints.y)]
+              + aWeights.z * uBones[int(aJoints.z)] + aWeights.w * uBones[int(aJoints.w)];
+    local = skin * local;
+  }
+  vec4 p = model * local;
+  vOpacity = iTint.a;
+  vUV = aUV;
+  gl_Position = uViewProjection * p;
+}
+)GLSL";
+
+constexpr const char* kDepthFragment = R"GLSL(#version 300 es
+precision mediump float;
+in vec2 vUV;
+in float vOpacity;
+uniform vec4 uMaterial;
+uniform float uAlphaCutoff;
+uniform int uHasTexture;
+uniform sampler2D uTexture;
+void main() {
+  if (uAlphaCutoff > 0.0) {
+    float a = vOpacity * uMaterial.a * (uHasTexture == 1 ? texture(uTexture, vUV).a : 1.0);
+    if (a < uAlphaCutoff) discard;
+  }
+}
+)GLSL";
+
 constexpr u32 kBvhMinTriangles = 36;
 
 bool all_finite(const f32* v, std::size_t n) {
@@ -47,6 +97,7 @@ bool Renderer::init(const RendererOptions& options, Span<ShaderExtension* const>
   shadow_requested_ = options.shadows;
   shadow_options_ = options.shadow;
   bloom_.configure(options.bloom);
+  ao_.configure(options.ao);
   slots_.clear();
   slots_.emplace_back();  // id 0 is "none"
   free_ids_.clear();
@@ -88,6 +139,10 @@ bool Renderer::init_gpu() {
   u_.grade = p.location("uGrade");
   u_.fog_height_falloff = p.location("uFogHeightFalloff");
   u_.fog_sun_scatter = p.location("uFogSunScatter");
+  u_.ao_enabled = p.location("uAoEnabled");
+  u_.ao_map = p.location("uAoMap");
+  u_.ao_scale = p.location("uAoScale");
+  u_.view_forward = p.location("uViewForward");
   u_.point_count = p.location("uPointLightCount");
   u_.point_pos_range = p.location("uPointPosRange[0]");
   u_.point_color_intensity = p.location("uPointColorIntensity[0]");
@@ -101,6 +156,7 @@ bool Renderer::init_gpu() {
   pending_queries_.clear();
   free_queries_.clear();
   last_gpu_ms_ = -1;
+  if (!init_depth_program()) return false;
   shadow_.reset();
   shadow_key_valid_ = false;
   if (shadow_requested_) {
@@ -131,6 +187,8 @@ void Renderer::shutdown() {
   shadow_.reset();
   sky_pass_.destroy(lost_);
   bloom_.destroy(lost_);
+  ao_.destroy(lost_);
+  depth_program_.destroy(lost_);
   program_.destroy(lost_);
   initialised_ = false;
 }
@@ -639,6 +697,61 @@ void Renderer::draw_mesh(const Mesh& m, RenderStats& stats) {
   stats.triangles += static_cast<f64>(m.triangle_count()) * m.instance_count;
 }
 
+bool Renderer::init_depth_program() {
+  if (!depth_program_.build(kDepthVertex, kDepthFragment, "depth prepass")) return false;
+  const Program& p = depth_program_;
+  du_.vp = p.location("uViewProjection");
+  du_.bones = p.location("uBones[0]");
+  du_.skinned = p.location("uSkinEnabled");
+  du_.material = p.location("uMaterial");
+  du_.cutoff = p.location("uAlphaCutoff");
+  du_.has_texture = p.location("uHasTexture");
+  du_.texture = p.location("uTexture");
+  return true;
+}
+
+void Renderer::draw_depth_prepass(const Mat4& vp, RenderStats& stats) {
+  gl::colorMask(0, 0, 0, 0);
+  gl::enable(gl::DEPTH_TEST);
+  gl::depthFunc(gl::LESS);
+  gl::depthMask(1);
+  depth_program_.use();
+  gl::uniformMatrix4fv(du_.vp, vp.m, 1);
+  gl::uniform1i(du_.texture, 0);
+  i32 cull_state = -1, skinned_state = -1;
+  f32 cutoff_state = -1;
+  u32 bound = ~0u;
+  for (const Mesh* m : opaque_) {
+    const Material& mat = m->material;
+    if (mat.lines) continue;
+    const i32 skinned = m->skinned() ? 1 : 0;
+    if (skinned != skinned_state) { gl::uniform1i(du_.skinned, skinned); skinned_state = skinned; }
+    if (skinned) gl::uniformMatrix4fv(du_.bones, m->bones.data(), static_cast<i32>(m->bones.size() / 16));
+    const f32 cutoff = mat.alpha == AlphaMode::mask ? mat.alpha_cutoff : 0.0f;
+    if (cutoff != cutoff_state) { gl::uniform1f(du_.cutoff, cutoff); cutoff_state = cutoff; }
+    if (cutoff > 0) {
+      const u32 texture = texture_handle(m->texture);
+      gl::uniform4f(du_.material, mat.color.x, mat.color.y, mat.color.z, mat.color.w);
+      gl::uniform1i(du_.has_texture, texture ? 1 : 0);
+      if (texture && texture != bound) {
+        gl::activeTexture(gl::TEXTURE0);
+        gl::bindTexture(gl::TEXTURE_2D, texture);
+        bound = texture;
+      }
+    }
+    const i32 cull = m->cull_mode();
+    if (cull != cull_state) { apply_cull_mode(cull); cull_state = cull; }
+    gl::bindVertexArray(m->gpu.vao);
+    const i32 instances = static_cast<i32>(m->instance_count);
+    if (!m->indices.empty()) gl::drawElementsInstanced(gl::TRIANGLES, static_cast<i32>(m->indices.size()), m->gpu.element_type, 0, instances);
+    else gl::drawArraysInstanced(gl::TRIANGLES, 0, static_cast<i32>(m->vertex_count()), instances);
+    stats.depth_draw_calls++;
+  }
+  gl::bindVertexArray(0);
+  gl::colorMask(1, 1, 1, 1);
+  gl::depthFunc(gl::LEQUAL);
+}
+
 bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   if (!initialised_) return fail("renderer not initialised");
   if (lost_) return fail("GL context lost; waiting for restoration");
@@ -716,14 +829,37 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   std::sort(transparent_.begin(), transparent_.end(), [](const Mesh* a, const Mesh* b) { return a->sort_distance > b->sort_distance; });
   stats.visible_meshes = static_cast<u32>(opaque_.size() + transparent_.size() + viewmodel_.size());
 
+  // Ambient occlusion (scene target only): depth prepass -> GTAO -> the forward pass reads it.
+  bool ao = false;
+  if (post && !camera.orthographic && ao_.options().enabled && !opaque_.empty()) {
+    draw_depth_prepass(vp, stats);
+    ao = ao_.compute(bloom_.depth_texture(), width_, height_, projection_matrix(camera, aspect), start);
+    bloom_.bind_scene();
+    gl::viewport(rect.x, rect.y, rect.width, rect.height);
+  }
+  stats.ao = ao;
+
   gl::enable(gl::DEPTH_TEST);
   gl::depthFunc(gl::LEQUAL);
+  gl::depthMask(1);
   gl::disable(gl::BLEND);
   program_.use();
   bound_texture_ = ~0u;
   cull_state_ = -1;
   set_frame_uniforms(vp);
+  cache_.set_int(u_.ao_map, 2);
+  cache_.set_int(u_.ao_enabled, ao ? 1 : 0);
+  if (ao) {
+    cache_.set_vec2(u_.ao_scale, static_cast<f32>(ao_.width()) / static_cast<f32>(width_),
+                    static_cast<f32>(ao_.height()) / static_cast<f32>(height_));
+    cache_.set_vec3(u_.view_forward, normalize(camera.target - camera.eye, {0, 1, 0}));
+  }
+  gl::activeTexture(gl::TEXTURE0 + 2);
+  gl::bindTexture(gl::TEXTURE_2D, ao ? ao_.texture() : 0);
+  gl::activeTexture(gl::TEXTURE0);
   for (Mesh* m : opaque_) draw_mesh(*m, stats);
+  // Transparent and first-person surfaces are not in the AO depth.
+  cache_.set_int(u_.ao_enabled, 0);
 
   if (params.sky && !camera.orthographic) {
     SkyAtmosphere atmosphere;
@@ -754,6 +890,11 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
     for (Mesh* m : viewmodel_) draw_mesh(*m, stats);
   }
   gl::bindVertexArray(0);
+  if (ao) {
+    gl::activeTexture(gl::TEXTURE0 + 2);
+    gl::bindTexture(gl::TEXTURE_2D, 0);
+    gl::activeTexture(gl::TEXTURE0);
+  }
   if (post) {
     bloom_.end(lighting.exposure);
     gl::enable(gl::DEPTH_TEST);
@@ -805,6 +946,8 @@ void Renderer::context_lost() {
   shadow_key_valid_ = false;
   sky_pass_.destroy(true);
   bloom_.destroy(true);
+  ao_.destroy(true);
+  depth_program_.destroy(true);
   program_.destroy(true);
 }
 
@@ -817,6 +960,8 @@ bool Renderer::context_restored() {
     shadow_.reset();
     sky_pass_.destroy(false);
     bloom_.destroy(false);
+    ao_.destroy(false);
+    depth_program_.destroy(false);
     program_.destroy(false);
     return false;
   }

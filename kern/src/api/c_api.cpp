@@ -278,6 +278,15 @@ KERN_EXPORT(kern_atmosphere_set) void kern_atmosphere_set(f32 height_falloff, f3
   l.fog_sun_scatter = sun_scatter;
   l.fog_horizon = horizon;
 }
+/// Ambient occlusion: quality 0 low .. 3 ultra (XeGTAO presets), half = half resolution, radius in world units (0 = default).
+KERN_EXPORT(kern_ao_set) void kern_ao_set(i32 enabled, i32 quality, i32 half, f32 radius) {
+  AoOptions o;
+  o.enabled = enabled != 0;
+  o.quality = static_cast<AoQuality>(clamp(quality, 0, 3));
+  o.half_resolution = half != 0;
+  if (radius > 0) o.radius = radius;
+  R().set_ambient_occlusion(o);
+}
 KERN_EXPORT(kern_sky_set) void kern_sky_set(const f32* f) {
   SkyState& s = R().sky;
   s.sun = vec3_at(f, KERN_SK_SUN);

@@ -20,7 +20,7 @@ kern/
     gfx/program.h        Programme und UniformCache (sendet nur geänderte Werte)
     gfx/shader.h         Standard-Shader und ShaderExtension (Hooks für Spiele)
     gfx/mesh.h           Mesh, Material, MeshInput
-    gfx/passes.h         Sonnenschatten, Himmel, Bloom
+    gfx/passes.h         Sonnenschatten, Himmel, Bloom, GTAO
     gfx/renderer.h       Renderer
     scene/               Frustum-Culling, BVH, Picking
     geo/                 Earcut, Primitive, Welding, Gebäude, Straßen, Terrain
@@ -129,7 +129,8 @@ Die Fassade kopiert Typed Arrays in einen wiederverwendeten Staging-Bereich im W
 ## Renderer
 
 - **Ein Programm für alles:** Der Standard-Shader macht Instancing (Modell- und Normalenmatrix plus Tint pro Instanz), GPU-Skinning (32 Knochen), PBR im Stil von MeshStandardMaterial (Lambert-Sonne, Hemisphäre, Himmels-Irradianz, Schlick/GGX), Glas-Himmelsspiegelung, 6 Punktlichter, Alpha-Mask und -Blend, Textur, Unlit, Emissive, ACES-Tonemapping, Farbgrading und FogExp2 nach sRGB.
-- **Frame:** Sonnenschatten → Opak (vorne nach hinten) → Himmel (nur unbedeckte Pixel) → Transparent (hinten nach vorne nach Weltbounds) → Viewmodel-Ebene nach einem Depth-Clear → Bloom-Composite.
+- **Frame:** Sonnenschatten → Depth-Prepass + GTAO (mit Szenen-Target, Perspektive) → Opak (vorne nach hinten) → Himmel (nur unbedeckte Pixel) → Transparent (hinten nach vorne nach Weltbounds) → Viewmodel-Ebene nach einem Depth-Clear → Bloom-Composite.
+- **Ambient Occlusion (GTAO):** Ground-Truth AO nach Jimenez et al. 2016 in der Umsetzung von Intels XeGTAO: Horizontsuche auf Bildschirm-Slices der Szenentiefe, Normalen aus der Tiefe, 4×4-Rauschmuster plus tiefenbewusster 4×4-Filter, tiefenbewusstes Upsampling im Forward-Pass. Wirkt nur auf indirektes Licht: diffus mit dem Multi-Bounce-Fit des Papers, Reflexionen über Specular Occlusion (Lagarde 2014). Stufen wie XeGTAO (low 1×2, medium 2×2, high 3×3, ultra 9×3 Slices × Schritte); Standard medium in halber Auflösung, Kern Studio auf Desktop high in voller Auflösung. Auf langsamen Geräten stuft ein Frame-Zeit-Wächter herunter. `r.setAmbientOcclusion({quality, fullResolution, radius, enabled})`; im Studio/Player `?ao=off|low|medium|high|ultra&aoRes=half|full`.
 - **Sonnenschatten:** Der Fokus wird auf das Texelraster im Lichtraum eingerastet. Dadurch flimmert nichts, und die Map wird wiederverwendet, bis sich ein Schattenwerfer, die Sonne oder die gerasterte Fokuszelle ändert.
 - **Zustandsfilter:** `UniformCache` lässt unveränderte `uniform*`-Aufrufe aus. Textur- und Cull-Zustand werden pro Frame verfolgt.
 - **Instanzpuffer:** Sie wachsen geometrisch. Unveränderte Instanzen werden erkannt und nicht hochgeladen.

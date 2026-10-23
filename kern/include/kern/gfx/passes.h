@@ -111,6 +111,9 @@ class BloomPass {
   void end(f32 exposure);
   void destroy(bool contextLost);
   BloomState state() const;
+  /// The scene target's depth (DEPTH_COMPONENT24 texture, nearest) and rebinding it after other passes.
+  u32 depth_texture() const { return main_.depth; }
+  void bind_scene() const;
 
  private:
   struct Target { u32 texture = 0, framebuffer = 0, hdr = 0, depth = 0; i32 w = 0, h = 0; };
@@ -131,6 +134,63 @@ class BloomPass {
   // uniform locations
   u32 bright_src_ = 0, bright_threshold_ = 0, blur_src_ = 0, blur_dir_ = 0, copy_src_ = 0;
   u32 c_scene_ = 0, c_hdr_ = 0, c_b1_ = 0, c_b2_ = 0, c_s1_ = 0, c_s2_ = 0, c_exposure_ = 0, c_grade_ = 0;
+};
+
+// ---------------------------------------------------------------------------
+// Ground-Truth Ambient Occlusion (Jimenez, Wu, Pesce, Jarabo 2016) after
+// Intel's XeGTAO reference: horizon search on view-space slices of the scene
+// depth, cosine-weighted visibility against the projected normal, view-space
+// falloff, normals rebuilt from depth. A 4x4 interleaved pattern rotates the
+// slices; a depth-aware 4x4 filter integrates exactly that pattern away. The
+// result (RG16F: visibility, view depth) is read by the forward pass with a
+// depth-aware upsample and applied to indirect light only: diffuse through the
+// multi-bounce fit of the paper, reflections through specular occlusion
+// (Lagarde 2014). Presets as XeGTAO: low 1x2, medium 2x2, high 3x3,
+// ultra 9x3 (slices x steps per side).
+
+enum class AoQuality : u8 { low = 0, medium = 1, high = 2, ultra = 3 };
+
+struct AoOptions {
+  bool enabled = true;
+  AoQuality quality = AoQuality::medium;
+  bool half_resolution = true;  // mobile default; desktop: full resolution, high
+  f32 radius = 1.6f;            // world units
+  f32 power = 2.2f;             // XeGTAO final value power
+  bool adaptive = true;         // steps down (ultra->low, then half resolution) on slow devices
+};
+
+class AmbientOcclusionPass {
+ public:
+  void configure(const AoOptions& options);
+  const AoOptions& options() const { return options_; }
+  /// Computes the AO target from `depth` (full size width x height). projection = GL perspective matrix.
+  /// Leaves no framebuffer bound. False = no AO this frame.
+  bool compute(u32 depth, i32 width, i32 height, const Mat4& projection, f64 now_ms);
+  u32 texture() const { return b_.texture; }
+  i32 width() const { return b_.w; }
+  i32 height() const { return b_.h; }
+  void destroy(bool contextLost);
+  /// Effective quality after the frame-time guard.
+  AoQuality quality() const { return quality_; }
+  bool half_resolution() const { return half_; }
+
+ private:
+  struct Target { u32 texture = 0, framebuffer = 0; i32 w = 0, h = 0; };
+  bool init_programs();
+  bool resize(i32 w, i32 h);
+  void free_targets();
+
+  AoOptions options_;
+  AoQuality quality_ = AoQuality::medium;
+  bool half_ = true;
+  bool supported_ = true, initialised_ = false;
+  f64 frame_avg_ = 16, last_frame_at_ = 0, slow_since_ = 0;
+  i32 full_w_ = 0, full_h_ = 0;
+  Target a_, b_;
+  Program main_, denoise_;
+  u32 vao_ = 0;
+  u32 m_depth_ = 0, m_full_ = 0, m_ao_size_ = 0, m_proj_ = 0, m_radius_ = 0, m_power_ = 0, m_slices_ = 0, m_steps_ = 0;
+  u32 d_src_ = 0;
 };
 
 }  // namespace kern
