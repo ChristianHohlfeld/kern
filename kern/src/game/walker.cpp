@@ -160,6 +160,23 @@ std::vector<Actor> scaled(std::vector<Actor> v) {
 
 }  // namespace
 
+ActorId add_micro_duck(Level& l, Vec3 at, bool rollers) {
+  std::vector<Actor> parts = micro_duck_actors(rollers);
+  const ActorId base = l.next_id;
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    Actor a = parts[i];
+    a.id = base + static_cast<ActorId>(i);
+    if (i == 0) a.transform.position = a.transform.position + at;
+    if (a.parent) a.parent = base + a.parent - 1;
+    for (JointComponent& j : a.joints)
+      if (j.target) j.target = base + j.target - 1;
+    l.add(std::move(a));
+  }
+  l.world.step_hz = kWalkerStepHz;
+  l.world.substeps = 16;
+  return base;
+}
+
 std::vector<Actor> micro_duck_sock_actors() {
   // A crumpled sock, real size x kWalkerScale: seven 12.5 mm lumps of fabric in a loose heap 3.4 cm
   // high (four on the floor, two on them, one on top), each lump tied to its neighbours by a soft
@@ -615,6 +632,99 @@ void GameWorld::create_walkers() {
   }
 }
 
+bool GameWorld::set_walker_external(ActorId id, bool on) {
+  WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  w->external = on;
+  return true;
+}
+
+bool GameWorld::set_walker_action(ActorId id, const f32 action[14]) {
+  WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  for (i32 j = 0; j < kJoints; ++j) w->external_action[j] = std::isfinite(action[j]) ? action[j] : 0.0f;
+  return true;
+}
+
+bool GameWorld::walker_tick_due(ActorId id) const {
+  const WalkerBrain* w = walker_brain(id);
+  return w && w->step % static_cast<u64>(w->decimation) == 0;
+}
+
+bool GameWorld::walker_last_observation(ActorId id, f32 observation[61]) const {
+  const WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  std::memcpy(observation, w->last_obs, sizeof w->last_obs);
+  return true;
+}
+
+bool GameWorld::walker_observation(ActorId id, f32 obs[61]) const {
+  // The same as drive_walkers builds it (keep the two in step): IMU, joints, the joint speeds of the
+  // last tick, the last action, then the command slots.
+  const WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  const f32 slow = std::sqrt(kDuckScale);
+  const physics::Pose tp = physics_.pose(w->trunk);
+  const Quat qi{-tp.rotation.x, -tp.rotation.y, -tp.rotation.z, tp.rotation.w};
+  const Vec3 gyro = qi.rotate(physics_.angular_velocity(w->trunk)) * slow;
+  const Vec3 gravity = qi.rotate({0, 0, -1});
+  for (i32 i = 0; i < 61; ++i) obs[i] = 0;
+  obs[0] = gyro.x; obs[1] = gyro.y; obs[2] = gyro.z;
+  obs[3] = gravity.x; obs[4] = gravity.y; obs[5] = gravity.z;
+  for (i32 j = 0; j < kJoints; ++j) {
+    obs[6 + j] = physics_.joint_angle(w->joint[j]->joint) - kDuckLinks[j + 1].home;
+    obs[20 + j] = w->joint_speed[j];
+    obs[34 + j] = w->action[j];
+  }
+  for (int i = 0; i < 3; ++i) obs[48 + i] = w->command[i];
+  for (int i = 0; i < 4; ++i) obs[51 + i] = w->head[i];
+  obs[57] = w->body[0];
+  obs[58] = w->body[1];
+  obs[59] = w->body[2];
+  return true;
+}
+
+bool GameWorld::walker_probe(ActorId id, WalkerProbe& out) const {
+  const WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  const f32 S = kDuckScale, slow = std::sqrt(S);
+  const physics::Pose tp = physics_.pose(w->trunk);
+  out.position = tp.position * (1 / S);
+  out.rotation = tp.rotation;
+  out.velocity = physics_.linear_velocity(w->trunk) * (slow / S);
+  out.spin = physics_.angular_velocity(w->trunk) * slow;
+  const Quat qi{-tp.rotation.x, -tp.rotation.y, -tp.rotation.z, tp.rotation.w};
+  out.gravity = qi.rotate({0, 0, -1});
+  auto own = [&](physics::Body b) {
+    for (const physics::Body& o : w->bodies) if (o.valid() && o == b) return true;
+    return false;
+  };
+  std::vector<std::pair<physics::Body, f32>> touch;
+  out.self_contact = false;
+  for (i32 i = 0; i < WalkerBrain::kBodies; ++i) {
+    if (!w->bodies[i].valid()) continue;
+    touch.clear();
+    physics_.touching(w->bodies[i], touch);
+    for (const auto& [other, impulse] : touch) if (own(other)) out.self_contact = true;
+  }
+  const i32 feet[2] = {5, 14};  // the ankle links carry the soles (left, right)
+  for (int f = 0; f < 2; ++f) {
+    out.foot_contact[f] = false;
+    const physics::Body b = w->bodies[feet[f]];
+    if (!b.valid()) continue;
+    touch.clear();
+    physics_.touching(b, touch);
+    for (const auto& [other, impulse] : touch) if (!own(other)) out.foot_contact[f] = true;
+    out.foot_height[f] = physics_.pose(b).position.z / S;
+  }
+  for (i32 j = 0; j < kJoints; ++j) {
+    out.joint[j] = physics_.joint_angle(w->joint[j]->joint) - kDuckLinks[j + 1].home;
+    out.joint_speed[j] = physics_.joint_speed(w->joint[j]->joint) * slow;
+    out.action[j] = w->action[j];
+  }
+  return true;
+}
+
 GameWorld::WalkerBrain* GameWorld::walker_brain(ActorId id) const {
   for (const auto& w : walkers_)
     if (!id || w->actor == id) return w.get();
@@ -969,7 +1079,11 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     net = walker_policy(w.alpha_gait ? "alpha_walking.onnx" : "velstand.onnx");
     w.driving = "walk";
   }
-  if (!net) {
+  if (w.external && w.skill < 0 && w.pick_phase < 0 && w.sit == Sit::up) {
+    std::memcpy(w.action, w.external_action, sizeof w.action);  // training: the learner drives, as trained
+    scale = kActionScaleWalk;
+    w.driving = "learner";
+  } else if (!net) {
     // Its network is not loaded (the page fetches the set, and fetches again after a failure): no
     // other network stands in for it - the servos hold the home pose, and the duck says why once.
     const std::string file = w.rollers ? "roller.onnx" : "alpha_walking.onnx";
@@ -1135,6 +1249,7 @@ void GameWorld::drive_walkers(f32 h) {
       obs[58] = w.body[1];
       obs[59] = w.body[2];
       run_controller(w, obs);
+      std::memcpy(w.last_obs, obs, sizeof w.last_obs);
     }
     // ---- every physics step: the servos get the command sent `delay` steps ago ------------------
     w.pending.erase(w.pending.begin());

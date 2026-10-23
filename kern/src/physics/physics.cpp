@@ -634,6 +634,26 @@ void World::contact_points(Body body, std::vector<ContactPoint>& out) const {
   }
 }
 
+void World::touching(Body body, std::vector<std::pair<Body, f32>>& out) const {
+  if (!body_valid(body)) return;
+  const b3BodyId id = body_id(body);
+  const int capacity = b3Body_GetContactCapacity(id);
+  if (capacity <= 0) return;
+  std::vector<b3ContactData> data(static_cast<std::size_t>(capacity));
+  const int n = b3Body_GetContactData(id, data.data(), capacity);
+  for (int i = 0; i < n; ++i) {
+    const b3ContactData& c = data[static_cast<std::size_t>(i)];
+    if (!b3Shape_IsValid(c.shapeIdA) || !b3Shape_IsValid(c.shapeIdB)) continue;
+    f32 impulse = 0;
+    int points = 0;
+    for (int m = 0; m < c.manifoldCount; ++m)
+      for (int p = 0; p < c.manifolds[m].pointCount; ++p, ++points) impulse += c.manifolds[m].points[p].normalImpulse;
+    if (!points) continue;
+    const Body a = body_of(b3Shape_GetBody(c.shapeIdA)), b = body_of(b3Shape_GetBody(c.shapeIdB));
+    out.push_back({a == body ? b : a, impulse});
+  }
+}
+
 RayHit World::cast_ray_ignoring(Vec3 origin, Vec3 translation, Span<const Body> ignore, u64 mask_bits) const {
   RayHit hit;
   if (!valid() || !finite_vec(origin) || !finite_vec(translation)) return hit;

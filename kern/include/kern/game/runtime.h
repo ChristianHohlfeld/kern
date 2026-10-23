@@ -375,6 +375,35 @@ class GameWorld {
   bool walker_servo_load(ActorId id, f32& strain, f32& drive, f32& speed) const;
   /// The network driving the robot now: "walk", "stand", "sit", "rise", "ground_pick", a skill.
   std::string walker_driving(ActorId id) const;
+
+  // ---- Training (kern/src/train): a learning policy drives the walkers ----------------------------
+  /// External control: walker `id`'s controller takes the action set with set_walker_action in place
+  /// of its networks (when no skill, pick or sit runs). The servos take it as trained: home + action,
+  /// scale 1, no low-pass, through the actuator delay.
+  bool set_walker_external(ActorId id, bool on);
+  bool set_walker_action(ActorId id, const f32 action[14]);
+  /// The observation walker `id`'s controller builds at its next control tick (robotd's 61, the
+  /// command slots 48..60 as last smoothed); no side effects. Exact between ticks: the world is at a
+  /// tick when walker_tick_due says so.
+  bool walker_observation(ActorId id, f32 observation[61]) const;
+  /// True when the next fixed step starts a control tick of walker `id`.
+  bool walker_tick_due(ActorId id) const;
+  /// The observation its controller used at the last tick (after the command slots were written).
+  bool walker_last_observation(ActorId id, f32 observation[61]) const;
+  /// What a trainer's reward and its critic read, in real units (the robot's size and time, not the
+  /// world's kWalkerScale): the trunk's pose and velocity, the soles on the ground, a link on a link.
+  struct WalkerProbe {
+    Vec3 position;                  // trunk origin, real metres (world position / scale)
+    Quat rotation;
+    Vec3 velocity, spin;            // world frame, real m/s and rad/s
+    Vec3 gravity;                   // projected gravity in the trunk frame (what the IMU gives)
+    bool foot_contact[2] = {};      // left, right sole on something that is not the duck
+    f32 foot_height[2] = {};        // left, right ankle link origin above the floor, real metres
+    bool self_contact = false;      // two of its own parts touch
+    f32 joint[14] = {}, joint_speed[14] = {};  // relative to home (rad), real rad/s
+    f32 action[14] = {};            // the last action
+  };
+  bool walker_probe(ActorId id, WalkerProbe& out) const;
   /// The last call its voice made ("greet", "chirp", "wheee", ...), "" before the first.
   std::string walker_said(ActorId id) const;
   /// Its servo joints now (radians, the MJCF angle) with their ranges: the policy's 14, the mouth.

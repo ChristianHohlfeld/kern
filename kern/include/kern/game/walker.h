@@ -20,6 +20,9 @@ constexpr f32 kWalkerScale = 4;
 /// are list index + 1; positions are relative to the parent.
 /// rollers: wearing the roller skates (rollers model: blades and four free wheels).
 std::vector<Actor> micro_duck_actors(bool rollers = false);
+/// Adds a Micro Duck to `level` standing at `at` (its trunk on the floor plane at z = 0 when at.z is
+/// 0) and sets the level's step rate for it; returns the trunk's id.
+ActorId add_micro_duck(Level& level, Vec3 at, bool rollers = false);
 /// A crumpled sock for the duck to pick up (seven lumps of fabric on soft springs, tagged "sock"),
 /// in the same convention.
 std::vector<Actor> micro_duck_sock_actors();

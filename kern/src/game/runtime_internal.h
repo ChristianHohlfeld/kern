@@ -54,6 +54,9 @@ struct GameWorld::WalkerBrain {
   i32 decimation = 4, delay = 4;   // physics steps per control tick; command latency in steps
   u64 step = 0;                    // physics steps since start (the control clock)
   f32 action[14] = {};             // the last action (raw network output)
+  bool external = false;           // set_walker_external: the trainer's action drives
+  f32 external_action[14] = {};
+  f32 last_obs[61] = {};           // what the controller saw at the last tick
   f32 target[14] = {};             // joint targets of the last control tick (radians)
   f32 joint_speed[14] = {};        // joint speeds of the last control tick (real rad/s)
   f32 command[3] = {}, head[4] = {};  // smoothed twist (vx, vy, wz) and head command

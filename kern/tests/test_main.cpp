@@ -1,4 +1,5 @@
 // Kern engine unit tests (host build, see kern/tests/run.sh).
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -15,6 +16,7 @@
 #include "kern/game/walker_policy.h"
 #include "kern/game/runtime.h"
 #include "kern/game/walker.h"
+#include "kern/train/env.h"
 #include "kern/studio/studio.h"
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
@@ -4237,6 +4239,99 @@ TEST(micro_duck_rolls_forward_on_its_skates) {
   CHECK(r.driving.find("walk") != std::string::npos);
   CHECK(d > 0.3f);
   CHECK(r.min_up > 0.8f);
+}
+
+TEST(micro_duck_observation_between_ticks_is_what_its_controller_sees) {
+  // The trainer reads the observation between ticks (walker_observation); it must be exactly what
+  // the controller builds at the tick (IMU, joints, lagged speeds, last action).
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0});
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::play));
+  game::PlayInput fwd;
+  fwd.move_y = 1;
+  i32 ticks = 0;
+  f32 worst = 0;
+  for (i32 i = 0; i < 400; ++i) {
+    f32 before[61], after[61];
+    const bool due = f.world->walker_tick_due(duck);
+    if (due) CHECK(f.world->walker_observation(duck, before));
+    f.world->step_once(fwd);
+    if (!due) continue;
+    ++ticks;
+    CHECK(f.world->walker_last_observation(duck, after));
+    for (int k = 0; k < 48; ++k) worst = max_of(worst, std::fabs(before[k] - after[k]));
+  }
+  CHECK(ticks == 100);
+  CHECK(worst == 0);
+}
+
+TEST(train_duck_env_runs_episodes_headless) {
+  train::DuckEnv env(train::make_stand_task(), 7);
+  env.reset();
+  CHECK(env.critic_size() == 61);
+  const auto& p0 = env.probe();
+  CHECK(p0.foot_contact[0] || p0.foot_contact[1] || p0.position.z > 0.1f);
+  // The robot's own walking network, given the trainer's observation, holds it up: the external
+  // path drives the servos exactly as the networks do.
+  auto net = game::walker_policy("velstand.onnx");
+  CHECK(net != nullptr);
+  f32 a[14];
+  bool terminal = false, timeout = false;
+  f32 min_up = 1;
+  i32 steps = 0;
+  while (!terminal && !timeout) {
+    net->run(env.observation(), a);
+    const train::DuckEnv::Step s = env.step(a);
+    CHECK(std::isfinite(s.reward));
+    terminal = s.terminal;
+    timeout = s.timeout;
+    min_up = min_of(min_up, -env.probe().gravity.z);
+    ++steps;
+  }
+  CHECK(!terminal && timeout && steps == 200);  // 4 s at 50 Hz
+  CHECK(min_up > 0.9f);
+  const auto& p = env.probe();
+  CHECK(p.foot_contact[0] && p.foot_contact[1]);
+  CHECK(std::fabs(p.position.z - 0.115f) < 0.02f);
+  CHECK(env.episode_return() > 0);
+  // Reproducible: the same seed, the same episode.
+  train::DuckEnv a1(train::make_jump_task(), 3), a2(train::make_jump_task(), 3);
+  a1.reset();
+  a2.reset();
+  CHECK(a1.critic_size() == 69);
+  train::Rng rng(5);
+  f32 r1 = 0, r2 = 0;
+  for (i32 i = 0; i < 40; ++i) {
+    f32 act[14];
+    for (f32& v : act) v = rng.uniform(-0.3f, 0.3f);
+    r1 += a1.step(act).reward;
+    r2 += a2.step(act).reward;
+  }
+  CHECK(r1 == r2);
+  CHECK(std::memcmp(a1.critic(), a2.critic(), sizeof(f32) * 69) == 0);
+  // A limp duck (all actions far off home) falls and the episode ends as terminal.
+  a1.reset();
+  bool fell = false;
+  for (i32 i = 0; i < 200 && !fell; ++i) {
+    f32 act[14];
+    for (i32 j = 0; j < 14; ++j) act[j] = j % 2 ? 1.2f : -1.2f;
+    fell = a1.step(act).terminal;
+  }
+  CHECK(fell);
+  // Speed of the headless simulation (printed; the trainer's budget).
+  const auto t0 = std::chrono::steady_clock::now();
+  train::DuckEnv bench(train::make_jump_task(), 11);
+  bench.reset();
+  i32 n = 0;
+  for (; n < 150; ++n) {
+    f32 act[14] = {};
+    if (bench.step(act).terminal) bench.reset();
+  }
+  const f64 sec = std::chrono::duration<f64>(std::chrono::steady_clock::now() - t0).count();
+  std::printf("  headless duck: %.0f control ticks/s (%.1fx real time, sanitizer build)\n", n / sec, n * 0.02 / sec);
 }
 
 TEST(micro_duck_walks_with_the_robot_daemons_action_profile) {

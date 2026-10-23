@@ -233,6 +233,9 @@ class World {
   Vec3 joint_torque(Joint joint) const;
   /// Touching contact points of a body (for debug views).
   void contact_points(Body body, std::vector<ContactPoint>& out) const;
+  /// The bodies `body` touches now (a manifold with points), each with the summed normal impulse of
+  /// the last sub-step (N*s): what a contact sensor reports (a sole on the floor, a link on a link).
+  void touching(Body body, std::vector<std::pair<Body, f32>>& out) const;
 
   /// Closest hit along origin + translation (non-sensor shapes whose category matches
   /// mask_bits; shapes of `ignore` are skipped, e.g. the body the ray starts in).
