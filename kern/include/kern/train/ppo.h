@@ -29,8 +29,6 @@ struct PpoConfig {
   bool adaptive_lr = true, clipped_value_loss = true;
   /// A warm-started actor keeps the normaliser its weights were trained with (see warm_start).
   bool freeze_actor_normalizer = false;
-  /// Threads the update's minibatches are cut across (the ParallelFor of iterate / set_parallel).
-  i32 learn_threads = 1;
   u64 seed = 1;
 };
 
@@ -66,13 +64,16 @@ struct Rollout {
 /// Steps environments with a Policy's sampled actions.
 class Collector {
  public:
-  explicit Collector(u64 seed = 1) : rng_(seed) {}
+  /// The action noise of environment k comes from its own stream, seeded by (seed, first_env + k):
+  /// what an environment does depends on its global index only, never on which worker steps it.
+  explicit Collector(u64 seed = 1, i32 first_env = 0) : rng_(seed), first_env_(first_env) {}
   /// `steps` steps of every environment (finished episodes reset); the environments must have been
   /// reset once before the first call.
   void collect(std::vector<Env*>& envs, i32 steps, const Policy& policy, Rollout& out, const ParallelFor& parallel = {});
 
  private:
   Rng rng_;
+  i32 first_env_ = 0;
   std::vector<Rng> env_rng_;
   std::vector<f32> episode_return_;
   std::vector<i32> episode_length_;
@@ -137,7 +138,8 @@ class Ppo {
   i32 iteration_ = 0;
   i64 total_steps_ = 0;
   // The learner's batch: every row of every rollout.
-  std::vector<f32> obs_buf_, crit_buf_, act_buf_, mu_buf_, logp_buf_, value_buf_, return_buf_, adv_buf_;
+  std::vector<f32> obs_buf_, crit_buf_, act_buf_, mu_buf_, logp_buf_, value_buf_, return_buf_, adv_buf_, reward_, last_crit_;
+  std::vector<u8> live_, timeout_;
 };
 
 }  // namespace kern::train

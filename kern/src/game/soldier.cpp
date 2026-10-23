@@ -12,6 +12,7 @@
 // steps on the authority (the standalone game or the network server); the
 // camera feel (bob, recoil kick, shake, field of view) is local presentation.
 #include <algorithm>
+#include "kern/core/dmath.h"
 #include <cmath>
 
 #include "kern/game/geometry.h"
@@ -32,7 +33,7 @@ constexpr f32 kSpawnProtection = 2.5f;
 
 Vec3 aim_direction(f32 yaw_deg, f32 pitch_deg) {
   const f32 y = yaw_deg * kDegree, p = pitch_deg * kDegree;
-  return {std::cos(p) * std::cos(y), std::cos(p) * std::sin(y), -std::sin(p)};
+  return {kern::dm::cos(p) * kern::dm::cos(y), kern::dm::cos(p) * kern::dm::sin(y), -kern::dm::sin(p)};
 }
 
 /// Ray against a vertical capsule (feet, height, radius): distance along the unit ray or -1.
@@ -64,7 +65,7 @@ f32 ray_capsule(Vec3 o, Vec3 d, Vec3 feet, f32 height, f32 radius) {
 
 /// Rotation of `v` about the unit `axis` by `radians`.
 Vec3 rotate_about(Vec3 v, Vec3 axis, f32 radians) {
-  const f32 c = std::cos(radians), s = std::sin(radians);
+  const f32 c = kern::dm::cos(radians), s = kern::dm::sin(radians);
   return v * c + cross(axis, v) * s + axis * (dot(axis, v) * (1 - c));
 }
 
@@ -194,7 +195,7 @@ void GameWorld::damage(ActorId target, f32 amount, ActorId attacker, bool head, 
     hud_.hit_kill = false;
   }
   const Vec3 dd = from - at;
-  const f32 from_yaw = std::atan2(dd.y, dd.x) / kDegree;
+  const f32 from_yaw = kern::dm::atan2(dd.y, dd.x) / kDegree;
   if (victim) {
     ++victim->damage_count;
     victim->damage_from_yaw = from_yaw;
@@ -304,7 +305,7 @@ void GameWorld::drive_soldier(const PlayInput& in, f32 dt) {
 
   // Camera-relative wish direction.
   const f32 yaw = pw_->yaw * kDegree;
-  const Vec3 forward{std::cos(yaw), std::sin(yaw), 0}, right{std::sin(yaw), -std::cos(yaw), 0};
+  const Vec3 forward{kern::dm::cos(yaw), kern::dm::sin(yaw), 0}, right{kern::dm::sin(yaw), -kern::dm::cos(yaw), 0};
   Vec3 wish = right * clamp(in.move_x, -1.0f, 1.0f) + forward * clamp(in.move_y, -1.0f, 1.0f);
   if (length(wish) > 1) wish = normalize(wish);
   if (dead) wish = {};
@@ -432,7 +433,7 @@ void GameWorld::fire_weapon(const PlayInput& in, const WeaponComponent& w) {
     const u32 seed = static_cast<u32>(pw_->actor) * 7919u + pw_->shots * 104729u + static_cast<u32>(pellet) * 31u;
     const f32 r = std::sqrt(rt::noise(seed) * 0.5f + 0.5f) * pw_->spread * kDegree;
     const f32 t = (rt::noise(seed + 1) * 0.5f + 0.5f) * 6.2831853f;
-    const Vec3 dir = normalize(rotate_about(rotate_about(aim, up, r * std::cos(t)), side, r * std::sin(t)));
+    const Vec3 dir = normalize(rotate_about(rotate_about(aim, up, r * kern::dm::cos(t)), side, r * kern::dm::sin(t)));
     // World hit (Box3D ray from the eye; the shooter's own body is skipped).
     physics::RayHit hit = physics_.cast_ray(eye, dir * w.range, ~0ull, self);
     f32 best = hit.hit ? hit.fraction * w.range : w.range;
@@ -520,7 +521,7 @@ void GameWorld::soldier_camera(Camera& cam, f32 dt, const PlayInput& in, const C
   const Actor* a = level_.find(p->actor);
   const WeaponComponent* w = a && a->weapon ? &*a->weapon : nullptr;
   const bool aiming = hud_.aiming && w;
-  const f32 zoom = aiming ? std::tan(c.camera_fov * 0.5f * kDegree) / std::tan(w->aim_fov * 0.5f * kDegree) : 1.0f;
+  const f32 zoom = aiming ? kern::dm::tan(c.camera_fov * 0.5f * kDegree) / kern::dm::tan(w->aim_fov * 0.5f * kDegree) : 1.0f;
   const f32 sens = c.look_sensitivity / max_of(1.0f, zoom);
   // Mouse / touch deltas arrive in degrees.
   camera_yaw_ -= in.look_x * sens;
@@ -580,21 +581,21 @@ void GameWorld::soldier_camera(Camera& cam, f32 dt, const PlayInput& in, const C
   bob_phase_ += 6.2831853f * (1.42f + 0.105f * speed) * dt;
   const f32 bs = bob_weight_ * (sprinting ? 1.2f : 1.0f) * (aiming ? 0.25f : 1.0f);
   // Shot impulse and shake decay.
-  recoil_pitch_ *= std::exp(-8.5f * dt);
-  recoil_yaw_ *= std::exp(-11.5f * dt);
-  recoil_roll_ *= std::exp(-13.0f * dt);
-  shake_energy_ *= std::exp(-15.0f * dt);
-  land_dip_ *= std::exp(-9.0f * dt);
+  recoil_pitch_ *= kern::dm::exp(-8.5f * dt);
+  recoil_yaw_ *= kern::dm::exp(-11.5f * dt);
+  recoil_roll_ *= kern::dm::exp(-13.0f * dt);
+  shake_energy_ *= kern::dm::exp(-15.0f * dt);
+  land_dip_ *= kern::dm::exp(-9.0f * dt);
   const f32 sp = bob_phase_;
   const f32 sh = shake_energy_ * shake_energy_;
   const f32 noise_t = static_cast<f32>(now_ms_ * 0.054);
-  const f32 yaw = camera_yaw_ * kDegree + std::sin(sp) * 0.0017f * bs + recoil_yaw_ + std::sin(noise_t * 1.3f) * 0.0015f * sh;
-  const f32 pitch = camera_pitch_ * kDegree - std::sin(2 * sp) * 0.0031f * bs - recoil_pitch_ + std::sin(noise_t * 1.7f) * 0.0012f * sh;
-  roll += std::sin(sp) * 0.0044f * bs + recoil_roll_ + std::sin(noise_t * 1.1f) * 0.0028f * sh;
-  const Vec3 dir{std::cos(pitch) * std::cos(yaw), std::cos(pitch) * std::sin(yaw), -std::sin(pitch)};
+  const f32 yaw = camera_yaw_ * kDegree + kern::dm::sin(sp) * 0.0017f * bs + recoil_yaw_ + kern::dm::sin(noise_t * 1.3f) * 0.0015f * sh;
+  const f32 pitch = camera_pitch_ * kDegree - kern::dm::sin(2 * sp) * 0.0031f * bs - recoil_pitch_ + kern::dm::sin(noise_t * 1.7f) * 0.0012f * sh;
+  roll += kern::dm::sin(sp) * 0.0044f * bs + recoil_roll_ + kern::dm::sin(noise_t * 1.1f) * 0.0028f * sh;
+  const Vec3 dir{kern::dm::cos(pitch) * kern::dm::cos(yaw), kern::dm::cos(pitch) * kern::dm::sin(yaw), -kern::dm::sin(pitch)};
   const Vec3 side = normalize(cross(dir, {0, 0, 1}), {0, 1, 0});
-  Vec3 eye = feet + Vec3{0, 0, eye_h - land_dip_} + side * (std::sin(sp) * 0.014f * bs) + Vec3{0, 0, -std::cos(2 * sp) * 0.017f * bs};
-  eye += side * (std::sin(noise_t) * 0.0024f * sh) + Vec3{0, 0, std::sin(noise_t * 0.9f) * 0.002f * sh};
+  Vec3 eye = feet + Vec3{0, 0, eye_h - land_dip_} + side * (kern::dm::sin(sp) * 0.014f * bs) + Vec3{0, 0, -kern::dm::cos(2 * sp) * 0.017f * bs};
+  eye += side * (kern::dm::sin(noise_t) * 0.0024f * sh) + Vec3{0, 0, kern::dm::sin(noise_t * 0.9f) * 0.002f * sh};
   cam.eye = eye;
   cam.target = eye + dir * 10;
   cam.up = rotate_about(Vec3{0, 0, 1}, dir, roll);

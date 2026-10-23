@@ -2,6 +2,7 @@
 // (sim/character_model.mjs, sim/weapon_models.mjs, player_walk_mode_v4.mjs,
 // walk_world_experience_hotfix.mjs); colours are sRGB hex as there.
 #include "soldier_models.h"
+#include "kern/core/dmath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,9 +17,9 @@ constexpr f32 kPi = 3.14159265f;
 
 Vec3 rgb(u32 c) { return {((c >> 16) & 255) / 255.0f, ((c >> 8) & 255) / 255.0f, (c & 255) / 255.0f}; }
 
-Mat4 rx(f32 a) { Mat4 m; const f32 c = std::cos(a), s = std::sin(a); m.m[5] = c; m.m[6] = s; m.m[9] = -s; m.m[10] = c; return m; }
-Mat4 ry(f32 a) { Mat4 m; const f32 c = std::cos(a), s = std::sin(a); m.m[0] = c; m.m[2] = -s; m.m[8] = s; m.m[10] = c; return m; }
-Mat4 rz(f32 a) { Mat4 m; const f32 c = std::cos(a), s = std::sin(a); m.m[0] = c; m.m[1] = s; m.m[4] = -s; m.m[5] = c; return m; }
+Mat4 rx(f32 a) { Mat4 m; const f32 c = kern::dm::cos(a), s = kern::dm::sin(a); m.m[5] = c; m.m[6] = s; m.m[9] = -s; m.m[10] = c; return m; }
+Mat4 ry(f32 a) { Mat4 m; const f32 c = kern::dm::cos(a), s = kern::dm::sin(a); m.m[0] = c; m.m[2] = -s; m.m[8] = s; m.m[10] = c; return m; }
+Mat4 rz(f32 a) { Mat4 m; const f32 c = kern::dm::cos(a), s = kern::dm::sin(a); m.m[0] = c; m.m[1] = s; m.m[4] = -s; m.m[5] = c; return m; }
 
 
 }  // namespace
@@ -91,7 +92,7 @@ void Builder::cylinder(f32 top, f32 bottom, f32 len, u32 seg, Vec3 pos, Vec3 rot
   for (u32 i = 0; i < seg; ++i) {
     // Three.js: theta from +Z toward +X (x = sin, z = cos).
     const f32 a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
-    const Vec3 d0{std::sin(a0), 0, std::cos(a0)}, d1{std::sin(a1), 0, std::cos(a1)};
+    const Vec3 d0{kern::dm::sin(a0), 0, kern::dm::cos(a0)}, d1{kern::dm::sin(a1), 0, kern::dm::cos(a1)};
     const Vec3 t0 = d0 * top + Vec3{0, h, 0}, t1 = d1 * top + Vec3{0, h, 0};
     const Vec3 b0 = d0 * bottom + Vec3{0, -h, 0}, b1 = d1 * bottom + Vec3{0, -h, 0};
     const Vec3 n0 = normalize(d0 + Vec3{0, slope, 0}), n1 = normalize(d1 + Vec3{0, slope, 0});
@@ -110,18 +111,18 @@ void Builder::capsule(f32 r, f32 len, u32 seg, Vec3 pos, Vec3 rot, Vec3 scale) {
   const u32 cap = 4;
   for (u32 k = 0; k <= cap; ++k) {
     const f32 a = 0.5f * kPi * k / cap;  // 0 at the pole
-    prof.push_back({r * std::sin(a), len * 0.5f + r * std::cos(a), std::cos(a)});
+    prof.push_back({r * kern::dm::sin(a), len * 0.5f + r * kern::dm::cos(a), kern::dm::cos(a)});
   }
   for (u32 k = 0; k <= cap; ++k) {
     const f32 a = 0.5f * kPi + 0.5f * kPi * k / cap;
-    prof.push_back({r * std::sin(a), -len * 0.5f + r * std::cos(a), std::cos(a)});
+    prof.push_back({r * kern::dm::sin(a), -len * 0.5f + r * kern::dm::cos(a), kern::dm::cos(a)});
   }
   for (std::size_t k = 0; k + 1 < prof.size(); ++k) {
     const Vec3 u = prof[k], v = prof[k + 1];
     const f32 su = std::sqrt(max_of(0.0f, 1 - u.z * u.z)), sv = std::sqrt(max_of(0.0f, 1 - v.z * v.z));
     for (u32 i = 0; i < seg; ++i) {
       const f32 a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
-      const Vec3 d0{std::sin(a0), 0, std::cos(a0)}, d1{std::sin(a1), 0, std::cos(a1)};
+      const Vec3 d0{kern::dm::sin(a0), 0, kern::dm::cos(a0)}, d1{kern::dm::sin(a1), 0, kern::dm::cos(a1)};
       const Vec3 p00 = d0 * u.x + Vec3{0, u.y, 0}, p01 = d1 * u.x + Vec3{0, u.y, 0};
       const Vec3 p10 = d0 * v.x + Vec3{0, v.y, 0}, p11 = d1 * v.x + Vec3{0, v.y, 0};
       const Vec3 n00 = d0 * su + Vec3{0, u.z, 0}, n01 = d1 * su + Vec3{0, u.z, 0};
@@ -139,7 +140,7 @@ void Builder::sphere(f32 r, u32 seg, u32 rings, Vec3 pos, Vec3 rot, Vec3 scale, 
   auto pt = [&](u32 i, u32 k) {
     const f32 th = theta_end * k / rings, ph = 2 * kPi * i / seg;
     // Three.js SphereGeometry: x = -cos(phi) sin(theta), y = cos(theta), z = sin(phi) sin(theta)
-    return Vec3{-std::cos(ph) * std::sin(th), std::cos(th), std::sin(ph) * std::sin(th)};
+    return Vec3{-kern::dm::cos(ph) * kern::dm::sin(th), kern::dm::cos(th), kern::dm::sin(ph) * kern::dm::sin(th)};
   };
   for (u32 k = 0; k < rings; ++k)
     for (u32 i = 0; i < seg; ++i) {
@@ -153,7 +154,7 @@ void Builder::circle(f32 r, u32 seg, Vec3 pos, Vec3 rot) {
   cur_ = part(pos, rot, {1, 1, 1});
   for (u32 i = 0; i < seg; ++i) {
     const f32 a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
-    flat({0, 0, 0}, {std::cos(a0) * r, std::sin(a0) * r, 0}, {std::cos(a1) * r, std::sin(a1) * r, 0}, {0, 0, 1});
+    flat({0, 0, 0}, {kern::dm::cos(a0) * r, kern::dm::sin(a0) * r, 0}, {kern::dm::cos(a1) * r, kern::dm::sin(a1) * r, 0}, {0, 0, 1});
   }
 }
 
@@ -224,7 +225,7 @@ namespace {
 void torus(Builder& b, f32 radius, f32 tube, Vec3 pos) {
   for (u32 i = 0; i < 20; ++i) {
     const f32 a = 2 * kPi * (i + 0.5f) / 20;
-    b.box({tube * 2, 2 * kPi * radius / 20 * 1.05f, tube * 2}, pos + Vec3{std::cos(a) * radius, std::sin(a) * radius, 0}, {0, 0, a});
+    b.box({tube * 2, 2 * kPi * radius / 20 * 1.05f, tube * 2}, pos + Vec3{kern::dm::cos(a) * radius, kern::dm::sin(a) * radius, 0}, {0, 0, a});
   }
 }
 
@@ -344,7 +345,7 @@ void sniper(Builder& b, WeaponModel& w) {
   b.material(black, 0.4f);
   for (int i = 0; i < 6; ++i) {
     const f32 a = i * kPi / 3;
-    b.box({.006f, .006f, .70f}, {std::cos(a) * .026f, .015f + std::sin(a) * .026f, -.82f});
+    b.box({.006f, .006f, .70f}, {kern::dm::cos(a) * .026f, .015f + kern::dm::sin(a) * .026f, -.82f});
   }
   b.cylinder(.040f, .040f, .13f, 10, {0, .015f, -1.42f}, {kPi / 2, 0, 0});
   b.material(steel, 0.7f);
@@ -395,7 +396,7 @@ void boomstick(Builder& b, WeaponModel& w) {
   b.material(dark, 0.15f);
   for (int i = 0; i < 6; ++i) {
     const f32 a = i / 6.0f * 2 * kPi;
-    b.cylinder(.026f, .026f, .205f, 10, {std::cos(a) * .07f, -.005f + std::sin(a) * .07f, -.36f}, {kPi / 2, 0, 0});
+    b.cylinder(.026f, .026f, .205f, 10, {kern::dm::cos(a) * .07f, -.005f + kern::dm::sin(a) * .07f, -.36f}, {kPi / 2, 0, 0});
   }
   b.cylinder(.058f, .058f, .36f, 14, {0, .03f, -.62f}, {kPi / 2, 0, 0});
   b.material(orange, 0.1f);
@@ -584,15 +585,15 @@ namespace {
 constexpr f32 kTau = 2 * kPi, kThigh = .45f, kShin = .44f, kAnkleZ = .05f, kToe = .185f, kReach = .885f, kHipDrop = .02f;
 
 f32 clampf(f32 v, f32 a, f32 b) { return std::max(a, std::min(b, v)); }
-f32 ease(f32 t) { return (1 - std::cos(kPi * clampf(t, 0, 1))) / 2; }
+f32 ease(f32 t) { return (1 - kern::dm::cos(kPi * clampf(t, 0, 1))) / 2; }
 f32 cadence(f32 speed) { return clampf(150 + 6.5f * speed, 160, 205); }
 f32 fract(f32 v) { return v - std::floor(v); }
 
 void leg_ik(f32 dy, f32 dz, f32& hip, f32& knee) {
-  f32 d = clampf(std::hypot(dy, dz), .35f, kReach);
-  const f32 flex = kPi - std::acos(clampf((kThigh * kThigh + kShin * kShin - d * d) / (2 * kThigh * kShin), -1, 1));
-  const f32 beta = std::acos(clampf((kThigh * kThigh + d * d - kShin * kShin) / (2 * kThigh * d), -1, 1));
-  hip = std::atan2(dy, -dz) + beta;
+  f32 d = clampf(kern::dm::hypot(dy, dz), .35f, kReach);
+  const f32 flex = kPi - kern::dm::acos(clampf((kThigh * kThigh + kShin * kShin - d * d) / (2 * kThigh * kShin), -1, 1));
+  const f32 beta = kern::dm::acos(clampf((kThigh * kThigh + d * d - kShin * kShin) / (2 * kThigh * d), -1, 1));
+  hip = kern::dm::atan2(dy, -dz) + beta;
   knee = -flex;
 }
 
@@ -606,11 +607,11 @@ RunOut run_gait(f32 p, f32 speed) {
   const f32 lc = speed * duty * tc, y_land = lc * .42f;
   const f32 amp = clampf(.012f + .006f * speed, .018f, .032f), z_low = .905f - clampf(.012f * (speed - 2.5f), 0, .05f);
   const f32 phi_l = fract(p / kTau);
-  auto pelvis_at = [&](f32 phi) { const f32 st = fract((phi - duty / 2) * 2); return z_low + amp * (1 - std::cos(kTau * st)); };
+  auto pelvis_at = [&](f32 phi) { const f32 st = fract((phi - duty / 2) * 2); return z_low + amp * (1 - kern::dm::cos(kTau * st)); };
   o.pelvis_z = pelvis_at(phi_l);
   auto stance = [&](f32 u, f32 pz, f32& h, f32& k, f32& an) {
-    const f32 th = u < .55f ? 0 : -.72f * std::pow((u - .55f) / .45f, 1.6f);
-    const f32 toe_y = y_land + kToe - lc * u, ay = toe_y - kToe * std::cos(th), az = kAnkleZ + kToe * std::sin(-th);
+    const f32 th = u < .55f ? 0 : -.72f * kern::dm::pow((u - .55f) / .45f, 1.6f);
+    const f32 toe_y = y_land + kToe - lc * u, ay = toe_y - kToe * kern::dm::cos(th), az = kAnkleZ + kToe * kern::dm::sin(-th);
     leg_ik(ay, az - (pz - kHipDrop), h, k);
     an = th - (h + k);
   };
@@ -622,14 +623,14 @@ RunOut run_gait(f32 p, f32 speed) {
     if (phi < duty) { stance(phi / duty, pelvis_at(phi), h, k, an); return; }
     const f32 u = (phi - duty) / (1 - duty), e = ease(u / .82f);
     h = h_to + (h_s + ov - h_to) * e - ov * ease((u - .82f) / .18f);
-    k = k_to + (k_s - k_to) * u - k_add * std::pow(std::max(0.0f, std::sin(kPi * std::min(1.0f, u / .86f))), 1.3f);
-    an = a_to + (a_s - a_to) * ease(u) + .12f * std::sin(kPi * u);
+    k = k_to + (k_s - k_to) * u - k_add * kern::dm::pow(std::max(0.0f, kern::dm::sin(kPi * std::min(1.0f, u / .86f))), 1.3f);
+    an = a_to + (a_s - a_to) * ease(u) + .12f * kern::dm::sin(kPi * u);
   };
   leg(phi_l, o.hipL, o.knL, o.anL);
   leg(fract(phi_l + .5f), o.hipR, o.knR, o.anR);
   o.anL = clampf(o.anL, -.95f, .55f);
   o.anR = clampf(o.anR, -.95f, .55f);
-  const f32 a = std::cos(kTau * (phi_l + .04f)), aa = clampf(.3f + .07f * speed, .42f, .95f);
+  const f32 a = kern::dm::cos(kTau * (phi_l + .04f)), aa = clampf(.3f + .07f * speed, .42f, .95f);
   o.shL = .12f - aa * a;
   o.shR = .12f + aa * a;
   o.elL = 1.42f - .22f * a;
@@ -657,7 +658,7 @@ void CharacterAnimator::update(const Input& in) {
   const f32 dt = clampf(in.dt, 0, .1f);
   const bool air = in.air && !in.dead;
   const f32 speed = air || in.dead ? 0 : in.speed;
-  const f32 k = 1 - std::exp(-dt * 12);
+  const f32 k = 1 - kern::dm::exp(-dt * 12);
   const bool moving = speed > .25f, run = speed > 3.2f && in.crouch < .5f;
   phase_ += dt * (run ? kTau * cadence(speed) / 120 : moving ? std::min(12.0f, 4.2f + speed * 1.9f) : 1.2f);
   if (phase_ > 1000 * kTau) phase_ -= 1000 * kTau;
@@ -666,10 +667,10 @@ void CharacterAnimator::update(const Input& in) {
   if (run) g = run_gait(phase_, speed);
   const f32 kr = run ? (run_w_ >= 1 ? 1 : std::max(k, run_w_ * run_w_)) : k;
   const f32 p = phase_;
-  const f32 swing = moving ? std::sin(p) * std::min(.75f, .3f + speed * .09f) : 0;
-  const f32 lift = moving ? std::max(0.0f, std::cos(p)) * .35f : 0, lift_o = moving ? std::max(0.0f, -std::cos(p)) * .35f : 0;
+  const f32 swing = moving ? kern::dm::sin(p) * std::min(.75f, .3f + speed * .09f) : 0;
+  const f32 lift = moving ? std::max(0.0f, kern::dm::cos(p)) * .35f : 0, lift_o = moving ? std::max(0.0f, -kern::dm::cos(p)) * .35f : 0;
   // Pelvis height (Kern: crouching lowers it).
-  const f32 pz = run && !air ? g.pelvis_z : .96f - (moving ? std::fabs(std::sin(p)) * .03f : 0);
+  const f32 pz = run && !air ? g.pelvis_z : .96f - (moving ? std::fabs(kern::dm::sin(p)) * .03f : 0);
   pelvis_z_ = lerpf(pelvis_z_, pz - in.crouch * .3f, run ? kr : k);
   rot_[kPelvis].z = run ? g.pelvis_yaw * run_w_ : 0;
   rot_[kAnkleL].x = run ? g.anL * run_w_ : 0;
@@ -678,7 +679,7 @@ void CharacterAnimator::update(const Input& in) {
   if (in.dead) {
     set(kHipL, {0, 0, .1f}, k); set(kHipR, {0, 0, -.1f}, k); set(kKneeL, {}, k); set(kKneeR, {}, k);
   } else if (air) {
-    const f32 sway = std::sin(p * .9f) * .05f;
+    const f32 sway = kern::dm::sin(p * .9f) * .05f;
     set(kHipL, {.32f + sway, 0, .08f}, k); set(kHipR, {.08f - sway, 0, -.08f}, k);
     set(kKneeL, {-.55f, 0, 0}, k); set(kKneeR, {-.3f, 0, 0}, k);
   } else if (run) {
@@ -766,14 +767,14 @@ MeshData flash_mesh() {
   const Vec3 core{1, .96f, .82f}, mid{1, .7f, .3f}, tip{1, .42f, .08f};
   const u32 n = 28;
   auto spikes = [](f32 a) {
-    const f32 sp = std::pow(std::fabs(std::cos(2.5f * a + 1.3f)), 14.0f) + .75f * std::pow(std::fabs(std::cos(4 * a + 3)), 26.0f) +
-                   .5f * std::pow(std::fabs(std::cos(7 * a + 6.6f)), 40.0f);
+    const f32 sp = kern::dm::pow(std::fabs(kern::dm::cos(2.5f * a + 1.3f)), 14.0f) + .75f * kern::dm::pow(std::fabs(kern::dm::cos(4 * a + 3)), 26.0f) +
+                   .5f * kern::dm::pow(std::fabs(kern::dm::cos(7 * a + 6.6f)), 40.0f);
     return .18f + .82f * std::min(1.0f, sp);
   };
   for (u32 i = 0; i < n; ++i) {
     const f32 a0 = 2 * kPi * i / n, a1 = 2 * kPi * (i + 1) / n;
     const f32 r0 = spikes(a0) * .1f, r1 = spikes(a1) * .1f;
-    const Vec3 p0{std::cos(a0) * r0, std::sin(a0) * r0, -.012f}, p1{std::cos(a1) * r1, std::sin(a1) * r1, -.012f};
+    const Vec3 p0{kern::dm::cos(a0) * r0, kern::dm::sin(a0) * r0, -.012f}, p1{kern::dm::cos(a1) * r1, kern::dm::sin(a1) * r1, -.012f};
     const Vec3 q0 = p0 * .35f, q1 = p1 * .35f;
     push_tri(m, {0, 0, -.012f}, q0, q1, core, core, core, {0, 0, 1});
     push_tri(m, q0, p0, p1, mid, tip, tip, {0, 0, 1});
@@ -784,8 +785,8 @@ MeshData flash_mesh() {
     const u32 steps = 10;
     for (u32 s = 0; s < steps; ++s) {
       const f32 x0 = static_cast<f32>(s) / steps, x1 = static_cast<f32>(s + 1) / steps;
-      auto w = [](f32 x) { return ((1 - x) * (.42f + .18f * std::sin(17 * x + 2)) + .05f) * .11f; };
-      const Vec3 c0 = tip + (core - tip) * std::pow(1 - x0, 2.0f), c1 = tip + (core - tip) * std::pow(1 - x1, 2.0f);
+      auto w = [](f32 x) { return ((1 - x) * (.42f + .18f * kern::dm::sin(17 * x + 2)) + .05f) * .11f; };
+      const Vec3 c0 = tip + (core - tip) * kern::dm::pow(1 - x0, 2.0f), c1 = tip + (core - tip) * kern::dm::pow(1 - x1, 2.0f);
       const Vec3 side = plane ? Vec3{0, 1, 0} : Vec3{1, 0, 0};
       const Vec3 n = plane ? Vec3{1, 0, 0} : Vec3{0, 1, 0};
       const Vec3 a{0, 0, -x0 * .26f}, b{0, 0, -x1 * .26f};
@@ -800,7 +801,7 @@ MeshData tracer_mesh(u32 seg) {
   MeshData m;
   for (u32 i = 0; i < seg; ++i) {
     const f32 a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
-    const Vec3 d0{std::cos(a0), std::sin(a0), 0}, d1{std::cos(a1), std::sin(a1), 0};
+    const Vec3 d0{kern::dm::cos(a0), kern::dm::sin(a0), 0}, d1{kern::dm::cos(a1), kern::dm::sin(a1), 0};
     push_tri(m, d0, d1, d1 + Vec3{0, 0, 1}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}, normalize(d0 + d1));
     push_tri(m, d0, d1 + Vec3{0, 0, 1}, d0 + Vec3{0, 0, 1}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}, normalize(d0 + d1));
   }
@@ -813,7 +814,7 @@ MeshData decal_mesh() {
   const u32 seg = 14;
   for (u32 i = 0; i < seg; ++i) {
     const f32 a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
-    const Vec3 p0{std::cos(a0), std::sin(a0), 0}, p1{std::cos(a1), std::sin(a1), 0};
+    const Vec3 p0{kern::dm::cos(a0), kern::dm::sin(a0), 0}, p1{kern::dm::cos(a1), kern::dm::sin(a1), 0};
     push_tri(m, {0, 0, 0}, p0 * .45f, p1 * .45f, {.35f, .35f, .35f}, {.6f, .6f, .6f}, {.6f, .6f, .6f}, {0, 0, 1});
     push_tri(m, p0 * .45f, p0, p1, {.6f, .6f, .6f}, {1, 1, 1}, {1, 1, 1}, {0, 0, 1});
     push_tri(m, p0 * .45f, p1, p1 * .45f, {.6f, .6f, .6f}, {1, 1, 1}, {.6f, .6f, .6f}, {0, 0, 1});

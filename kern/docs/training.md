@@ -224,7 +224,56 @@ kern/build/kern_train --eval jump.onnx --task jump   # sauberer Roboter: Höhe, 
   Worker aus und prüft den ONNX-Export.
 - **Lokal (Playwright):** 2 Worker, 3 Iterationen; die heruntergeladene Datei lädt in ONNX Runtime.
 
-### Hinweis
+## 7. Determinismus: Bit für Bit, auf jeder Plattform
+
+Eine Simulation, ein Trainingslauf oder ein abgespieltes Roboter-Log kommt überall gleich heraus:
+nativ auf x86 und ARM (GCC, Clang, Apple clang) und als WebAssembly in jedem Browser. Ein Fehler
+der Simulation ist damit ein fester, reproduzierbarer Fehler und kein Rauschen, das je nach Rechner
+anders aussieht.
+
+### Was dafür nötig ist
+
+- **Keine FMA-Zusammenfassung:** Alles (Kern, Box3D, libm) wird mit `-ffp-contract=off` übersetzt.
+  Sonst rundet `a*b+c` auf ARM und x86 mit `-march=native` anders als in WebAssembly.
+- **Box3D im Skalar-Pfad** (`BOX3D_DISABLE_SIMD`), wie in WebAssembly. Gemessen kostet das nativ
+  nichts: Der Löser der Gelenke ist der Engpass, nicht die SIMD-Kontakte.
+- **Eigene libm:** `sin`, `cos`, `atan2`, `exp`, `log`, `pow` ... runden in glibc, Apples libm,
+  Androids bionic und wasi-libc im letzten Bit unterschiedlich. Ein Bit wird in einer
+  Robotersimulation in Sekunden zu einem anderen Gang. Kern nutzt deshalb überall die
+  Implementierungen von musl (MIT, `third_party/musl_math`, umbenannt in `kern_musl_*`) über
+  `kern::dm::` (`include/kern/core/dmath.h`). `sqrt`, `fabs`, `floor` sind in IEEE exakt und
+  bleiben `std::`. Box3D hat eigene deterministische Winkelfunktionen.
+- **Training unabhängig von der Zahl der Worker:**
+  - Jede Ente bekommt ihren Seed aus (Seed, globaler Index), nicht aus dem Worker.
+  - Der Lerner ordnet die Rollouts kanonisch (Schritt für Schritt, Ente für Ente nach globalem
+    Index), bevor er Normalisierer, GAE und Update rechnet.
+  - Das Update teilt jede Minibatch in feste 8 Teile (`kLearnChunks`) und summiert sie in fester
+    Reihenfolge, egal wie viele Threads sie rechnen.
+  - Gleicher Seed und gleiche Zahl Enten ergeben also dasselbe Netz, ob auf 1 Kern, 16 Kernen oder
+    4 Web Workern.
+
+### Prüfung
+
+- **Fingerabdruck:** `kern_train --fingerprint 400` lässt die Ente 400 Regeltakte gehen und drehen
+  (Pollens Netz, Studio-Physik) und gibt je Takt einen Hash über Lage, Geschwindigkeiten und alle
+  Gelenke aus. Die Referenz liegt in `tests/determinism_fingerprint.txt`.
+- **CI prüft sie dreimal:**
+  - GCC auf x86 mit Sanitizern (Test `determinism_is_bit_identical_across_builds_and_platforms`),
+  - WebAssembly in Node (`tests/train_wasm_test.mjs`),
+  - Apple clang auf ARM (macOS-Job `determinism`, mit `-mcpu=native`).
+- **Worker:** `train_runs_the_same_on_any_number_of_workers` trainiert mit 1, 2 und 4 Workern
+  (je 8 Enten insgesamt) und vergleicht die Netze Byte für Byte.
+- **Geschwindigkeit:** Ein Trainingsschritt kostet gleich viel wie vorher (gemessen auf 16 Substeps,
+  rund 1100 Regeltakte/s je Kern nativ). musls Funktionen sind so schnell wie die der Plattform, und
+  die Physik wird von den Gelenken bestimmt.
+
+### Regel für neuen Code
+
+Alles, was die Simulation speist, nutzt `kern::dm::sin` usw. statt `std::sin`. Keine
+Gleitkomma-Reihenfolge, die von der Zahl der Threads abhängt (Summen in fester Reihenfolge). Keine
+`-ffast-math`-Optionen.
+
+## Hinweis zum Browser-Lernen
 
 Die Rollouts fertigt der Sammler mit festen Normalisierern an; der Lerner aktualisiert sie aus allen
 Beobachtungen vor dem Update (rsl_rl tut es Schritt für Schritt). Mit der Neubewertung der alten

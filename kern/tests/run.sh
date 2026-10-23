@@ -21,12 +21,21 @@ for c in "$root"/third_party/box3d/src/*.c; do
   fi
 done
 for p in "${pids[@]}"; do wait "$p"; done
+# The deterministic libm (kern/core/dmath.h).
+mkdir -p "$out/musl_math"
+for c in "$root"/third_party/musl_math/src/*.c; do
+  o="$out/musl_math/$(basename "$c" .c).o"
+  objects+=("$o")
+  if [ ! -f "$o" ] || [ "$c" -nt "$o" ] || [ -n "$(find "$root/third_party/musl_math" -name '*.h' -newer "$o" | head -1)" ]; then
+    "$cc" -std=c17 -O2 -g -ffp-contract=off -fno-math-errno -w -c "$c" -o "$o"
+  fi
+done
 sources=()
 while IFS= read -r f; do sources+=("$f"); done < <(find "$root/src" -name '*.cpp' | sort)
 sources+=("$here/gl_stub.cpp" "$here/test_main.cpp")
 # One object per source, compiled in parallel (all cores).
 cxx="${CXX:-c++}"
-flags=(-std=c++20 -O1 -g -fno-exceptions -fno-rtti -fsanitize=address,undefined -fno-sanitize-recover=undefined
+flags=(-std=c++20 -O1 -g -ffp-contract=off -fno-exceptions -fno-rtti -fsanitize=address,undefined -fno-sanitize-recover=undefined
        -Wall -Wextra -Wno-unused-parameter -Werror -I"$root/include" -I"$root/third_party/box3d/include" -I"$here")
 mkdir -p "$out/obj"
 export cxx
@@ -42,6 +51,6 @@ if [ $# -eq 0 ]; then
   "$out/kern_tests" --emit-logic "$gen"
   core=()
   for f in "${cpp_objects[@]}"; do case "$f" in *_src_logic_*|*_src_core_*) core+=("$f") ;; esac; done
-  "$cxx" "${flags[@]}" "$here/logic_native_test.cpp" "$gen"/logic_*.cpp "${core[@]}" -lm -o "$out/logic_native_test"
+  "$cxx" "${flags[@]}" "$here/logic_native_test.cpp" "$gen"/logic_*.cpp "${core[@]}" "$out"/musl_math/*.o -lm -o "$out/logic_native_test"
   "$out/logic_native_test" "$gen/logic_expected.txt"
 fi

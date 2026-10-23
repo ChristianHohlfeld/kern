@@ -9,6 +9,7 @@
 //
 // Generated data (tools/micro_duck_import.py): micro_duck_model.inc, micro_duck_velstand.inc.
 #include <algorithm>
+#include "kern/core/dmath.h"
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -413,7 +414,7 @@ void micro_duck_policy(const f32 observation[61], f32 action[14]) {
       f32 sum = biases[layer][o];
       const f32* row = w + static_cast<std::size_t>(o) * static_cast<std::size_t>(n_in);
       for (int i = 0; i < n_in; ++i) sum += row[i] * in[i];
-      out[o] = layer < 3 ? (sum > 0 ? sum : std::expm1(sum)) : sum;  // ELU (alpha 1)
+      out[o] = layer < 3 ? (sum > 0 ? sum : kern::dm::expm1(sum)) : sum;  // ELU (alpha 1)
     }
     std::swap(in, out);
   }
@@ -919,9 +920,9 @@ bool GameWorld::walker_sees(ActorId id, ActorId target, bool& visible, f32& bear
   const Vec3 to = m.translation() - cam.eye, f = normalize(cam.target - cam.eye), u = normalize(cam.up), r = cross(f, u);
   const f32 x = dot(to, f), y = dot(to, r), z = dot(to, u);
   distance = length(to);
-  bearing = std::atan2(-y, x);
+  bearing = kern::dm::atan2(-y, x);
   if (x <= 0) return true;
-  const f32 tan_v = std::tan(cam.fov / 2), tan_h = tan_v * kCameraAspect;
+  const f32 tan_v = kern::dm::tan(cam.fov / 2), tan_h = tan_v * kCameraAspect;
   if (std::fabs(y) > x * tan_h || std::fabs(z) > x * tan_v) return true;
   const physics::RayHit hit = physics_.cast_ray_ignoring(cam.eye, to, Span<const physics::Body>(w->bodies, WalkerBrain::kBodies));
   auto it = actor_of_body_.find(hit.body.id);
@@ -993,7 +994,7 @@ void GameWorld::sense_walker(WalkerBrain& w) {
   w.tilted_for = out.gravity.z > kFallGravityZ ? w.tilted_for + kControlPeriod : 0.0f;
   out.fallen = w.tilted_for >= kFallDebounce;
   const Vec3 v = physics_.linear_velocity(w.trunk);
-  out.speed = std::hypot(v.x, v.y);
+  out.speed = kern::dm::hypot(v.x, v.y);
   if (sim_time_ + 1e-6 < w.next_tof) return;
   w.next_tof = sim_time_ + 1.0 / (kTofRate / std::sqrt(S));  // 15 Hz real
   out.tof_time = sim_time_;
@@ -1015,36 +1016,36 @@ void GameWorld::sense_walker(WalkerBrain& w) {
   const f32 above_floor = origin.z - ground;
   const f32 half = kTofFov / 2 - kTofFov / kTofSide / 2, step = 2 * half / (kTofSide - 1);
   const Vec3 fwd = tp.rotation.rotate({1, 0, 0});
-  const f32 heading = std::atan2(fwd.y, fwd.x);
+  const f32 heading = kern::dm::atan2(fwd.y, fwd.x);
   out.nearest = -1;
   out.hits = 0;
   out.forward_observed = 0;
   int blocked_left = 0, blocked_right = 0;
   for (int i = 0; i < WalkerSensors::kZones; ++i) {
     const f32 elevation = half - static_cast<f32>(i / kTofSide) * step, azimuth = half - static_cast<f32>(i % kTofSide) * step;
-    const Vec3 beam{std::cos(elevation) * std::cos(azimuth), std::cos(elevation) * std::sin(azimuth), std::sin(elevation)};
+    const Vec3 beam{kern::dm::cos(elevation) * kern::dm::cos(azimuth), kern::dm::cos(elevation) * kern::dm::sin(azimuth), kern::dm::sin(elevation)};
     const Vec3 dir = ax * beam.x + ay * beam.y + az * beam.z;
     const physics::RayHit hit = physics_.cast_ray_ignoring(origin, dir * (kTofMaxRange * S), Span<const physics::Body>(w.bodies, WalkerBrain::kBodies));
     // A beam within 0.3 rad of the trunk's heading observes the walking path (obstacle.rs: a range,
     // the floor, or "nothing there" all say something).
-    if (std::fabs(rt::wrap180((std::atan2(dir.y, dir.x) - heading) / rt::kDegree) * rt::kDegree) < 0.3f && dir.x * fwd.x + dir.y * fwd.y > 0) ++out.forward_observed;
+    if (std::fabs(rt::wrap180((kern::dm::atan2(dir.y, dir.x) - heading) / rt::kDegree) * rt::kDegree) < 0.3f && dir.x * fwd.x + dir.y * fwd.y > 0) ++out.forward_observed;
     if (!hit.hit) { out.range[i] = -1; out.zone[i] = 0; continue; }
     const f32 r = hit.fraction * kTofMaxRange * S;
     out.range[i] = r;
     {  // obstacle.rs: returns above the floor, at most 0.35 m high and 1.5 m away (real)
       const Vec3 p = origin + dir * r;
-      const f32 height = p.z - ground, flat = r * std::hypot(dir.x, dir.y);
+      const f32 height = p.z - ground, flat = r * kern::dm::hypot(dir.x, dir.y);
       const bool floor = above_floor > 0 && -dir.z > 0 && r * -dir.z >= above_floor * kTofFloorSafety;
       if (!floor && height <= 0.35f * S && flat <= 1.5f * S && out.hits < WalkerSensors::kZones) out.hit[out.hits++] = {p.x, p.y, height};
     }
     const f32 downward = -dir.z;
     if (above_floor > 0 && downward > 0 && r * downward >= above_floor * kTofFloorSafety) { out.zone[i] = 2; continue; }
-    const f32 horizontal = r * std::hypot(dir.x, dir.y);
+    const f32 horizontal = r * kern::dm::hypot(dir.x, dir.y);
     if (horizontal < kTofMinRange * S) { out.zone[i] = 1; continue; }
     out.zone[i] = 3;
     if (out.nearest < 0 || horizontal < out.nearest) {
       out.nearest = horizontal;
-      out.nearest_bearing = rt::wrap180((std::atan2(dir.y, dir.x) - heading) / rt::kDegree) * rt::kDegree;
+      out.nearest_bearing = rt::wrap180((kern::dm::atan2(dir.y, dir.x) - heading) / rt::kDegree) * rt::kDegree;
     }
     if (horizontal < 1.0f * S) ((i % kTofSide) < kTofSide / 2 ? blocked_left : blocked_right)++;
   }
@@ -1060,7 +1061,7 @@ void GameWorld::drive_walker(const PlayInput& in, f32 dt) {
   pw_->jump_latch = in.jump;  // the duck's voice is in drive_walkers (Space / QUACK: the chirp)
   if (auto it = body_of_actor_.find(pw_->actor); it != body_of_actor_.end()) {
     const Vec3 v = physics_.linear_velocity(it->second->body);
-    hud_.speed = std::hypot(v.x, v.y);
+    hud_.speed = kern::dm::hypot(v.x, v.y);
   }
 }
 
@@ -1094,8 +1095,8 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     for (int i = 51; i < 61; ++i) obs[i] = 0;  // head and body zero-padded, as trained
     if (d.phase_slot >= 0 && d.period > 0) {  // a phase-encoded move (Kern's jump): its clock, as trained
       const f32 a = 2 * 3.14159265f * (d.duration - w.skill_remaining) / d.period;
-      obs[d.phase_slot] = std::cos(a);
-      obs[d.phase_slot + 1] = std::sin(a);
+      obs[d.phase_slot] = kern::dm::cos(a);
+      obs[d.phase_slot + 1] = kern::dm::sin(a);
     }
     net = walker_policy(d.file);
     if (d.action_scale >= 0) scale = d.action_scale;
@@ -1103,8 +1104,8 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
   } else if (w.pick_phase >= 0) {
     const PhaseDef& d = w.rollers ? set.crouch : set.pick;
     const f32 a = 2 * 3.14159265f * w.pick_phase;
-    obs[48] = std::cos(a);
-    obs[49] = std::sin(a);
+    obs[48] = kern::dm::cos(a);
+    obs[49] = kern::dm::sin(a);
     obs[50] = 0;
     for (int i = 51; i < 61; ++i) obs[i] = 0;
     net = walker_policy(d.file);

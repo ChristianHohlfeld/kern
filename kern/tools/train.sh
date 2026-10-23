@@ -1,34 +1,69 @@
 #!/usr/bin/env bash
-# Builds kern_train, the headless trainer (native, optimised, all cores):
+# Builds kern_train, the headless Lehrer (native, optimised, all cores; Linux and macOS, x86 and ARM):
 #   kern/tools/train.sh [out-dir]      -> <out-dir>/kern_train (default kern/build)
-# Then e.g.: kern/build/kern_train --task jump --envs 64 --iterations 1500 --out jump.onnx
+# Then e.g.: kern/build/kern_train --task jump --iterations 600 --out jump.onnx
+#
+# Bit-identical with the browser and the Studio (docs/training.md, determinism): Box3D's scalar path,
+# no FMA contraction anywhere (-ffp-contract=off), the deterministic libm (third_party/musl_math).
+# The CPU-specific flags (KERN_NATIVE=1, the default) only let the compiler pick instructions; they
+# never change a result.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(dirname "$here")"
 out="${1:-$root/build}"
-mkdir -p "$out/obj/box3d" "$out/obj/cpp"
+mkdir -p "$out/obj/box3d" "$out/obj/musl_math" "$out/obj/cpp"
 cc="${CC:-cc}" cxx="${CXX:-c++}"
 jobs="${KERN_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}"
-opt=(-O3 -DNDEBUG)
-[ "${KERN_NATIVE:-1}" = 1 ] && opt+=(-march=native)
-# Box3D's SIMD solver path (SSE/AVX/NEON) natively; the browser build runs the scalar path. The
-# physics is the same model either way, only the float rounding differs.
-box3d_simd=""
-[ "${KERN_BOX3D_SIMD:-1}" = 1 ] || box3d_simd="-DBOX3D_DISABLE_SIMD -ffp-contract=off"
+opt=(-O3 -DNDEBUG -ffp-contract=off)
+if [ "${KERN_NATIVE:-1}" = 1 ]; then
+  for f in -march=native -mcpu=native; do
+    if echo 'int main(){return 0;}' | "$cxx" -x c++ "$f" -o /dev/null - 2>/dev/null; then opt+=("$f"); break; fi
+  done
+fi
+
+# A small job pool (portable to macOS' bash 3.2 and BSD tools): at most $jobs compilers at once,
+# and any failing one fails the build.
+pids=()
+run() {
+  "$@" &
+  pids+=($!)
+  if [ "${#pids[@]}" -ge "$jobs" ]; then
+    wait "${pids[0]}"
+    pids=("${pids[@]:1}")
+  fi
+}
+finish() {
+  local p
+  for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
+  pids=()
+}
+# Is the object $1 older than its source $2 or the header $3?
+stale() { [ ! -f "$1" ] || [ "$2" -nt "$1" ] || [ "$3" -nt "$1" ]; }
+
+box_header="$(ls -t "$root"/third_party/box3d/src/*.h "$root"/third_party/box3d/include/box3d/*.h | head -1)"
 for c in "$root"/third_party/box3d/src/*.c; do
   o="$out/obj/box3d/$(basename "$c" .c).o"
-  [ -f "$o" ] && [ "$o" -nt "$c" ] || echo "$c"
-done | xargs -r -P "$jobs" -I{} sh -c '"$0" -std=c17 '"${opt[*]} ${box3d_simd}"' -w -I"$1/third_party/box3d/include" -I"$1/third_party/box3d/src" -c "{}" -o "$2/obj/box3d/$(basename "{}" .c).o"' "$cc" "$root" "$out"
+  if stale "$o" "$c" "$box_header"; then
+    run "$cc" -std=c17 "${opt[@]}" -DBOX3D_DISABLE_SIMD -w -I"$root/third_party/box3d/include" -I"$root/third_party/box3d/src" -c "$c" -o "$o"
+  fi
+done
+musl_header="$(ls -t "$root"/third_party/musl_math/src/*.h | head -1)"
+for c in "$root"/third_party/musl_math/src/*.c; do
+  o="$out/obj/musl_math/$(basename "$c" .c).o"
+  if stale "$o" "$c" "$musl_header"; then run "$cc" -std=c17 "${opt[@]}" -fno-math-errno -w -c "$c" -o "$o"; fi
+done
 sources=()
 while IFS= read -r f; do sources+=("$f"); done < <(find "$root/src" -name '*.cpp' -not -path "*/studio/*" -not -path "*/app/*" | sort)
 sources+=("$root/tests/gl_stub.cpp" "$here/kern_train.cpp")
 flags=(-std=c++20 "${opt[@]}" -fno-exceptions -fno-rtti -I"$root/include" -I"$root/third_party/box3d/include" -I"$root/tests")
-newest_header="$(find "$root/include" "$root/src" -name '*.h' -o -name '*.inc' | xargs ls -t | head -1)"
-for f in "${sources[@]}"; do
-  o="$out/obj/cpp/$(echo "$f" | sed "s|$root/||; s|/|_|g").o"
-  [ -f "$o" ] && [ "$o" -nt "$f" ] && [ "$o" -nt "$newest_header" ] || echo "$f|$o"
-done | xargs -r -P "$jobs" -I{} sh -c 'src="${1%%|*}"; obj="${1##*|}"; shift; "$0" "$@" -c "$src" -o "$obj"' "$cxx" {} "${flags[@]}"
+newest_header="$(ls -t $(find "$root/include" "$root/src" -name '*.h' -o -name '*.inc') | head -1)"
 objects=()
-for f in "${sources[@]}"; do objects+=("$out/obj/cpp/$(echo "$f" | sed "s|$root/||; s|/|_|g").o"); done
-"$cxx" "${opt[@]}" "${objects[@]}" "$out"/obj/box3d/*.o -lm -lpthread -o "$out/kern_train"
+for f in "${sources[@]}"; do
+  rel="${f#"$root"/}"
+  o="$out/obj/cpp/$(echo "$rel" | tr '/' '_').o"
+  objects+=("$o")
+  if stale "$o" "$f" "$newest_header"; then run "$cxx" "${flags[@]}" -c "$f" -o "$o"; fi
+done
+finish
+"$cxx" "${opt[@]}" "${objects[@]}" "$out"/obj/box3d/*.o "$out"/obj/musl_math/*.o -lm -lpthread -o "$out/kern_train"
 echo "built $out/kern_train"

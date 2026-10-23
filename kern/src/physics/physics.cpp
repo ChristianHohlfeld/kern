@@ -1,4 +1,5 @@
 #include "kern/physics/physics.h"
+#include "kern/core/dmath.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -912,7 +913,7 @@ bool CharacterMover::step(World& world, f32 dt, Vec3 wish, bool jump, bool sprin
   const f32 ray = rest + s.radius;
   const Vec3 ray_origin = position_ + cap.center1;
   const RayHit ground = world.cast_sphere(ray_origin, s.radius * 0.6f, Vec3{0, 0, -ray}, s.mask_bits, self);
-  const f32 min_normal_z = std::cos(clamp(s.max_slope_deg, 0.0f, 89.0f) * 0.0174532925f);
+  const f32 min_normal_z = kern::dm::cos(clamp(s.max_slope_deg, 0.0f, 89.0f) * 0.0174532925f);
   if (!ground.hit || velocity_.z > 0 || ground.normal.z < min_normal_z) {
     on_ground_ = false;
     pogo_ = 0;

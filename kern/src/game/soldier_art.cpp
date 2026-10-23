@@ -6,6 +6,7 @@
 // bullet-hole decals and chips. Pure presentation: nothing here changes the
 // simulation, so authority, replicas and the editor draw the same.
 #include <algorithm>
+#include "kern/core/dmath.h"
 #include <cmath>
 #include <cstring>
 
@@ -28,7 +29,7 @@ Quat rotation_between(Vec3 from, Vec3 to, f32 t = 1) {
   const Vec3 axis = cross(from, to);
   const f32 s = length(axis), c = dot(from, to);
   if (s < 1e-6f) return Quat{};
-  return Quat::axis_angle(axis * (1 / s), std::atan2(s, c) * t);
+  return Quat::axis_angle(axis * (1 / s), kern::dm::atan2(s, c) * t);
 }
 
 /// Matrix whose +Z points along `dir` (any roll).
@@ -297,7 +298,7 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
     f32 lift = p ? p->mover_lift : (a->mesh && a->mesh->shape == Shape::capsule ? a->mesh->height * 0.5f : 0.9f);
     if (p && p->mover_lift <= 0) lift = a->mesh && a->mesh->shape == Shape::capsule ? a->mesh->height * 0.5f : 0.9f;
     const Vec3 feet = m.translation() - Vec3{0, 0, lift};
-    f32 yaw = std::atan2(m.m[1], m.m[0]);
+    f32 yaw = kern::dm::atan2(m.m[1], m.m[0]);
     if (p) yaw = (p == local_ ? camera_yaw_ : p->yaw) * kDegree;
     // Velocity from the presented feet (works the same for the authority and replicas).
     if (rig.has_feet && dt > 0) rig.vel = rig.vel + ((feet - rig.feet) / dt - rig.vel) * min_of(1.0f, dt * 12);
@@ -305,7 +306,7 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
     rig.has_feet = true;
     models::CharacterAnimator::Input in;
     in.dt = dt;
-    const f32 hspeed = std::hypot(rig.vel.x, rig.vel.y);
+    const f32 hspeed = kern::dm::hypot(rig.vel.x, rig.vel.y);
     in.speed = hspeed > 12 ? 0 : hspeed;  // teleports and respawns are not running
     const auto hs = health_.find(a->id);
     in.dead = running() && hs != health_.end() && hs->second.dead;
@@ -315,7 +316,7 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
     in.crouch = p ? p->crouch : 0;
     in.pitch = p ? (p == local_ ? camera_pitch_ : p->pitch) * kDegree : 0;
     const f64 since = now_ms - rig.last_shot;
-    in.kick = since >= 0 && since < 120 ? std::sin(kPi * static_cast<f32>(since) / 120) : 0;
+    in.kick = since >= 0 && since < 120 ? kern::dm::sin(kPi * static_cast<f32>(since) / 120) : 0;
     rig.anim.update(in);
     f32 bones[models::kJointCount * 16];
     rig.anim.bones(bones);
@@ -485,9 +486,9 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
     cam.m[12] = c.eye.x; cam.m[13] = c.eye.y; cam.m[14] = c.eye.z;
     // Rest placement (placeWeapon): bob, recoil, looking far up or down.
     const f32 bs = bob_weight_;
-    const f32 bob_x = std::sin(bob_phase_) * .014f * bs, bob_z = -std::cos(2 * bob_phase_) * .017f * bs, bob_roll = std::sin(bob_phase_) * .0044f * bs;
+    const f32 bob_x = kern::dm::sin(bob_phase_) * .014f * bs, bob_z = -kern::dm::cos(2 * bob_phase_) * .017f * bs, bob_roll = kern::dm::sin(bob_phase_) * .0044f * bs;
     const f64 age = now_ms - art.local_shot;
-    const f32 recoil = age >= 0 && age < 125 ? std::sin(static_cast<f32>(age) / 125 * kPi) : 0;
+    const f32 recoil = age >= 0 && age < 125 ? kern::dm::sin(static_cast<f32>(age) / 125 * kPi) : 0;
     const f32 vertical = clamp((std::fabs(camera_pitch_ * kDegree) - 1.15f) / (kPi / 2 - .012f - 1.15f), 0.0f, 1.0f);
     const Vec3 local{.245f + bob_x * .45f, -.225f + bob_z * .2f - vertical * .02f, -.445f + recoil * .065f + vertical * .025f};
     Mat4 g = Mat4::translate(local) * models::euler({-.045f - recoil * .055f, 0, 0}) * models::euler({0, -.065f, 0}) *
@@ -499,7 +500,7 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
       art.rest_depth = h.hit ? clamp(h.fraction * 180.0f, 1.2f, 180.0f) : 30.0f;
     }
     const Vec3 want{0, 0, -art.rest_depth};
-    art.aim_smooth = art.aim_smooth + (want - art.aim_smooth) * (1 - std::exp(-22 * dt));
+    art.aim_smooth = art.aim_smooth + (want - art.aim_smooth) * (1 - kern::dm::exp(-22 * dt));
     const Vec3 mount = art.weapon.mount;
     for (int it = 0; it < 2; ++it) {
       const Vec3 grip = g.transform_point(art.weapon.grip + mount), rear = g.transform_point(art.weapon.rear_sight + mount),
@@ -509,11 +510,11 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
     }
     // Kick: 16 ms after the shot, 130 ms, muzzle up and back toward the eye.
     const f64 ka = age - 16;
-    const f32 kick = ka >= 0 && ka < 130 ? std::sin(kPi * static_cast<f32>(ka) / 130) : 0;
+    const f32 kick = ka >= 0 && ka < 130 ? kern::dm::sin(kPi * static_cast<f32>(ka) / 130) : 0;
     g = g * models::euler({.075f * kick, 0, 0}) * Mat4::translate({0, 0, .035f * kick});
     // Reload (Kern): the weapon dips and tilts while the magazine changes.
     if (hud_.reload >= 0) {
-      const f32 rl = std::sin(clamp(hud_.reload, 0.0f, 1.0f) * kPi);
+      const f32 rl = kern::dm::sin(clamp(hud_.reload, 0.0f, 1.0f) * kPi);
       g = Mat4::translate({0, -.12f * rl, .04f * rl}) * g * models::euler({-.5f * rl, 0, .35f * rl});
     }
     // Aim down sights: the rear sight .46 m in front of the eye, the sight line on the view axis.
@@ -534,9 +535,9 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
     f32 slide = 0;
     if (art.weapon.slide_travel > 0 && age >= 0) {
       const f32 a = static_cast<f32>(age);
-      if (a < 34) slide = std::sin(a / 34 * kPi / 2);
+      if (a < 34) slide = kern::dm::sin(a / 34 * kPi / 2);
       else if (a < 60) slide = 1;
-      else if (a < 165) { const f32 v = (a - 60) / 105; slide = (1 - v) * (1 - v) * (1 - .15f * std::sin(kPi * v)); }
+      else if (a < 165) { const f32 v = (a - 60) / 105; slide = (1 - v) * (1 - v) * (1 - .15f * kern::dm::sin(kPi * v)); }
     }
     const Mat4 sm = body * Mat4::translate({0, 0, art.weapon.slide_travel * slide});
     each(art.slide, [&](u32 id) { r_.update_instances(id, Span<const f32>(sm.m, 16), {}); });
@@ -556,7 +557,7 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
     // Muzzle flash at the muzzle: star + side tongues, (1-t)^1.6 fade, growing 35 %.
     const f32 ft = static_cast<f32>(now_ms - art.flash_start) / art.weapon.flash_ms;
     if (art.flash_view && ft >= 0 && ft < 1 && show_view) {
-      const f32 fade = std::pow(1 - ft, 1.6f), sc = art.flash_size * art.weapon.flash_scale * (1 + .35f * ft);
+      const f32 fade = kern::dm::pow(1 - ft, 1.6f), sc = art.flash_size * art.weapon.flash_scale * (1 + .35f * ft);
       const Mat4 m = world * Mat4::translate(art.weapon.muzzle + mount) * models::euler({0, 0, art.flash_roll}) * Mat4::scale({sc, sc, sc});
       const f32 tint[4] = {1, 1, 1, min_of(1.0f, fade * 1.15f)};
       r_.update_instances(art.flash_view, Span<const f32>(m.m, 16), Span<const f32>(tint, 4));
@@ -637,7 +638,7 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
     for (std::size_t i = 0; i < art.flash_list.size();) {
       const f32 u = static_cast<f32>(now_ms - art.flash_list[i].born) / 85;
       if (u >= 1) { art.flash_list.erase(art.flash_list.begin() + static_cast<std::ptrdiff_t>(i)); continue; }
-      const f32 s = (.8f + .55f * std::sin(kPi * u)) * 1.6f;
+      const f32 s = (.8f + .55f * kern::dm::sin(kPi * u)) * 1.6f;
       // The flash mesh points along -Z: turn -Z onto the shot direction.
       const Mat4 m = Mat4::translate(art.flash_list[i].at) * basis_z(art.flash_list[i].dir * -1.0f) * Mat4::scale({s, s, s});
       fx.insert(fx.end(), m.m, m.m + 16);

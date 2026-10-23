@@ -2,6 +2,7 @@
 // SpawnCity's foot_touch_controller / thumb_layout / edge_hud_layout /
 // fps_control_math so the game feels the same on a phone.
 #include "kern/game/touch.h"
+#include "kern/core/dmath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,7 +38,7 @@ f32 dyn_curve(f32 n) {
 
 /// shapeFpsStick with the touch profile (inner dead zone .025, look fineness 6).
 void shape_stick(f32& x, f32& y) {
-  const f32 raw = std::min(1.0f, std::hypot(x, y));
+  const f32 raw = std::min(1.0f, kern::dm::hypot(x, y));
   constexpr f32 inner = 0.025f, outer = 0.97f, anti = 0.045f;
   if (raw <= inner) { x = y = 0; return; }
   const f32 n = std::clamp((raw - inner) / (outer - inner), 0.0f, 1.0f);
@@ -228,14 +229,14 @@ void TouchControls::layout() {
 
 bool TouchControls::in_stick(const TouchStick& s, f32 x, f32 y) const {
   const f32 r = s.size * 0.5f;
-  return std::hypot(x - (s.x + r), y - (s.y + r)) <= r;  // the drawn circle only (no catch zone)
+  return kern::dm::hypot(x - (s.x + r), y - (s.y + r)) <= r;  // the drawn circle only (no catch zone)
 }
 
 TouchButton* TouchControls::button_at(f32 x, f32 y) {
   for (TouchButton& b : view_.buttons) {
     if (b.round) {
       const f32 r = b.w * 0.5f;
-      if (std::hypot(x - (b.x + r), y - (b.y + b.h * 0.5f)) <= r + 4) return &b;
+      if (kern::dm::hypot(x - (b.x + r), y - (b.y + b.h * 0.5f)) <= r + 4) return &b;
     } else if (x >= b.x - 4 && x <= b.x + b.w + 4 && y >= b.y - 4 && y <= b.y + b.h + 4) {
       return &b;
     }
@@ -295,7 +296,7 @@ bool TouchControls::pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
       case Finger::move: {
         const f32 r = std::max(1.0f, view_.move.size * kRadiusK);
         f32 vx = f.base_x + (x - f.x0) / r, vy = f.base_y + (y - f.y0) / r;
-        const f32 m = std::hypot(vx, vy);
+        const f32 m = kern::dm::hypot(vx, vy);
         if (m > 1) { vx /= m; vy /= m; }
         move_x_ = vx;
         move_y_ = vy;
@@ -304,7 +305,7 @@ bool TouchControls::pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
       case Finger::look: {
         // (a) 1:1 drag with flick gain.
         if (dx != 0 || dy != 0) {
-          const f32 speed = static_cast<f32>(std::hypot(dx, dy) / dt_ms * 1000.0);
+          const f32 speed = static_cast<f32>(kern::dm::hypot(dx, dy) / dt_ms * 1000.0);
           const f32 gain = 1 + 0.35f * smoothstep01((speed - 700) / 2200);
           drag_yaw_ += dx * kYawPerPx * gain;
           drag_pitch_ += dy * kPitchPerPx * gain;
@@ -312,7 +313,7 @@ bool TouchControls::pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
         // (b) edge turn past the ring; the origin is dragged along so pulling back stops at once.
         const f32 R = view_.look.size * kRadiusK;
         const f32 cap = R * kEdgeStart + kEdgeRamp;
-        f32 ox = x - f.x0, oy = y - f.y0, dist = std::hypot(ox, oy);
+        f32 ox = x - f.x0, oy = y - f.y0, dist = kern::dm::hypot(ox, oy);
         if (dist > cap) {
           const f32 pull = (dist - cap) / dist;
           f.x0 += ox * pull;
@@ -332,7 +333,7 @@ bool TouchControls::pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
       case Finger::fire:
       case Finger::look_drag: {
         if (dx != 0 || dy != 0) {
-          const f32 speed = static_cast<f32>(std::hypot(dx, dy) / dt_ms * 1000.0);
+          const f32 speed = static_cast<f32>(kern::dm::hypot(dx, dy) / dt_ms * 1000.0);
           const f32 gain = 1 + 0.35f * smoothstep01((speed - 700) / 2200);
           drag_yaw_ += dx * kYawPerPx * gain;
           drag_pitch_ += dy * kPitchPerPx * gain;
@@ -380,7 +381,7 @@ void TouchControls::update(f32 dt, PlayInput& in, f32 vfov_deg) {
   // Zoomed views (aiming, scopes) turn slower, like SpawnCity's / adsZoom.
   const f32 zoom = std::clamp(vfov_deg / base_fov_, 0.1f, 1.0f);
   // Move stick: analog, sprint when pushed to the rim forwards.
-  const f32 m = std::min(1.0f, std::hypot(move_x_, move_y_));
+  const f32 m = std::min(1.0f, kern::dm::hypot(move_x_, move_y_));
   sprint_ = m >= 0.9f && move_y_ < -0.35f;
   in.move_x = move_x_;
   in.move_y = -move_y_;

@@ -5,6 +5,7 @@
 // and vectorise the hot paths (instance matrices, culling, picking).
 #pragma once
 
+#include "kern/core/dmath.h"
 #include <cmath>
 
 #include "kern/core/base.h"
@@ -79,8 +80,8 @@ struct Quat {
   f32 x = 0, y = 0, z = 0, w = 1;
   static Quat axis_angle(Vec3 axis, f32 radians) {
     const Vec3 a = normalize(axis);
-    const f32 s = std::sin(radians * 0.5f);
-    return {a.x * s, a.y * s, a.z * s, std::cos(radians * 0.5f)};
+    const f32 s = kern::dm::sin(radians * 0.5f);
+    return {a.x * s, a.y * s, a.z * s, kern::dm::cos(radians * 0.5f)};
   }
   Quat operator*(const Quat& b) const {
     return {w * b.x + x * b.w + y * b.z - z * b.y, w * b.y - x * b.z + y * b.w + z * b.x,
@@ -146,7 +147,7 @@ struct Mat4 {
   }
 
   static Mat4 perspective(f32 fov, f32 aspect, f32 near, f32 far) {
-    const f32 f = 1.0f / std::tan(fov * 0.5f), nf = 1.0f / (near - far);
+    const f32 f = 1.0f / kern::dm::tan(fov * 0.5f), nf = 1.0f / (near - far);
     Mat4 r;
     std::memset(r.m, 0, sizeof r.m);
     r.m[0] = f / aspect; r.m[5] = f; r.m[10] = (far + near) * nf; r.m[11] = -1; r.m[14] = 2 * far * near * nf;

@@ -89,6 +89,23 @@ if [ "$with_physics" = 1 ]; then
   done
   for p in "${pids[@]}"; do wait "$p"; done
 fi
+# Deterministic libm (kern/core/dmath.h): musl's sin, exp, atan2 ... compiled the same way everywhere.
+mflags=("${target[@]}" -std=c17 "${opt[@]}" "${features[@]}" -fvisibility=hidden -ffunction-sections -fdata-sections -ffp-contract=off -fno-math-errno -w)
+mkey="$(printf '%s ' "${mflags[@]}" "$("$CC" --version | head -1)" | sha256sum | cut -c1-16)"
+mcache="$cache_root/musl-math-$mkey"
+mkdir -p "$mcache"
+pids=()
+for c in "$here"/third_party/musl_math/src/*.c; do
+  o="$mcache/$(basename "$c" .c).o"
+  objects+=("$o")
+  newest_header="$(ls -t "$here"/third_party/musl_math/src/*.h | head -1)"
+  if [ ! -f "$o" ] || [ "$c" -nt "$o" ] || [ "$newest_header" -nt "$o" ]; then
+    "$CC" "${mflags[@]}" -c "$c" -o "$o" &
+    pids+=($!)
+    if [ "${#pids[@]}" -ge "$jobs" ]; then wait "${pids[0]}"; pids=("${pids[@]:1}"); fi
+  fi
+done
+for p in "${pids[@]}"; do wait "$p"; done
 
 includes=(-I"$here/include")
 [ "$with_physics" = 1 ] && includes+=(-I"$here/third_party/box3d/include")
@@ -102,7 +119,7 @@ for a in "$@"; do
   esac
 done
 cxxflags=("${target[@]}" -std=c++20 "${opt[@]}" "${features[@]}"
-          -fno-exceptions -fno-rtti -fvisibility=hidden -ffunction-sections -fdata-sections
+          -fno-exceptions -fno-rtti -fvisibility=hidden -ffunction-sections -fdata-sections -ffp-contract=off
           -Wall -Wextra -Wno-unused-parameter -Werror=return-type
           "${includes[@]}" "${extra_flags[@]}")
 flags_key="$(printf '%s ' "${cxxflags[@]}" "$("$CXX" --version | head -1)" | sha256sum | cut -c1-16)"

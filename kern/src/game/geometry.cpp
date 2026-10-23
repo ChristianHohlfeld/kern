@@ -1,4 +1,5 @@
 #include "kern/game/geometry.h"
+#include "kern/core/dmath.h"
 
 #include <cmath>
 
@@ -165,14 +166,14 @@ std::vector<Vec3> shape_hull_points(const MeshComponent& mc) {
     case Shape::cylinder:
       for (int i = 0; i < kRing; ++i) {
         const f32 a = static_cast<f32>(i) / kRing * 2 * kPi;
-        pts.push_back({std::cos(a) * r, std::sin(a) * r, -h * 0.5f});
-        pts.push_back({std::cos(a) * r, std::sin(a) * r, h * 0.5f});
+        pts.push_back({kern::dm::cos(a) * r, kern::dm::sin(a) * r, -h * 0.5f});
+        pts.push_back({kern::dm::cos(a) * r, kern::dm::sin(a) * r, h * 0.5f});
       }
       break;
     case Shape::cone:
       for (int i = 0; i < kRing; ++i) {
         const f32 a = static_cast<f32>(i) / kRing * 2 * kPi;
-        pts.push_back({std::cos(a) * r, std::sin(a) * r, -h * 0.5f});
+        pts.push_back({kern::dm::cos(a) * r, kern::dm::sin(a) * r, -h * 0.5f});
       }
       pts.push_back({0, 0, h * 0.5f});
       break;
@@ -185,8 +186,8 @@ std::vector<Vec3> shape_hull_points(const MeshComponent& mc) {
       const f32 m = min_of(h, r * 0.95f);
       for (int i = 0; i < kRing; ++i) {
         const f32 a = static_cast<f32>(i) / kRing * 2 * kPi;
-        for (f32 z : {-m, m}) pts.push_back({std::cos(a) * r, std::sin(a) * r, z});
-        pts.push_back({std::cos(a) * (r + m), std::sin(a) * (r + m), 0});
+        for (f32 z : {-m, m}) pts.push_back({kern::dm::cos(a) * r, kern::dm::sin(a) * r, z});
+        pts.push_back({kern::dm::cos(a) * (r + m), kern::dm::sin(a) * (r + m), 0});
       }
       break;
     }

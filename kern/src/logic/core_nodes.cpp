@@ -2,6 +2,7 @@
 // machines, math, logic, vectors, text, debugging). Gameplay nodes live in
 // the game module (src/game/logic_nodes.cpp).
 #include <cmath>
+#include "kern/core/dmath.h"
 
 #include "kern/logic/logic.h"
 
@@ -517,13 +518,13 @@ void add_math(Library& lib) {
   lib.add(pure("math.negate", "Negate", "Math", {data("a", "A", K::number, 0.0)}, data("result", "", K::number), [](Context& c) { return Value::number(-c.in_number("a")); }));
   lib.add(pure("math.lerp", "Lerp", "Math", {data("a", "A", K::number, 0.0), data("b", "B", K::number, 1.0), data("alpha", "Alpha", K::number, 0.5)}, data("result", "", K::number),
                [](Context& c) { const f64 a = c.in_number("a"); return Value::number(a + (c.in_number("b") - a) * c.in_number("alpha")); }, "A + (B - A) × Alpha", "interpolate mix blend"));
-  lib.add(pure("math.sin", "Sin (degrees)", "Math", {data("a", "Degrees", K::number, 0.0)}, data("result", "", K::number), [](Context& c) { return Value::number(std::sin(c.in_number("a") * kDeg)); }));
-  lib.add(pure("math.cos", "Cos (degrees)", "Math", {data("a", "Degrees", K::number, 0.0)}, data("result", "", K::number), [](Context& c) { return Value::number(std::cos(c.in_number("a") * kDeg)); }));
+  lib.add(pure("math.sin", "Sin (degrees)", "Math", {data("a", "Degrees", K::number, 0.0)}, data("result", "", K::number), [](Context& c) { return Value::number(kern::dm::sin(c.in_number("a") * kDeg)); }));
+  lib.add(pure("math.cos", "Cos (degrees)", "Math", {data("a", "Degrees", K::number, 0.0)}, data("result", "", K::number), [](Context& c) { return Value::number(kern::dm::cos(c.in_number("a") * kDeg)); }));
   lib.add(pure("math.atan2", "Atan2 (degrees)", "Math", {data("y", "Y", K::number, 0.0), data("x", "X", K::number, 1.0)}, data("result", "", K::number),
-               [](Context& c) { return Value::number(std::atan2(c.in_number("y"), c.in_number("x")) / kDeg); }, "Angle of (X, Y) in degrees", "angle"));
+               [](Context& c) { return Value::number(kern::dm::atan2(c.in_number("y"), c.in_number("x")) / kDeg); }, "Angle of (X, Y) in degrees", "angle"));
   lib.add(pure("math.sqrt", "Square Root", "Math", {data("a", "A", K::number, 0.0)}, data("result", "", K::number), [](Context& c) { return Value::number(std::sqrt(max_of(0.0, c.in_number("a")))); }));
   lib.add(pure("math.pow", "Power", "Math", {data("a", "Base", K::number, 2.0), data("b", "Exponent", K::number, 2.0)}, data("result", "", K::number),
-               [](Context& c) { const f64 r = std::pow(c.in_number("a"), c.in_number("b")); return Value::number(std::isfinite(r) ? r : 0.0); }));
+               [](Context& c) { const f64 r = kern::dm::pow(c.in_number("a"), c.in_number("b")); return Value::number(std::isfinite(r) ? r : 0.0); }));
   lib.add(pure("math.round", "Round", "Math", {data("a", "A", K::number, 0.0)}, data("result", "", K::integer), [](Context& c) { return Value::integer(static_cast<i64>(std::llround(c.in_number("a")))); }));
   lib.add(pure("math.floor", "Floor", "Math", {data("a", "A", K::number, 0.0)}, data("result", "", K::integer), [](Context& c) { return Value::integer(static_cast<i64>(std::floor(c.in_number("a")))); }));
   lib.add(pure("math.random", "Random Float in Range", "Math", {data("min", "Min", K::number, 0.0), data("max", "Max", K::number, 1.0)}, data("result", "", K::number),

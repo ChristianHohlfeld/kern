@@ -27,10 +27,10 @@ self.onmessage = async ({ data: m }) => {
       kern = await loadKern({ module: m.module });
       self.postMessage({ type: "loaded" });
     } else if (m.type === "collector") {
-      const ok = withText(m.task, (p, n) => kern.exports.kern_train_create(p, n, m.envs, m.seed));
+      const ok = withText(m.task, (p, n) => kern.exports.kern_train_create(p, n, m.envs, m.seed, m.first));
       self.postMessage({ type: "ready", ok: !!ok });
     } else if (m.type === "collect") {
-      kern.exports.kern_train_progress(m.iteration, m.push);
+      kern.exports.kern_train_progress(m.iteration);
       const policy = new Float32Array(m.policy);
       const ok = withBytes(policy, (p, n) => kern.exports.kern_train_set_policy(p, n >> 2));
       if (!ok) throw Error("the policy did not load");

@@ -1,6 +1,7 @@
 // The trainer's networks (see nn.h). Weights are stored input-major (w[i * out + o]) so that both
 // passes run as contiguous axpy loops the compiler vectorises without reassociating sums.
 #include "kern/train/nn.h"
+#include "kern/core/dmath.h"
 
 #include <cmath>
 #include <cstring>
@@ -89,7 +90,7 @@ void Mlp::forward(const f32* x, i32 batch, f32* out, Cache* cache) const {
     dense(in_ptr, batch, in, o_n, weight(l), bias(l), y);
     if (!last) {
       const std::size_t n = static_cast<std::size_t>(batch) * static_cast<std::size_t>(o_n);
-      for (std::size_t k = 0; k < n; ++k) y[k] = y[k] > 0 ? y[k] : std::expm1(y[k]);  // ELU
+      for (std::size_t k = 0; k < n; ++k) y[k] = y[k] > 0 ? y[k] : kern::dm::expm1(y[k]);  // ELU
     } else if (cache) {
       std::memcpy(out, y, sizeof(f32) * static_cast<std::size_t>(batch) * static_cast<std::size_t>(o_n));
     }
@@ -170,7 +171,7 @@ void Adam::step(std::initializer_list<Block> blocks) {
     }
   }
   ++t_;
-  const f32 c1 = 1 - std::pow(beta1, static_cast<f32>(t_)), c2 = 1 - std::pow(beta2, static_cast<f32>(t_));
+  const f32 c1 = 1 - kern::dm::pow(beta1, static_cast<f32>(t_)), c2 = 1 - kern::dm::pow(beta2, static_cast<f32>(t_));
   const f32 step = lr / c1, root_c2 = std::sqrt(c2);
   std::size_t at = 0;
   for (const Block& b : blocks) {

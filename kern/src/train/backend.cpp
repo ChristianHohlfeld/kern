@@ -8,12 +8,13 @@ ThreadBackend::ThreadBackend(i32 workers, i32 envs_per_worker, u64 seed, const E
   groups_.resize(static_cast<std::size_t>(max_of(1, workers)));
   for (std::size_t w = 0; w < groups_.size(); ++w) {
     Group& g = groups_[w];
-    g.envs = make(static_cast<i32>(w), envs_per_worker, seed * 1000003ull + w * 7919ull);
+    const i32 first = static_cast<i32>(w) * envs_per_worker;
+    g.envs = make(first, envs_per_worker, seed);
     for (auto& e : g.envs) {
       e->reset();
       g.ptrs.push_back(e.get());
     }
-    g.collector = Collector(seed * 31ull + w);
+    g.collector = Collector(seed, first);
   }
 }
 

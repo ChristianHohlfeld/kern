@@ -20,6 +20,7 @@
 #include "kern/train/nn.h"
 #include "kern/train/ppo.h"
 #include "kern/train/onnx_export.h"
+#include "kern/train/backend.h"
 #include "kern/studio/studio.h"
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
@@ -4437,6 +4438,51 @@ TEST(train_ppo_learns_from_collectors_elsewhere) {
   ppo.act(obs, a);
   copy.act(obs, b);
   CHECK(a[0] == b[0] && a[1] == b[1]);
+}
+
+TEST(determinism_is_bit_identical_across_builds_and_platforms) {
+  // The duck walks and turns on velstand for 8 s (400 ticks); every tick's exact state is hashed.
+  // tests/determinism_fingerprint.txt holds the hashes every build must produce: this native build,
+  // the WebAssembly modules (tests/train_wasm_test.mjs) and ARM (CI on macOS) - bit for bit.
+  const std::vector<u64> h = train::determinism_fingerprint(400);
+  std::string path = __FILE__;
+  path = path.substr(0, path.find_last_of('/') + 1) + "determinism_fingerprint.txt";
+  FILE* f = std::fopen(path.c_str(), "r");
+  CHECK(f != nullptr);
+  if (!f) return;
+  i32 first_diff = -1, lines = 0;
+  unsigned long long want = 0;
+  std::size_t index = 0;
+  while (std::fscanf(f, "%zu %llx", &index, &want) == 2) {
+    if (index < h.size() && h[index] != want && first_diff < 0) first_diff = static_cast<i32>(index);
+    ++lines;
+  }
+  std::fclose(f);
+  if (first_diff >= 0) std::printf("  first differing tick: %d\n", first_diff);
+  CHECK(lines == 400);
+  CHECK(first_diff < 0);
+}
+
+TEST(train_runs_the_same_on_any_number_of_workers) {
+  // The same run on 1, 2 or 4 workers (8 environments in all): the same policy, bit for bit.
+  auto run = [](i32 workers) {
+    train::PpoConfig cfg;
+    cfg.actor_hidden = cfg.critic_hidden = {16, 16};
+    cfg.steps_per_env = 20;
+    cfg.seed = 9;
+    train::Ppo ppo(cfg, 4, 4, 2);
+    train::ThreadBackend backend(workers, 8 / workers, 77, [](i32 first, i32 count, u64 seed) {
+      std::vector<std::unique_ptr<train::Env>> v;
+      for (i32 i = 0; i < count; ++i) v.push_back(std::make_unique<ReachEnv>(seed * 131 + static_cast<u64>(first + i)));
+      return v;
+    });
+    for (int it = 0; it < 4; ++it) train::train_iteration(ppo, backend);
+    return ppo.policy().serialize();
+  };
+  const std::vector<f32> one = run(1), two = run(2), four = run(4);
+  CHECK(one.size() == two.size() && one.size() == four.size());
+  CHECK(std::memcmp(one.data(), two.data(), one.size() * sizeof(f32)) == 0);
+  CHECK(std::memcmp(one.data(), four.data(), one.size() * sizeof(f32)) == 0);
 }
 
 TEST(train_exports_onnx_like_pollens_networks) {

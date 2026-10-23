@@ -4,6 +4,7 @@
 // See docs/training.md.
 #pragma once
 
+#include "kern/core/dmath.h"
 #include <cmath>
 #include <memory>
 #include <string>
@@ -29,7 +30,7 @@ struct Rng {
   f32 uniform(f32 lo, f32 hi) { return lo + (hi - lo) * uniform(); }
   f32 normal() {  // standard normal (Box-Muller)
     const f32 u1 = uniform(), u2 = uniform();
-    return std::sqrt(-2.0f * std::log(u1 > 1e-7f ? u1 : 1e-7f)) * std::cos(6.28318531f * u2);
+    return std::sqrt(-2.0f * kern::dm::log(u1 > 1e-7f ? u1 : 1e-7f)) * kern::dm::cos(6.28318531f * u2);
   }
 };
 
@@ -176,5 +177,16 @@ struct JumpReport {
 };
 using ActFn = void (*)(void* user, const f32* observation, f32* action);
 JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 substeps = 0);
+
+}  // namespace kern::train
+
+namespace kern::train {
+
+/// A reproducibility fingerprint: Pollen's velstand network drives the clean duck (no randomisation)
+/// for `ticks` control ticks in the Studio's physics, walking forward then turning; out[t] is a
+/// hash over the exact bits of the robot's state after tick t (trunk pose and velocity, every joint
+/// angle and speed). Two builds or platforms are bit-identical exactly when the lists are equal; the
+/// first differing index says when they part (docs/training.md, determinism).
+std::vector<u64> determinism_fingerprint(i32 ticks);
 
 }  // namespace kern::train

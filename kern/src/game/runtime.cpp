@@ -1,4 +1,5 @@
 #include "kern/game/runtime.h"
+#include "kern/core/dmath.h"
 
 #include "runtime_internal.h"
 
@@ -25,8 +26,8 @@ f32 smoothstep(f32 a, f32 b, f32 x) {
   return t * t * (3 - 2 * t);
 }
 Vec3 mix3(Vec3 a, Vec3 b, f32 t) { return a + (b - a) * t; }
-f32 damp(f32 current, f32 target, f32 rate, f32 dt) { return target + (current - target) * std::exp(-rate * dt); }
-Vec3 damp3(Vec3 current, Vec3 target, f32 rate, f32 dt) { return target + (current - target) * std::exp(-rate * dt); }
+f32 damp(f32 current, f32 target, f32 rate, f32 dt) { return target + (current - target) * kern::dm::exp(-rate * dt); }
+Vec3 damp3(Vec3 current, Vec3 target, f32 rate, f32 dt) { return target + (current - target) * kern::dm::exp(-rate * dt); }
 
 u64 fnv(const std::string& s, u64 h = 1469598103934665603ull) {
   for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }
@@ -56,7 +57,7 @@ Quat quat_normalize(Quat q) {
 
 f32 yaw_of(Quat q) {
   const Vec3 f = q.rotate({1, 0, 0});
-  return std::atan2(f.y, f.x);
+  return kern::dm::atan2(f.y, f.x);
 }
 
 void push_line(std::vector<f32>& p, std::vector<f32>& c, Vec3 a, Vec3 b, Vec3 color) {
@@ -70,8 +71,8 @@ void shape_lines(const ShapePlan& s, std::vector<Vec3>& out) {
     constexpr int n = 24;
     for (int i = 0; i < n; ++i) {
       const f32 a0 = i * 2 * kPi / n, a1 = (i + 1) * 2 * kPi / n;
-      out.push_back(center + (u * std::cos(a0) + v * std::sin(a0)) * r);
-      out.push_back(center + (u * std::cos(a1) + v * std::sin(a1)) * r);
+      out.push_back(center + (u * kern::dm::cos(a0) + v * kern::dm::sin(a0)) * r);
+      out.push_back(center + (u * kern::dm::cos(a1) + v * kern::dm::sin(a1)) * r);
     }
   };
   const Vec3 X = s.rotation.rotate({1, 0, 0}), Y = s.rotation.rotate({0, 1, 0}), Z = s.rotation.rotate({0, 0, 1});
@@ -100,10 +101,10 @@ void shape_lines(const ShapePlan& s, std::vector<Vec3>& out) {
         constexpr int n = 12;
         for (int i = 0; i < n; ++i) {
           const f32 a0 = i * kPi / n, a1 = (i + 1) * kPi / n;
-          out.push_back(b + (u * std::cos(a0) + Z * std::sin(a0)) * s.radius);
-          out.push_back(b + (u * std::cos(a1) + Z * std::sin(a1)) * s.radius);
-          out.push_back(a + (u * std::cos(a0) - Z * std::sin(a0)) * s.radius);
-          out.push_back(a + (u * std::cos(a1) - Z * std::sin(a1)) * s.radius);
+          out.push_back(b + (u * kern::dm::cos(a0) + Z * kern::dm::sin(a0)) * s.radius);
+          out.push_back(b + (u * kern::dm::cos(a1) + Z * kern::dm::sin(a1)) * s.radius);
+          out.push_back(a + (u * kern::dm::cos(a0) - Z * kern::dm::sin(a0)) * s.radius);
+          out.push_back(a + (u * kern::dm::cos(a1) - Z * kern::dm::sin(a1)) * s.radius);
         }
       }
       break;
@@ -788,9 +789,9 @@ f32 GameWorld::apply_lighting(Vec3 eye) {
   const f32 angle = (time_of_day_ - 0.25f) * 2 * kPi;  // 0.25 sunrise, 0.5 noon, 0.75 sunset
   const f32 az = w.sun_azimuth * kDeg;
   // Sun path: rises in the east of the azimuth, highest at noon.
-  const Vec3 across{std::cos(az + kPi * 0.5f), std::sin(az + kPi * 0.5f), 0};
-  const Vec3 toward{std::cos(az), std::sin(az), 0};
-  const Vec3 sun = normalize(across * (-std::cos(angle) * 0.62f) + toward * 0.38f + Vec3{0, 0, std::sin(angle)});
+  const Vec3 across{kern::dm::cos(az + kPi * 0.5f), kern::dm::sin(az + kPi * 0.5f), 0};
+  const Vec3 toward{kern::dm::cos(az), kern::dm::sin(az), 0};
+  const Vec3 sun = normalize(across * (-kern::dm::cos(angle) * 0.62f) + toward * 0.38f + Vec3{0, 0, kern::dm::sin(angle)});
   const Vec3 moon = normalize(Vec3{-sun.x, -sun.y, max_of(0.35f, -sun.z)});
   const f32 night = smoothstep(0.06f, -0.16f, sun.z);
   const f32 dusk = clamp(1 - std::fabs(sun.z) * 4, 0.0f, 1.0f) * (1 - night * 0.6f);
@@ -855,7 +856,7 @@ Mat4 GameWorld::animated_local(const Actor& a, f32 time) const {
     const f32 u = time / max_of(0.05f, mv.period) + mv.phase;
     f32 k = 0;
     switch (mv.mode) {
-      case MoverMode::sine: k = 0.5f - 0.5f * std::cos(u * 2 * kPi); break;
+      case MoverMode::sine: k = 0.5f - 0.5f * kern::dm::cos(u * 2 * kPi); break;
       case MoverMode::ping_pong: { const f32 f = u - std::floor(u); k = f < 0.5f ? f * 2 : 2 - f * 2; break; }
       case MoverMode::loop: k = u - std::floor(u); break;
     }
@@ -899,7 +900,7 @@ void GameWorld::compute_world_matrices(f32 time, f32 alpha) {
       const Pawn* pawn = a->controller && a->controller->mode == ControlMode::hovercar ? pawn_of(id) : nullptr;
       if (pawn && mode_ != SimMode::replica) {
         // Hover bob and lean (visual only).
-        const f32 bob = 0.07f * std::sin(sim_time_ * 3.1f);
+        const f32 bob = 0.07f * kern::dm::sin(sim_time_ * 3.1f);
         const Quat lean = Quat::axis_angle({1, 0, 0}, -pawn->steer_vis * 0.18f) * Quat::axis_angle({0, 1, 0}, -pawn->pitch_vis);
         m = Mat4::trs(p.position + Vec3{0, 0, bob}, quat_normalize(p.rotation * lean), b->second->scale);
       }
@@ -1673,7 +1674,7 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
   }
   const f32 turn = c.turn_rate * kDeg;
   // Camera-relative directions (rolling, character, flyer).
-  const Vec3 cam_fwd{std::cos(pw_->yaw * kDeg), std::sin(pw_->yaw * kDeg), 0};
+  const Vec3 cam_fwd{kern::dm::cos(pw_->yaw * kDeg), kern::dm::sin(pw_->yaw * kDeg), 0};
   const Vec3 cam_right{cam_fwd.y, -cam_fwd.x, 0};
   Vec3 move = cam_right * clamp(in.move_x, -1.0f, 1.0f) + cam_fwd * clamp(in.move_y, -1.0f, 1.0f);
   if (length(move) > 1) move = normalize(move);
@@ -1712,7 +1713,7 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
         physics_.apply_force_to_center(body, forward * (accel * m));
         // Lateral grip.
         // Lateral grip as a force (steady impulses fight the solver; Box3D "Forces and Impulses").
-        physics_.apply_force_to_center(body, side * (-lat * (1 - std::exp(-7.5f * dt)) / dt * m));
+        physics_.apply_force_to_center(body, side * (-lat * (1 - kern::dm::exp(-7.5f * dt)) / dt * m));
         const f32 grip = clamp(std::fabs(fwd) / 9.0f, 0.0f, 1.0f) * (fwd >= 0 ? 1.0f : -1.0f);
         const Vec3 w = physics_.angular_velocity(body);
         physics_.set_angular_velocity(body, {w.x, w.y, steer * turn * grip});
@@ -1757,7 +1758,7 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
         f32 yaw = yaw_of(pose.rotation);
         const Vec3 hv{pw_->mover.velocity().x, pw_->mover.velocity().y, 0};
         if (length(move) > 0.1f && length(hv) > 0.3f) {
-          const f32 want = std::atan2(move.y, move.x);
+          const f32 want = kern::dm::atan2(move.y, move.x);
           f32 d = want - yaw;
           while (d > kPi) d -= 2 * kPi;
           while (d < -kPi) d += 2 * kPi;
@@ -1808,7 +1809,7 @@ void GameWorld::drive_player(const PlayInput& in, f32 dt) {
       }
       // Face the walking direction.
       if (length(move) > 0.1f) {
-        const f32 yaw = yaw_of(pose.rotation), want = std::atan2(move.y, move.x);
+        const f32 yaw = yaw_of(pose.rotation), want = kern::dm::atan2(move.y, move.x);
         f32 d = want - yaw;
         while (d > kPi) d -= 2 * kPi;
         while (d < -kPi) d += 2 * kPi;
@@ -1953,7 +1954,7 @@ void GameWorld::handle_events() {
       if (sound == "builtin:impact" && h.approach_speed < threshold * 2.2f) sound = "builtin:impact_light";
       const f32 mass = physics_.mass(hb);
       // Heavier sounds lower; light things only a little higher (pitched far up, taps turn glassy).
-      const f32 pitch = clamp(1.05f - std::log10(max_of(0.1f, mass)) * 0.1f, 0.7f, 1.15f);
+      const f32 pitch = clamp(1.05f - kern::dm::log10(max_of(0.1f, mass)) * 0.1f, 0.7f, 1.15f);
       cue(sound, h.point, strength, pitch, true, audio::Bus::sfx, id);
       ++impacts;
       break;
@@ -2009,7 +2010,7 @@ void GameWorld::burst(Vec3 at, Vec3 color) {
     const f32 a = rng.range(0, 2 * kPi), up = rng.range(4, 11), out = rng.range(3, 9);
     ParticleSpec spark;
     spark.position = at;
-    spark.velocity = {std::cos(a) * out, std::sin(a) * out, up};
+    spark.velocity = {kern::dm::cos(a) * out, kern::dm::sin(a) * out, up};
     spark.color = {color.x, color.y, color.z, 1};
     spark.start_ms = now_ms_;
     spark.life_ms = rng.range(600, 1100);
@@ -2238,7 +2239,7 @@ ActorId GameWorld::add_pawn(ActorId source, ActorId id) {
       copy.parent = 0;
       const Transform t = matrix_transform(src_world);
       copy.transform = t;
-      copy.transform.position += Vec3{std::cos(angle) * radius, std::sin(angle) * radius, 0.3f};
+      copy.transform.position += Vec3{kern::dm::cos(angle) * radius, kern::dm::sin(angle) * radius, 0.3f};
       copy.name = a->name + " " + std::to_string(n + 1);
     } else {
       copy.parent = remap.count(a->parent) ? remap[a->parent] : 0;
@@ -2435,8 +2436,8 @@ bool GameWorld::update_camera(Camera& cam, f32 dt, const PlayInput& in) {
   switch (c.camera) {
     case CameraMode::first_person: {
       if (c.mode == ControlMode::hovercar || c.mode == ControlMode::vehicle) camera_yaw_ = yaw_of(pose.rotation) / kDeg + 0;
-      const Vec3 dir{std::cos(camera_yaw_ * kDeg) * std::cos(-camera_pitch_ * kDeg * 0.5f), std::sin(camera_yaw_ * kDeg) * std::cos(-camera_pitch_ * kDeg * 0.5f),
-                     std::sin(-camera_pitch_ * kDeg * 0.5f)};
+      const Vec3 dir{kern::dm::cos(camera_yaw_ * kDeg) * kern::dm::cos(-camera_pitch_ * kDeg * 0.5f), kern::dm::sin(camera_yaw_ * kDeg) * kern::dm::cos(-camera_pitch_ * kDeg * 0.5f),
+                     kern::dm::sin(-camera_pitch_ * kDeg * 0.5f)};
       eye = center + Vec3{0, 0, c.camera_height * 0.25f};
       target = eye + dir * 10;
       camera_eye_ = eye;
@@ -2454,7 +2455,7 @@ bool GameWorld::update_camera(Camera& cam, f32 dt, const PlayInput& in) {
         Vec3 forward = pose.rotation.rotate({1, 0, 0});
         forward.z = 0;
         forward = normalize(forward, {1, 0, 0});
-        const f32 heading = std::atan2(forward.y, forward.x);
+        const f32 heading = kern::dm::atan2(forward.y, forward.x);
         const f32 dist = c.camera_distance * camera_zoom_ + speed * 0.12f;
         const Vec3 desired = center - forward * dist + Vec3{0, 0, c.camera_height * 0.8f + dist * 0.28f};
         camera_eye_ = camera_reset_ ? desired : damp3(camera_eye_, desired, 4.5f, dt);
@@ -2465,8 +2466,8 @@ bool GameWorld::update_camera(Camera& cam, f32 dt, const PlayInput& in) {
         const f32 dist = c.camera_distance * camera_zoom_;
         // View direction: positive pitch looks down at the player (the camera rises),
         // so moving the mouse up looks up - the same sense as the first-person view.
-        const Vec3 dir{std::cos(camera_yaw_ * kDeg) * std::cos(camera_pitch_ * kDeg), std::sin(camera_yaw_ * kDeg) * std::cos(camera_pitch_ * kDeg),
-                       -std::sin(camera_pitch_ * kDeg)};
+        const Vec3 dir{kern::dm::cos(camera_yaw_ * kDeg) * kern::dm::cos(camera_pitch_ * kDeg), kern::dm::sin(camera_yaw_ * kDeg) * kern::dm::cos(camera_pitch_ * kDeg),
+                       -kern::dm::sin(camera_pitch_ * kDeg)};
         target = center + Vec3{0, 0, c.camera_height * 0.25f};
         Vec3 desired = target - dir * dist;
         // Keep the camera out of walls (Box3D ray from the target).
@@ -2482,7 +2483,7 @@ bool GameWorld::update_camera(Camera& cam, f32 dt, const PlayInput& in) {
     }
   }
   camera_reset_ = false;
-  shake_ *= std::exp(-5 * dt);
+  shake_ *= kern::dm::exp(-5 * dt);
   if (shake_ > 0.01f) {
     Rng rng(static_cast<u32>(sim_time_ * 997.0f) + 13);
     eye += Vec3{rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1)} * shake_ * 0.35f;

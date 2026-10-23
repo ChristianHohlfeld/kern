@@ -2,6 +2,7 @@
 // the authority, the events the simulation raises for them, and the actor
 // operations their nodes use (with automatic replication of what they change).
 #include <algorithm>
+#include "kern/core/dmath.h"
 #include <cmath>
 
 #include "kern/game/geometry.h"
@@ -80,9 +81,9 @@ void GameWorld::interact(Pawn& pawn) {
   if (soldier) {
     from = pawn.mover.position() + Vec3{0, 0, a_eye_height(pawn.actor) * (1 - 0.4f * pawn.crouch)};
     const f32 y = pawn.yaw * kDegree, p = pawn.pitch * kDegree;
-    dir = {std::cos(p) * std::cos(y), std::cos(p) * std::sin(y), -std::sin(p)};
+    dir = {kern::dm::cos(p) * kern::dm::cos(y), kern::dm::cos(p) * kern::dm::sin(y), -kern::dm::sin(p)};
   } else {
-    dir = {std::cos(pawn.yaw * kDegree), std::sin(pawn.yaw * kDegree), 0};
+    dir = {kern::dm::cos(pawn.yaw * kDegree), kern::dm::sin(pawn.yaw * kDegree), 0};
   }
   ActorId hit = 0;
   Vec3 point, normal;

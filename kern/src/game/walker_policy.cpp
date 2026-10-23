@@ -1,4 +1,5 @@
 #include "kern/game/walker_policy.h"
+#include "kern/core/dmath.h"
 
 #include <cmath>
 #include <cstring>
@@ -176,7 +177,7 @@ void WalkerPolicy::run(const f32* observation, f32* action) const {
       f32 sum = biases[layer][static_cast<std::size_t>(o)];
       const f32* row = w + static_cast<std::size_t>(o) * static_cast<std::size_t>(n_in);
       for (i32 i = 0; i < n_in; ++i) sum += row[i] * a[static_cast<std::size_t>(i)];
-      b[static_cast<std::size_t>(o)] = layer + 1 < weights.size() ? (sum > 0 ? sum : std::expm1(sum)) : sum;  // ELU (alpha 1)
+      b[static_cast<std::size_t>(o)] = layer + 1 < weights.size() ? (sum > 0 ? sum : kern::dm::expm1(sum)) : sum;  // ELU (alpha 1)
     }
     std::swap(a, b);
   }

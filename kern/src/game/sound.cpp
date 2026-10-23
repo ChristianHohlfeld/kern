@@ -1,4 +1,5 @@
 #include "kern/game/sound.h"
+#include "kern/core/dmath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,7 +10,7 @@ namespace {
 
 bool is_builtin(std::string_view ref) { return ref.rfind("builtin:", 0) == 0; }
 bool is_silent(std::string_view ref) { return ref.empty() || ref == "none" || ref == "auto"; }
-f32 damp(f32 current, f32 target, f32 rate, f32 dt) { return target + (current - target) * std::exp(-rate * dt); }
+f32 damp(f32 current, f32 target, f32 rate, f32 dt) { return target + (current - target) * kern::dm::exp(-rate * dt); }
 
 }  // namespace
 

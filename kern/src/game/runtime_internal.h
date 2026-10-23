@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cmath>
+#include "kern/core/dmath.h"
 #include <memory>
 
 #include "kern/game/runtime.h"
@@ -26,7 +27,7 @@ struct GameWorld::SimBody {
 
 namespace rt {
 constexpr f32 kDegree = 0.017453292519943295f;
-inline f32 damp(f32 current, f32 target, f32 rate, f32 dt) { return target + (current - target) * std::exp(-rate * dt); }
+inline f32 damp(f32 current, f32 target, f32 rate, f32 dt) { return target + (current - target) * kern::dm::exp(-rate * dt); }
 inline f32 wrap180(f32 a) { a = std::fmod(a + 180.0f, 360.0f); if (a < 0) a += 360.0f; return a - 180.0f; }
 /// Deterministic hash noise in [-1, 1].
 inline f32 noise(u32 x) { x = hash_u32(x); return static_cast<f32>(x & 0xFFFFFF) / static_cast<f32>(0x7FFFFF) - 1.0f; }

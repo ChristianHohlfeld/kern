@@ -1,5 +1,6 @@
 // PPO as rsl_rl runs it (see ppo.h): the same losses, schedule and bookkeeping, in C++.
 #include "kern/train/ppo.h"
+#include "kern/core/dmath.h"
 
 #include <chrono>
 #include <cmath>
@@ -17,6 +18,7 @@ namespace {
 
 constexpr f32 kLog2Pi = 1.83787706641f;
 constexpr f32 kMinStd = 1e-3f;
+constexpr std::size_t kLearnChunks = 8;
 
 f64 seconds_since(std::chrono::steady_clock::time_point t) {
   return std::chrono::duration<f64>(std::chrono::steady_clock::now() - t).count();
@@ -157,7 +159,11 @@ void Collector::collect(std::vector<Env*>& envs, i32 steps, const Policy& policy
   out.last_critic.resize(static_cast<std::size_t>(N) * static_cast<std::size_t>(C));
   out.episode_returns.clear();
   out.episode_lengths.clear();
-  while (static_cast<i32>(env_rng_.size()) < N) env_rng_.emplace_back(rng_.next());
+  while (static_cast<i32>(env_rng_.size()) < N) {
+    Rng r(rng_.state ^ (0xA24BAED4963EE407ull * static_cast<u64>(first_env_ + static_cast<i32>(env_rng_.size()) + 1)));
+    r.next();
+    env_rng_.push_back(r);
+  }
   episode_return_.resize(static_cast<std::size_t>(N), 0.0f);
   episode_length_.resize(static_cast<std::size_t>(N), 0);
   std::vector<std::vector<std::pair<f32, i32>>> finished(static_cast<std::size_t>(N));
@@ -224,10 +230,8 @@ IterationStats Ppo::learn(const std::vector<const Rollout*>& rollouts) {
   IterationStats stats;
   stats.iteration = ++iteration_;
   std::size_t rows = 0;
-  f64 reward_sum = 0;
   for (const Rollout* r : rollouts) {
     rows += r->reward.size();
-    for (f32 v : r->reward) reward_sum += v;
     for (std::size_t k = 0; k < r->episode_returns.size(); ++k) {
       stats.mean_return += r->episode_returns[k];
       stats.mean_length += static_cast<f32>(r->episode_lengths[k]);
@@ -237,16 +241,9 @@ IterationStats Ppo::learn(const std::vector<const Rollout*>& rollouts) {
   }
   if (!rows) return stats;
   if (stats.episodes) { stats.mean_return /= static_cast<f32>(stats.episodes); stats.mean_length /= static_cast<f32>(stats.episodes); }
-  stats.mean_reward = static_cast<f32>(reward_sum / static_cast<f64>(rows));
   total_steps_ += static_cast<i64>(rows);
   stats.steps = total_steps_;
   const auto t1 = std::chrono::steady_clock::now();
-  // The normalisers learn from what was observed (rsl_rl updates them step by step while collecting;
-  // collectors elsewhere keep the policy fixed for a rollout, so the learner does it here).
-  for (const Rollout* r : rollouts) {
-    if (!cfg_.freeze_actor_normalizer) policy_.normalizer.update(r->observation.data(), r->envs * r->steps);
-    critic_norm_.update(r->critic_obs.data(), r->envs * r->steps);
-  }
   // Gather every row; evaluate the old policy and the values under today's normalisers.
   obs_buf_.resize(rows * static_cast<std::size_t>(obs_));
   crit_buf_.resize(rows * static_cast<std::size_t>(crit_));
@@ -256,14 +253,46 @@ IterationStats Ppo::learn(const std::vector<const Rollout*>& rollouts) {
   value_buf_.resize(rows);
   return_buf_.resize(rows);
   adv_buf_.resize(rows);
-  std::size_t at = 0;
+  // One canonical order, whatever the split into rollouts: step-major over all environments in the
+  // rollouts' order (the order of their global indices). The learner's result is then the same for
+  // any number of workers (docs/training.md, determinism).
+  const i32 T = rollouts.front()->steps;
+  i32 N = 0;
   for (const Rollout* r : rollouts) {
-    const std::size_t n = r->reward.size();
-    std::memcpy(obs_buf_.data() + at * obs_, r->observation.data(), sizeof(f32) * n * static_cast<std::size_t>(obs_));
-    std::memcpy(crit_buf_.data() + at * crit_, r->critic_obs.data(), sizeof(f32) * n * static_cast<std::size_t>(crit_));
-    std::memcpy(act_buf_.data() + at * act_, r->action.data(), sizeof(f32) * n * static_cast<std::size_t>(act_));
-    at += n;
+    if (r->steps != T) return stats;
+    N += r->envs;
   }
+  reward_.resize(rows);
+  live_.resize(rows);
+  timeout_.resize(rows);
+  last_crit_.resize(static_cast<std::size_t>(N) * static_cast<std::size_t>(crit_));
+  {
+    std::size_t dst = 0;
+    for (i32 t = 0; t < T; ++t)
+      for (const Rollout* r : rollouts)
+        for (i32 i = 0; i < r->envs; ++i, ++dst) {
+          const std::size_t src = static_cast<std::size_t>(t) * static_cast<std::size_t>(r->envs) + static_cast<std::size_t>(i);
+          std::memcpy(obs_buf_.data() + dst * obs_, r->observation.data() + src * obs_, sizeof(f32) * static_cast<std::size_t>(obs_));
+          std::memcpy(crit_buf_.data() + dst * crit_, r->critic_obs.data() + src * crit_, sizeof(f32) * static_cast<std::size_t>(crit_));
+          std::memcpy(act_buf_.data() + dst * act_, r->action.data() + src * act_, sizeof(f32) * static_cast<std::size_t>(act_));
+          reward_[dst] = r->reward[src];
+          timeout_[dst] = r->timeout[src];
+          live_[dst] = r->terminal[src] || r->timeout[src] ? 0 : 1;
+        }
+    std::size_t e = 0;
+    for (const Rollout* r : rollouts)
+      for (i32 i = 0; i < r->envs; ++i, ++e)
+        std::memcpy(last_crit_.data() + e * crit_, r->last_critic.data() + static_cast<std::size_t>(i) * crit_, sizeof(f32) * static_cast<std::size_t>(crit_));
+  }
+  {
+    f64 sum = 0;
+    for (f32 v : reward_) sum += v;
+    stats.mean_reward = static_cast<f32>(sum / static_cast<f64>(rows));
+  }
+  // The normalisers learn from what was observed (rsl_rl updates them step by step while collecting;
+  // collectors elsewhere keep the policy fixed for a rollout, so the learner does it here, at once).
+  if (!cfg_.freeze_actor_normalizer) policy_.normalizer.update(obs_buf_.data(), static_cast<i32>(rows));
+  critic_norm_.update(crit_buf_.data(), static_cast<i32>(rows));
   {
     const std::size_t chunk = 256;
     const i32 A = act_;
@@ -278,34 +307,31 @@ IterationStats Ppo::learn(const std::vector<const Rollout*>& rollouts) {
         f32 logp = 0;
         for (i32 j = 0; j < A; ++j) {
           const f32 sd = policy_.stddev[static_cast<std::size_t>(j)], d = act_buf_[(s + static_cast<std::size_t>(k)) * A + j] - mu_buf_[(s + static_cast<std::size_t>(k)) * A + j];
-          logp += -0.5f * d * d / (sd * sd) - std::log(sd) - 0.5f * kLog2Pi;
+          logp += -0.5f * d * d / (sd * sd) - kern::dm::log(sd) - 0.5f * kLog2Pi;
         }
         logp_buf_[s + static_cast<std::size_t>(k)] = logp;
       }
     }
   }
   // GAE (lambda) per environment; a time-out is bootstrapped with the value where it stood (rsl_rl).
-  at = 0;
-  for (const Rollout* r : rollouts) {
-    const i32 N = r->envs, T = r->steps;
-    std::vector<f32> last(static_cast<std::size_t>(N)), xc(r->last_critic.size());
-    critic_norm_.apply(r->last_critic.data(), N, xc.data());
+  {
+    std::vector<f32> last(static_cast<std::size_t>(N)), xc(last_crit_.size());
+    critic_norm_.apply(last_crit_.data(), N, xc.data());
     critic_.forward(xc.data(), N, last.data());
     for (i32 i = 0; i < N; ++i) {
       f32 adv = 0;
       for (i32 t = T - 1; t >= 0; --t) {
-        const std::size_t local = static_cast<std::size_t>(t) * N + static_cast<std::size_t>(i), row = at + local;
+        const std::size_t row = static_cast<std::size_t>(t) * static_cast<std::size_t>(N) + static_cast<std::size_t>(i);
         const f32 v = value_buf_[row];
         const f32 next = t == T - 1 ? last[static_cast<std::size_t>(i)] : value_buf_[row + static_cast<std::size_t>(N)];
-        const f32 reward = r->reward[local] + (r->timeout[local] ? cfg_.gamma * v : 0.0f);
-        const f32 live = r->terminal[local] || r->timeout[local] ? 0.0f : 1.0f;
+        const f32 reward = reward_[row] + (timeout_[row] ? cfg_.gamma * v : 0.0f);
+        const f32 live = static_cast<f32>(live_[row]);
         const f32 delta = reward + live * cfg_.gamma * next - v;
         adv = delta + live * cfg_.gamma * cfg_.lam * adv;
         return_buf_[row] = adv + v;
         adv_buf_[row] = adv;
       }
     }
-    at += r->reward.size();
   }
   {
     f64 m = 0, v = 0;
@@ -336,7 +362,9 @@ void Ppo::update(IterationStats& stats) {
   const std::vector<f32> old_std = policy_.stddev;
   const i32 A = act_;
   // A minibatch is cut into chunks that run on the learner's threads; their gradients add up.
-  const i32 chunks = static_cast<i32>(std::min(static_cast<std::size_t>(max_of(1, cfg_.learn_threads)), size));
+  // A fixed number of chunks whatever the thread count: the gradient's sum is the same on 1 thread,
+  // 16 threads or in the browser.
+  const i32 chunks = static_cast<i32>(std::min<std::size_t>(kLearnChunks, size));
   struct Chunk {
     std::size_t lo = 0, n = 0;
     std::vector<f32> ro, rc, xa, xc, mu, value, dmu, dv, dstd, gactor, gcritic;
@@ -384,7 +412,7 @@ void Ppo::update(IterationStats& stats) {
             for (i32 j = 0; j < A; ++j) {
               const f32 s0 = old_std[static_cast<std::size_t>(j)], s1 = policy_.stddev[static_cast<std::size_t>(j)];
               const f32 d = mu_buf_[row * A + j] - k.mu[r * A + j];
-              kl += std::log(s1 / s0) + (s0 * s0 + d * d) / (2 * s1 * s1) - 0.5f;
+              kl += kern::dm::log(s1 / s0) + (s0 * s0 + d * d) / (2 * s1 * s1) - 0.5f;
             }
           }
         kl /= static_cast<f64>(size);
@@ -404,10 +432,10 @@ void Ppo::update(IterationStats& stats) {
           f32 logp = 0;
           for (i32 j = 0; j < A; ++j) {
             const f32 sd = policy_.stddev[static_cast<std::size_t>(j)], d = act_buf_[row * A + j] - k.mu[r * A + j];
-            logp += -0.5f * d * d / (sd * sd) - std::log(sd) - 0.5f * kLog2Pi;
+            logp += -0.5f * d * d / (sd * sd) - kern::dm::log(sd) - 0.5f * kLog2Pi;
           }
           const f32 adv = adv_buf_[row];
-          const f32 ratio = std::exp(clamp(logp - logp_buf_[row], -20.0f, 20.0f));
+          const f32 ratio = kern::dm::exp(clamp(logp - logp_buf_[row], -20.0f, 20.0f));
           const f32 s1 = -adv * ratio, s2 = -adv * clamp(ratio, 1 - cfg_.clip, 1 + cfg_.clip);
           k.sloss += max_of(s1, s2);
           const f32 g = s1 >= s2 ? -adv * ratio * inv : 0.0f;  // d(loss)/d(logp)
@@ -441,7 +469,7 @@ void Ppo::update(IterationStats& stats) {
       // Entropy bonus: sum over actions of 0.5 + 0.5 log(2 pi) + log(std), the same for every sample.
       f32 entropy = 0;
       for (i32 j = 0; j < A; ++j) {
-        entropy += 0.5f + 0.5f * kLog2Pi + std::log(policy_.stddev[static_cast<std::size_t>(j)]);
+        entropy += 0.5f + 0.5f * kLog2Pi + kern::dm::log(policy_.stddev[static_cast<std::size_t>(j)]);
         first.dstd[static_cast<std::size_t>(j)] += -cfg_.entropy_coef / policy_.stddev[static_cast<std::size_t>(j)];
       }
       actor_adam_.step({Adam::Block{policy_.actor.params().data(), first.gactor.data(), first.gactor.size()}, Adam::Block{policy_.stddev.data(), first.dstd.data(), first.dstd.size()}});

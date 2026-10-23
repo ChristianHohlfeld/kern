@@ -13,12 +13,12 @@ const check = (ok, what) => { if (!ok) { console.error("FAIL " + what); process.
 
 const task = enc.encode("jump"), config = enc.encode('{"steps":8}');
 const tp = put(task), cp = put(config);
-check(e.kern_train_create(tp, task.length, 2, 5) === 1, "collector");
+check(e.kern_train_create(tp, task.length, 2, 5, 0) === 1, "collector");
 check(e.kern_train_learner(tp, task.length, cp, config.length, 3) === 1, "learner");
 const policy = take(e.kern_train_policy());
 check(policy.length > 100000, "policy");
 check(e.kern_train_set_policy(put(policy), policy.length >> 2) === 1, "set policy");
-e.kern_train_progress(1, 0);
+e.kern_train_progress(1);
 const t0 = performance.now();
 const rollout = take(e.kern_train_collect(8));
 const ms = performance.now() - t0;
@@ -32,4 +32,13 @@ const stats = JSON.parse(kern.string(sp, e.kern_train_result_length()));
 check(stats.iteration === 1 && stats.steps === 16, "stats " + JSON.stringify(stats));
 const onnx = take(e.kern_train_export_onnx());
 check(onnx.length > 50000 && new TextDecoder().decode(onnx).includes("actions"), "onnx");
-console.log(`trainer wasm ok: 16 duck steps in ${ms.toFixed(0)} ms, learn ${stats.learnSeconds.toFixed(2)} s, onnx ${onnx.length} bytes`);
+// Bit-identical with every other build (tests/determinism_fingerprint.txt).
+{
+  const p = e.kern_train_fingerprint(400), n = e.kern_train_result_length() / 8;
+  const got = new BigUint64Array(kern.memory.buffer, p, n);
+  const want = fs.readFileSync(new URL("./determinism_fingerprint.txt", import.meta.url), "utf8").trim().split("\n").map(l => BigInt("0x" + l.split(" ")[1]));
+  check(n === want.length, "fingerprint length");
+  const first = want.findIndex((w, i) => w !== got[i]);
+  check(first < 0, "deterministic: differs from tick " + first);
+}
+console.log(`trainer wasm ok (bit-identical with native): 16 duck steps in ${ms.toFixed(0)} ms, learn ${stats.learnSeconds.toFixed(2)} s, onnx ${onnx.length} bytes`);

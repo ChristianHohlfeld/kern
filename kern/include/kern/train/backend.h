@@ -31,12 +31,15 @@ class Backend {
   virtual ParallelFor update_parallel() = 0;
 };
 
-/// Makes the environments of one worker (worker index, environments, seed).
-using EnvFactory = std::function<std::vector<std::unique_ptr<Env>>(i32 worker, i32 count, u64 seed)>;
+/// Makes `count` environments with global indices first, first + 1, ...; environment k's seed must
+/// depend only on (seed, first + k), so that the training does not depend on how the environments
+/// are spread over workers.
+using EnvFactory = std::function<std::vector<std::unique_ptr<Env>>(i32 first, i32 count, u64 seed)>;
 /// Before each iteration, per environment (the curricula: task progress, shove strength).
 using EnvPrepare = std::function<void(Env& env, i32 iteration)>;
 
-/// Native: `workers` groups of environments, each stepped on its own thread.
+/// Native: `workers` groups of environments, each stepped on its own thread. The result is the same
+/// for any number of workers with the same total of environments (docs/training.md, determinism).
 class ThreadBackend : public Backend {
  public:
   ThreadBackend(i32 workers, i32 envs_per_worker, u64 seed, const EnvFactory& make, EnvPrepare prepare = {});

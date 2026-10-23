@@ -19,6 +19,7 @@
 // Everything runs in the policy's control tick (50 Hz real); the random choices come from a
 // generator seeded with the actor id, so a run is deterministic.
 #include <algorithm>
+#include "kern/core/dmath.h"
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -166,7 +167,7 @@ struct GameWorld::WalkerBrain::Brain {
     for (int k = 0; k < 9; ++k) {
       const f64 h = yaw + spread * (k - 4.0) / 4.0;
       f64 score = 0;
-      for (f64 d : {0.7, 1.5, 2.5}) score += visit_at(x + d * std::cos(h), y + d * std::sin(h)) * (1.7 - 0.4 * d);
+      for (f64 d : {0.7, 1.5, 2.5}) score += visit_at(x + d * kern::dm::cos(h), y + d * kern::dm::sin(h)) * (1.7 - 0.4 * d);
       score += range(0, 0.5);
       if (score < best_score) { best_score = score; best = h; }
     }
@@ -177,10 +178,10 @@ struct GameWorld::WalkerBrain::Brain {
     blocked.erase(std::remove_if(blocked.begin(), blocked.end(), [&](const std::array<f64, 3>& b) { return clock - b[2] > kBlockedS; }), blocked.end());
     const f64 offset = range(0, kTau);
     f64 best_score = 1e300;
-    goal[0] = x + std::cos(yaw);
-    goal[1] = y + std::sin(yaw);
+    goal[0] = x + kern::dm::cos(yaw);
+    goal[1] = y + kern::dm::sin(yaw);
     for (int k = 0; k < kGoalDirections; ++k) {
-      const f64 heading = offset + kTau * k / kGoalDirections, c = std::cos(heading), s = std::sin(heading);
+      const f64 heading = offset + kTau * k / kGoalDirections, c = kern::dm::cos(heading), s = kern::dm::sin(heading);
       for (f64 d : kGoalDistances) {
         const int steps = static_cast<int>(d / 0.25);
         f64 dwell = 0;
@@ -188,7 +189,7 @@ struct GameWorld::WalkerBrain::Brain {
         for (int i = 1; i <= steps; ++i) {
           const f64 r = d * i / steps, px = x + r * c, py = y + r * s;
           dwell += visit_at(px, py);
-          for (const auto& b : blocked) shut = shut || std::hypot(b[0] - px, b[1] - py) < kBlockedM;
+          for (const auto& b : blocked) shut = shut || kern::dm::hypot(b[0] - px, b[1] - py) < kBlockedM;
         }
         const f64 turn = std::fabs(wrap_angle(heading - yaw)) / kPi;
         const f64 score = dwell / steps + (shut ? 100.0 : 0.0) - 0.5 * d + 0.6 * turn + range(0, 0.5);
@@ -210,7 +211,7 @@ struct GameWorld::WalkerBrain::Brain {
     quacks_left = count - 1;
     burst_gap_in = range(0.30, 0.45);
   }
-  f64 mouth_now() const { return quack_t < kQuackAnimS ? std::sin(kPi * quack_t / kQuackAnimS) : 0.0; }
+  f64 mouth_now() const { return quack_t < kQuackAnimS ? kern::dm::sin(kPi * quack_t / kQuackAnimS) : 0.0; }
   void enter(S next) {
     state = next;
     t_state = 0;
@@ -223,7 +224,7 @@ struct GameWorld::WalkerBrain::Brain {
         glancing = true;
         glance_in = 0;
         pick_goal();
-        bout_best_left = std::hypot(goal[0] - last_pose[0], goal[1] - last_pose[1]);
+        bout_best_left = kern::dm::hypot(goal[0] - last_pose[0], goal[1] - last_pose[1]);
         bout_progress_at = 0;
         state_dur = kBoutMaxS;
         break;
@@ -314,7 +315,7 @@ struct GameWorld::WalkerBrain::Brain {
     if (o->ahead_m < kStopM) {
       if (state == S::wander) {
         const f64 reach = kBeakM + o->ahead_m + 0.1;
-        blocked.push_back({last_pose[0] + reach * std::cos(last_pose[2]), last_pose[1] + reach * std::sin(last_pose[2]), clock});
+        blocked.push_back({last_pose[0] + reach * kern::dm::cos(last_pose[2]), last_pose[1] + reach * kern::dm::sin(last_pose[2]), clock});
       }
       enter(S::turn);
       turn_rate = std::fabs(turn_rate) * o->away;
@@ -348,7 +349,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
   const WalkerSensors& sn = w.sensors;
   const physics::Pose tp = physics_.pose(w.trunk);
   const Vec3 fwd3 = tp.rotation.rotate({1, 0, 0});
-  const f64 pose[3] = {tp.position.x / S_, tp.position.y / S_, std::atan2(fwd3.y, fwd3.x)};  // odometry, real metres
+  const f64 pose[3] = {tp.position.x / S_, tp.position.y / S_, kern::dm::atan2(fwd3.y, fwd3.x)};  // odometry, real metres
   const f64 now = sim_time_ / std::sqrt(S_);  // real seconds
 
   // ---- obstacle.rs: fold in a new ToF frame, then summarise the path ahead ------------------------
@@ -357,7 +358,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
     std::vector<std::array<f64, 3>> hits;
     for (int i = 0; i < sn.hits; ++i) hits.push_back({sn.hit[i].x / S_, sn.hit[i].y / S_, sn.hit[i].z / S_});
     if (sn.forward_observed >= 2) { b.seen = true; b.seen_t = now; std::memcpy(b.seen_pose, pose, sizeof pose); }
-    auto close = [](const std::array<f64, 3>& a, const std::array<f64, 3>& c) { return std::hypot(std::hypot(a[0] - c[0], a[1] - c[1]), a[2] - c[2]) <= kConfirmM; };
+    auto close = [](const std::array<f64, 3>& a, const std::array<f64, 3>& c) { return kern::dm::hypot(kern::dm::hypot(a[0] - c[0], a[1] - c[1]), a[2] - c[2]) <= kConfirmM; };
     for (std::size_t i = 0; i < hits.size(); ++i) {
       bool confirmed = false;
       for (std::size_t j = 0; j < hits.size() && !confirmed; ++j) confirmed = j != i && close(hits[i], hits[j]);
@@ -371,15 +372,15 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
   const bool have_obstacle = b.seen;
   if (b.seen) {
     const bool turned = std::fabs(wrap_angle(pose[2] - b.seen_pose[2])) > kTurnedRad;
-    const bool moved = std::hypot(pose[0] - b.seen_pose[0], pose[1] - b.seen_pose[1]) > kMovedM;
+    const bool moved = kern::dm::hypot(pose[0] - b.seen_pose[0], pose[1] - b.seen_pose[1]) > kMovedM;
     ob.age_s = turned || moved ? INFINITY : std::max(0.0, now - b.seen_t);
     f64 left = INFINITY, right = INFINITY;
-    const f64 c = std::cos(pose[2]), s = std::sin(pose[2]);
+    const f64 c = kern::dm::cos(pose[2]), s = kern::dm::sin(pose[2]);
     for (const auto& h : b.hazards) {
       const f64 dx = h.x - pose[0], dy = h.y - pose[1], x = c * dx + s * dy, y = -s * dx + c * dy;
       if (x <= 0) continue;
       if (std::fabs(y) < kHalfWidthM) ob.ahead_m = std::min(ob.ahead_m, std::max(x - kBeakM, 0.0));
-      (y >= 0 ? left : right) = std::min(y >= 0 ? left : right, std::hypot(x, y));
+      (y >= 0 ? left : right) = std::min(y >= 0 ? left : right, kern::dm::hypot(x, y));
     }
     ob.away = left >= right ? 1.0 : -1.0;
   }
@@ -482,7 +483,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
   {
     const physics::Pose ap = physics_.pose(w.bodies[5]);  // the left ankle (links: trunk, left leg 1..5)
     const f64 fx = (ap.position.x - tp.position.x) / S_, fy = (ap.position.y - tp.position.y) / S_;
-    const f64 a = fx * std::cos(pose[2]) + fy * std::sin(pose[2]), l = -fx * std::sin(pose[2]) + fy * std::cos(pose[2]);
+    const f64 a = fx * kern::dm::cos(pose[2]) + fy * kern::dm::sin(pose[2]), l = -fx * kern::dm::sin(pose[2]) + fy * kern::dm::cos(pose[2]);
     if (!b.has_foot && b.clock > 1.0) { b.foot_home[0] = a; b.foot_home[1] = l; b.has_foot = true; }
   }
   const bool engaged = b.state == S::act || b.state == S::carry || b.state == S::nap || b.state == S::petted || b.state == S::ground_pick;
@@ -511,7 +512,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
       const Vec3 at = sum * (1.0f / static_cast<f32>(n));
       if (at.z > (ball ? 0.08 : 0.03) * S_) continue;  // not on the floor
       if (!seen) continue;
-      const f64 d = std::hypot(at.x / S_ - pose[0], at.y / S_ - pose[1]) * (sock ? 0.7 : 1.0);  // socks first
+      const f64 d = kern::dm::hypot(at.x / S_ - pose[0], at.y / S_ - pose[1]) * (sock ? 0.7 : 1.0);  // socks first
       if (d < best) {
         best = d;
         if (b.target != a.id) b.tries = 0;
@@ -524,7 +525,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
     }
     // Close up the target is under the camera: it goes by where it saw it (it does not move by
     // itself), and forgets it only when it was far.
-    const bool near = b.target && std::hypot(b.target_at[0] - pose[0], b.target_at[1] - pose[1]) < 0.3;
+    const bool near = b.target && kern::dm::hypot(b.target_at[0] - pose[0], b.target_at[1] - pose[1]) < 0.3;
     if (near && b.state == S::fetch) b.target_seen = std::min(b.target_seen, kTargetForget * 0.5);
     if (b.target && b.target_seen >= kTargetForget) { b.target = 0; if (b.state == S::fetch) b.enter(S::look_around); }
     if (b.target && b.target_seen < kTargetForget && b.state != S::fetch && !sitting) b.enter(S::fetch);
@@ -534,7 +535,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
   switch (b.state) {
     case S::chill:
       std::fill(std::begin(b.cmd), std::end(b.cmd), 0.0);
-      mouth_extra = std::max(0.03 + 0.03 * std::sin(tw * 0.45 * b.t_state), 0.0);
+      mouth_extra = std::max(0.03 + 0.03 * kern::dm::sin(tw * 0.45 * b.t_state), 0.0);
       if (b.retarget_in <= 0) {
         b.retarget_in = b.range(1.2, 3.0);
         b.head[0] = b.sym(0.10); b.head[1] = b.sym(0.20); b.head[2] = b.sym(0.40);
@@ -556,10 +557,10 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
         b.wander_vx = b.range(0.6 * kMaxLinear, kMaxLinear) * pep;
       }
       if (!b.has_goal) b.pick_goal();
-      const f64 dx = b.goal[0] - pose[0], dy = b.goal[1] - pose[1], distance = std::hypot(dx, dy);
+      const f64 dx = b.goal[0] - pose[0], dy = b.goal[1] - pose[1], distance = kern::dm::hypot(dx, dy);
       if (distance < b.bout_best_left - kGoalProgressM) { b.bout_best_left = distance; b.bout_progress_at = b.t_state; }
       if (distance < kGoalReachedM || b.t_state - b.bout_progress_at > kGoalPatienceS) b.t_state = b.state_dur;
-      const f64 heading_delta = wrap_angle(std::atan2(dy, dx) - pose[2]);
+      const f64 heading_delta = wrap_angle(kern::dm::atan2(dy, dx) - pose[2]);
       const bool pivoting = std::fabs(heading_delta) > 0.7;
       b.wander_wz = pivoting ? 0.9 * kMaxAngular * sgn(heading_delta) : std::clamp(1.2 * heading_delta, -0.6, 0.6);
       b.glance_in -= dt;
@@ -609,14 +610,14 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
       const f64 env = t < release_start ? std::min(t / rise_end, 1.0) : std::clamp(1.0 - (t - release_start), 0.0, 1.0);
       const f64 climax = rise_end + 0.2;
       if (t - dt < climax && t >= climax) sound = "coo";
-      body[0] = env * 0.010; body[1] = env * -0.20; body[2] = env * 0.10 * std::sin(tw * 0.35 * t);
+      body[0] = env * 0.010; body[1] = env * -0.20; body[2] = env * 0.10 * kern::dm::sin(tw * 0.35 * t);
       body_active = t < b.state_dur;
       if (t < shake_start) {
-        b.head[0] = env * 0.30; b.head[1] = env * 0.70; b.head[2] = env * 0.12 * std::sin(tw * 0.3 * t); b.head[3] = env * 0.15 * std::sin(tw * 0.25 * t + 1.0);
+        b.head[0] = env * 0.30; b.head[1] = env * 0.70; b.head[2] = env * 0.12 * kern::dm::sin(tw * 0.3 * t); b.head[3] = env * 0.15 * kern::dm::sin(tw * 0.25 * t + 1.0);
       } else {
         head_alpha = 0.8;
         const f64 ts = t - shake_start, decay = std::clamp(1.0 - ts / 1.2, 0.0, 1.0);
-        b.head[0] = -0.10 * decay; b.head[1] = -0.30 * decay; b.head[2] = 0.55 * decay * std::sin(tw * 3.5 * ts); b.head[3] = 0.20 * decay * std::sin(tw * 3.5 * ts + 1.2);
+        b.head[0] = -0.10 * decay; b.head[1] = -0.30 * decay; b.head[2] = 0.55 * decay * kern::dm::sin(tw * 3.5 * ts); b.head[3] = 0.20 * decay * kern::dm::sin(tw * 3.5 * ts + 1.2);
       }
       mouth_extra = std::clamp((t - 0.8) / 0.6, 0.0, 1.0) * env * 0.5;
       break;
@@ -625,25 +626,25 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
       std::fill(std::begin(b.cmd), std::end(b.cmd), 0.0);
       head_alpha = 0.85;
       const f64 t = b.t_state, env = std::min(t / 0.15, 1.0) * std::clamp((b.state_dur - t) / 0.4, 0.0, 1.0), wv = tw * 4.5 * t;
-      body[0] = -0.005 * env; body[1] = 0; body[2] = 0.13 * env * std::sin(wv);
+      body[0] = -0.005 * env; body[1] = 0; body[2] = 0.13 * env * kern::dm::sin(wv);
       body_active = t < b.state_dur;
-      b.head[0] = -0.08 * env; b.head[1] = -0.15 * env; b.head[2] = 0.45 * env * std::sin(wv + 0.9); b.head[3] = 0.25 * env * std::sin(wv + 2.2);
+      b.head[0] = -0.08 * env; b.head[1] = -0.15 * env; b.head[2] = 0.45 * env * kern::dm::sin(wv + 0.9); b.head[3] = 0.25 * env * kern::dm::sin(wv + 2.2);
       break;
     }
     case S::dance: {
       std::fill(std::begin(b.cmd), std::end(b.cmd), 0.0);
       const f64 t = b.t_state, env = std::min(t / 0.5, 1.0) * std::clamp((b.state_dur - t) / 1.0, 0.0, 1.0);
-      body[0] = env * (-0.006 + 0.010 * std::sin(tw * 1.1 * t)); body[1] = env * 0.07 * std::sin(tw * 0.55 * t); body[2] = env * 0.12 * std::sin(tw * 1.1 * t + 1.0);
+      body[0] = env * (-0.006 + 0.010 * kern::dm::sin(tw * 1.1 * t)); body[1] = env * 0.07 * kern::dm::sin(tw * 0.55 * t); body[2] = env * 0.12 * kern::dm::sin(tw * 1.1 * t + 1.0);
       body_active = t < b.state_dur;
       head_alpha = 0.30;
-      b.head[0] = 0; b.head[1] = env * 0.18 * std::sin(tw * 0.55 * t); b.head[2] = env * 0.35 * std::sin(tw * 0.55 * t + 0.7); b.head[3] = env * 0.45 * std::sin(tw * 1.1 * t + 1.0);
+      b.head[0] = 0; b.head[1] = env * 0.18 * kern::dm::sin(tw * 0.55 * t); b.head[2] = env * 0.35 * kern::dm::sin(tw * 0.55 * t + 0.7); b.head[3] = env * 0.45 * kern::dm::sin(tw * 1.1 * t + 1.0);
       break;
     }
     case S::sneeze: {
       std::fill(std::begin(b.cmd), std::end(b.cmd), 0.0);
       const f64 t = b.t_state;
       if (t < 0.75) {
-        const f64 r = std::pow(t / 0.75, 1.4);
+        const f64 r = kern::dm::pow(t / 0.75, 1.4);
         b.head[0] = 0.15 * r; b.head[1] = 0.55 * r; b.head[2] = 0; b.head[3] = 0;
         mouth_extra = 0.4 * r;
       } else if (t < 0.85) {
@@ -654,12 +655,12 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
         const f64 ts = t - 0.85;
         if (ts < 0.5) {
           head_alpha = 0.9;
-          const f64 ring = std::sin(tw * 5.0 * ts) * (1.0 - ts / 0.5);
+          const f64 ring = kern::dm::sin(tw * 5.0 * ts) * (1.0 - ts / 0.5);
           b.head[0] = -0.10; b.head[1] = -0.65 * (1.0 - ts / 0.5); b.head[2] = 0.25 * ring; b.head[3] = 0.20 * ring;
           mouth_extra = std::max(0.5 - ts, 0.0);
         } else {
           head_alpha = 0.12;
-          b.head[0] = 0; b.head[1] = 0.05; b.head[2] = 0.5 * std::sin(tw * 0.35 * (ts - 0.5)); b.head[3] = 0;
+          b.head[0] = 0; b.head[1] = 0.05; b.head[2] = 0.5 * kern::dm::sin(tw * 0.35 * (ts - 0.5)); b.head[3] = 0;
         }
       }
       break;
@@ -673,15 +674,15 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
         if (t < 2.0) std::fill(std::begin(b.head), std::end(b.head), 0.0);
         else if (petting) {
           head_alpha = 0.2;
-          b.head[0] = 0.05; b.head[1] = 0.35 + 0.06 * std::sin(tw * 0.5 * t); b.head[2] = 0; b.head[3] = 0.15 * std::sin(tw * 0.3 * t);
-          mouth_extra = std::max(0.08 + 0.05 * std::sin(tw * 0.8 * t), 0.0);
+          b.head[0] = 0.05; b.head[1] = 0.35 + 0.06 * kern::dm::sin(tw * 0.5 * t); b.head[2] = 0; b.head[3] = 0.15 * kern::dm::sin(tw * 0.3 * t);
+          mouth_extra = std::max(0.08 + 0.05 * kern::dm::sin(tw * 0.8 * t), 0.0);
           b.pet_coo_in -= dt;
           if (b.pet_coo_in <= 0) { b.pet_coo_in = b.range(4.0, 7.0); sound = "coo"; }
         } else if (b.nap_doze) {
           b.droop += dt / 5.0;
           if (b.droop >= 1.0) b.droop = b.range(-0.5, -0.1);
-          const f64 sink = std::pow(std::max(b.droop, 0.0), 1.6);
-          b.head[0] = -0.10 * sink; b.head[1] = -0.55 * sink; b.head[2] = 0.06 * std::sin(tw * 0.11 * t); b.head[3] = 0.20 * sink;
+          const f64 sink = kern::dm::pow(std::max(b.droop, 0.0), 1.6);
+          b.head[0] = -0.10 * sink; b.head[1] = -0.55 * sink; b.head[2] = 0.06 * kern::dm::sin(tw * 0.11 * t); b.head[3] = 0.20 * sink;
           b.twitch_in -= dt;
           if (b.twitch_in <= 0) {
             b.twitch_in = b.range(6.0, 14.0);
@@ -690,7 +691,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
           }
           b.twitch_t += dt;
           if (b.twitch_t < 0.35) {
-            const f64 tq = std::sin(tw * 9.0 * b.twitch_t) * (1.0 - b.twitch_t / 0.35);
+            const f64 tq = kern::dm::sin(tw * 9.0 * b.twitch_t) * (1.0 - b.twitch_t / 0.35);
             b.head[2] += 0.12 * tq;
             b.head[3] += 0.10 * tq;
             head_alpha = 0.5;
@@ -722,7 +723,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
         else b.enter(r < 0.40 ? S::ruffle : r < 0.55 ? S::stretch : r < 0.85 ? S::look_around : S::chill);
       } else if (!petting) {
         head_alpha = 0.3;
-        b.head[0] = 0.10; b.head[1] = 0.55; b.head[2] = 0.25 * std::sin(tw * 0.8 * t); b.head[3] = 0;
+        b.head[0] = 0.10; b.head[1] = 0.55; b.head[2] = 0.25 * kern::dm::sin(tw * 0.8 * t); b.head[3] = 0;
         body_active = true;
       } else {
         body_active = true;
@@ -730,25 +731,25 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
         b.pet_coo_in -= dt;
         if (b.pet_flavor == 1) {
           head_alpha = 0.35;
-          const f64 wv = std::sin(tw * 1.6 * t);
-          b.head[0] = 0.05; b.head[1] = env * (0.35 + 0.06 * wv); b.head[2] = env * 0.20 * std::sin(tw * 0.8 * t); b.head[3] = env * 0.35 * wv;
+          const f64 wv = kern::dm::sin(tw * 1.6 * t);
+          b.head[0] = 0.05; b.head[1] = env * (0.35 + 0.06 * wv); b.head[2] = env * 0.20 * kern::dm::sin(tw * 0.8 * t); b.head[3] = env * 0.35 * wv;
           body[0] = -0.004 * env; body[1] = 0; body[2] = 0.12 * env * wv;
-          mouth_extra = std::max(0.18 + 0.08 * std::sin(tw * 1.2 * t), 0.0);
+          mouth_extra = std::max(0.18 + 0.08 * kern::dm::sin(tw * 1.2 * t), 0.0);
           if (b.pet_coo_in <= 0) { b.pet_coo_in = b.range(3.0, 5.0); b.start_quack_burst(); sound = "chirp"; }
         } else if (b.pet_flavor == 2) {
           head_alpha = 0.12;
           const f64 sink = std::min(t / 25.0, 1.0);
-          b.head[0] = 0.08 * env; b.head[1] = env * (0.45 * (1.0 - sink) - 0.35 * sink) + 0.05 * std::sin(tw * 0.35 * t);
-          b.head[2] = 0.10 * std::sin(tw * 0.20 * t); b.head[3] = env * (0.15 + 0.20 * sink);
-          body[0] = -0.010 * env; body[1] = 0; body[2] = 0.06 * env * std::sin(tw * 0.30 * t);
-          mouth_extra = std::max(0.08 + 0.05 * std::sin(tw * 0.8 * t), 0.0);
+          b.head[0] = 0.08 * env; b.head[1] = env * (0.45 * (1.0 - sink) - 0.35 * sink) + 0.05 * kern::dm::sin(tw * 0.35 * t);
+          b.head[2] = 0.10 * kern::dm::sin(tw * 0.20 * t); b.head[3] = env * (0.15 + 0.20 * sink);
+          body[0] = -0.010 * env; body[1] = 0; body[2] = 0.06 * env * kern::dm::sin(tw * 0.30 * t);
+          mouth_extra = std::max(0.08 + 0.05 * kern::dm::sin(tw * 0.8 * t), 0.0);
           if (b.pet_coo_in <= 0) { b.pet_coo_in = b.range(6.0, 9.0); sound = "coo"; }
         } else {
           head_alpha = 0.2;
-          const f64 lean = 0.45 + 0.08 * std::sin(tw * 0.5 * t);
-          b.head[0] = env * 0.12 * std::sin(tw * 0.4 * t); b.head[1] = env * lean; b.head[2] = env * 0.15 * std::sin(tw * 0.22 * t); b.head[3] = env * 0.30 * std::sin(tw * 0.30 * t);
-          body[0] = env * (-0.006 + 0.005 * std::sin(tw * 0.35 * t)); body[1] = 0; body[2] = env * 0.10 * std::sin(tw * 0.40 * t);
-          mouth_extra = std::max(0.12 + 0.07 * std::sin(tw * 1.0 * t), 0.0);
+          const f64 lean = 0.45 + 0.08 * kern::dm::sin(tw * 0.5 * t);
+          b.head[0] = env * 0.12 * kern::dm::sin(tw * 0.4 * t); b.head[1] = env * lean; b.head[2] = env * 0.15 * kern::dm::sin(tw * 0.22 * t); b.head[3] = env * 0.30 * kern::dm::sin(tw * 0.30 * t);
+          body[0] = env * (-0.006 + 0.005 * kern::dm::sin(tw * 0.35 * t)); body[1] = 0; body[2] = env * 0.10 * kern::dm::sin(tw * 0.40 * t);
+          mouth_extra = std::max(0.12 + 0.07 * kern::dm::sin(tw * 1.0 * t), 0.0);
           if (b.pet_coo_in <= 0) { b.pet_coo_in = b.range(3.5, 6.0); sound = "coo"; }
         }
       }
@@ -773,7 +774,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
     case S::fetch: {
       // Kern: walk up to the target until it lies where the beak bites (a sock) or in front of the
       // left foot (a ball), head up, then pick / kick.
-      const f64 c = std::cos(pose[2]), s = std::sin(pose[2]);
+      const f64 c = kern::dm::cos(pose[2]), s = kern::dm::sin(pose[2]);
       f64 want_ahead = b.ball ? kKickAhead : kBiteAhead, want_left = b.ball ? kKickLeft : kBiteLeft;
       if (b.ball && b.has_foot) {  // the kick is trained from the home stance: measure from the foot
         const physics::Pose ap = physics_.pose(w.bodies[5]);
@@ -784,7 +785,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
       const f64 tol = b.ball ? kKickTolerance : kBiteTolerance, side_tol = b.ball ? tol : tol * 1.5;
       const f64 dx = b.target_at[0] - pose[0], dy = b.target_at[1] - pose[1];
       const f64 ahead = dx * c + dy * s - want_ahead, side = -dx * s + dy * c - want_left;
-      const f64 dist = std::hypot(dx, dy), bearing = wrap_angle(std::atan2(dy, dx) - pose[2]);
+      const f64 dist = kern::dm::hypot(dx, dy), bearing = wrap_angle(kern::dm::atan2(dy, dx) - pose[2]);
       b.cmd[0] = b.cmd[1] = b.cmd[2] = 0;
       std::fill(std::begin(b.head), std::end(b.head), 0.0);
       // Keep it in the picture: the head pitches down (to the training's 1.1 rad), and close by the
@@ -792,9 +793,11 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
       // front of the trunk (test micro_duck_camera_sees_the_floor_in_front_when_looking_down).
       // While it walks the head looks down only so far: bowing the neck shifts its weight forward
       // and the gait suffers.
-      b.head[1] = -std::clamp(std::atan2(0.12, std::max(dist, 0.05)) - 0.3, 0.0, 0.8);  // positive up
+      b.head[1] = -std::clamp(kern::dm::atan2(0.12, std::max(dist, 0.05)) - 0.3, 0.0, 0.8);  // positive up
       if (dist > 0.25) {
-        b.cmd[0] = std::fabs(bearing) > 0.6 ? 0.0 : std::clamp(dist * 1.2, kMinWalkVx, kMaxLinear);
+        // Up to a ball slower the closer it gets, so the gait has died down to small steps when it
+        // arrives (a ball walked into at full speed rolls away).
+        b.cmd[0] = std::fabs(bearing) > 0.6 ? 0.0 : std::clamp(b.ball ? (dist - 0.2) * 1.5 : dist * 1.2, kMinWalkVx, kMaxLinear);
         b.cmd[2] = std::clamp(bearing * 1.5, -1.0, 1.0);
         // No obstacle gate here: what the ToF sees ahead is the target itself.
         b.cmd[0] = b.walkable(b.cmd[0], dt);
@@ -805,7 +808,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
         const f64 lo = b.ball ? 0.2 : 0.1, hi = b.ball ? 0.25 : 0.15;  // a sock needs finer steps
         if (std::fabs(ahead) > tol) b.cmd[0] = step(ahead, lo, hi);
         if (std::fabs(side) > side_tol) b.cmd[1] = step(side, lo, hi);
-        b.cmd[2] = std::clamp(wrap_angle(std::atan2(side + want_left, ahead + want_ahead) - std::atan2(want_left, want_ahead)) * 0.8, -0.3, 0.3);
+        b.cmd[2] = std::clamp(wrap_angle(kern::dm::atan2(side + want_left, ahead + want_ahead) - kern::dm::atan2(want_left, want_ahead)) * 0.8, -0.3, 0.3);
         if (std::fabs(b.cmd[2]) < 0.05) b.cmd[2] = 0;
         b.settle = 0;
       } else {
@@ -835,8 +838,8 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
         sound = "chirp";
         b.enter(S::look_around);
       } else if (walker_holding(w.actor)) {
-        b.goal[0] = pose[0] + 1.5 * std::cos(b.pick_heading(kPi));
-        b.goal[1] = pose[1] + 1.5 * std::sin(b.pick_heading(kPi));
+        b.goal[0] = pose[0] + 1.5 * kern::dm::cos(b.pick_heading(kPi));
+        b.goal[1] = pose[1] + 1.5 * kern::dm::sin(b.pick_heading(kPi));
         b.has_goal = true;
         b.enter(S::carry);
       } else {
@@ -848,14 +851,14 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
     case S::carry: {
       // Kern: off with the sock toward somewhere new, then put it down.
       const f64 dx = b.goal[0] - pose[0], dy = b.goal[1] - pose[1];
-      const f64 delta = wrap_angle(std::atan2(dy, dx) - pose[2]);
+      const f64 delta = wrap_angle(kern::dm::atan2(dy, dx) - pose[2]);
       f64 vx = std::fabs(delta) > 0.7 ? 0.0 : 0.2, wz = std::fabs(delta) > 0.7 ? 0.9 * kMaxAngular * sgn(delta) : std::clamp(1.2 * delta, -0.6, 0.6);
       b.gate(vx, wz, obstacle);
       if (b.state != S::carry) { b.enter(S::carry); b.t_state = 0; }
       b.cmd[0] = b.walkable(vx, dt); b.cmd[1] = 0; b.cmd[2] = wz;
       b.head[0] = 0; b.head[1] = 0.1; b.head[2] = 0; b.head[3] = 0;  // proud, beak up
       if (!walker_holding(w.actor)) { b.rest[b.target] = kSockRest * 0.5; b.target = 0; b.enter(S::chill); break; }
-      if (b.t_state > b.state_dur || std::hypot(dx, dy) < kGoalReachedM) {
+      if (b.t_state > b.state_dur || kern::dm::hypot(dx, dy) < kGoalReachedM) {
         w.beak_open = 0.6f;  // put it down: the beak opens, the sock drops
         b.rest[b.target] = kSockRest;
         b.target = 0;
@@ -886,7 +889,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
   if (wheee) b.quiet_until = now + kSelfAudioS;
   f64 h[4] = {b.head[0], b.head[1], b.head[2], b.head[3]};
   h[1] += 0.35 * b.mouth_now();  // each quack throws the head up with the open mouth
-  if ((b.state == S::wander || b.state == S::zoomies) && b.cmd[0] > 0.02) h[1] += 0.12 * std::sin(kTau * 2.2 * b.t_state);  // the bob
+  if ((b.state == S::wander || b.state == S::zoomies) && b.cmd[0] > 0.02) h[1] += 0.12 * kern::dm::sin(kTau * 2.2 * b.t_state);  // the bob
   for (int i = 0; i < 3; ++i) w.auto_cmd[i] = static_cast<f32>(b.cmd[i]);
   w.auto_head[0] = static_cast<f32>(h[0]);
   w.auto_head[1] = static_cast<f32>(-h[1]);  // "positive = up" -> the alpha's +head_pitch looks down
@@ -997,7 +1000,7 @@ struct GameWorld::WalkerBrain::Idle {
 
   Pose5 somewhere_new(f64 energy) {
     const Pose5 last = has_look ? look.anchor : Pose5{};
-    auto away = [&](const Pose5& to) { return std::hypot(to[0] - last[0], to[1] - last[1]); };
+    auto away = [&](const Pose5& to) { return kern::dm::hypot(to[0] - last[0], to[1] - last[1]); };
     Pose5 best = draw(energy);
     for (int i = 0; i < 8; ++i) {
       if (away(best) >= kIdle.glance_min) break;
@@ -1055,7 +1058,7 @@ struct GameWorld::WalkerBrain::Idle {
       return {};
     }
     const f64 t = now - started;
-    const f64 energy = p.doze_floor + (1.0 - p.doze_floor) * std::exp(-t / p.doze_tau_s);
+    const f64 energy = p.doze_floor + (1.0 - p.doze_floor) * kern::dm::exp(-t / p.doze_tau_s);
     if (has_yawn && t - yawn >= p.yawn_s) has_yawn = false;
     if (idle && !has_yawn && p.yawn_every_s > 0.0 && t >= p.yawn_after_s && rng.unit() < dt / p.yawn_every_s) {
       has_yawn = true;
@@ -1074,9 +1077,9 @@ struct GameWorld::WalkerBrain::Idle {
     }
     // The drift: two incommensurate slow waves per axis, so it never visibly repeats.
     auto drift = [&](f64 phase, f64 f) {
-      return p.drift * 0.5 * (std::sin(kTau * f * t + phase) + std::sin(kTau * f * 1.618 * t + 2.0 * phase));
+      return p.drift * 0.5 * (kern::dm::sin(kTau * f * t + phase) + kern::dm::sin(kTau * f * 1.618 * t + 2.0 * phase));
     };
-    const f64 breath = p.breath_m * std::sin(kTau * t / p.breath_period_s + phases[3]);
+    const f64 breath = p.breath_m * kern::dm::sin(kTau * t / p.breath_period_s + phases[3]);
     body_z = gain * breath;
     mouth = std::min(gain * (g5[4] + p.yawn_open * yawn_v), 1.0);
     return {gain * g5[3],

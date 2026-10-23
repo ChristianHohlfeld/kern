@@ -2,6 +2,7 @@
 // shape of Pollen's mjlab tasks (microduck_rl, Apache-2.0): a task term, upright and home-pose
 // terms, and the sim2real regularisers (action rate, body rate, self collision); weight x term x dt.
 #include <cmath>
+#include "kern/core/dmath.h"
 
 #include "kern/train/env.h"
 #include "kern/game/walker.h"
@@ -17,10 +18,10 @@ constexpr i32 kNeck[4] = {5, 6, 7, 8};
 f32 pose_match(const f32* q, const i32* idx, i32 n, f32 std) {  // exp(-mean squared error / std^2)
   f32 e = 0;
   for (i32 i = 0; i < n; ++i) e += q[idx[i]] * q[idx[i]];
-  return std::exp(-e / static_cast<f32>(n) / (std * std));
+  return kern::dm::exp(-e / static_cast<f32>(n) / (std * std));
 }
 f32 upright(const game::GameWorld::WalkerProbe& p) {  // velocity's recipe: std^2 = 0.05
-  return std::exp(-(p.gravity.x * p.gravity.x + p.gravity.y * p.gravity.y) / 0.05f);
+  return kern::dm::exp(-(p.gravity.x * p.gravity.x + p.gravity.y * p.gravity.y) / 0.05f);
 }
 f32 action_rate(const Tick& t) {
   f32 s = 0;
@@ -64,7 +65,7 @@ class StandTask : public Task {
     r.add("upright", 2, upright(p));
     r.add("pose_legs", 2, pose_match(p.joint, kLegs, 10, 0.5f));
     r.add("pose_neck", 1, pose_match(p.joint, kNeck, 4, 0.3f));
-    r.add("height", 1, std::exp(-(p.position.z - kStandZ) * (p.position.z - kStandZ) / (0.04f * 0.04f)));
+    r.add("height", 1, kern::dm::exp(-(p.position.z - kStandZ) * (p.position.z - kStandZ) / (0.04f * 0.04f)));
     r.add("action_rate", -0.1f, action_rate(t));
     terminal = fell(p);
     if (terminal) r.add("fall", -4, 1, false);
@@ -99,8 +100,8 @@ class JumpTask : public Task {
   void command(f32 o[kObs], i32 step) override {
     for (i32 i = 48; i < kObs; ++i) o[i] = 0;
     const f32 a = 6.28318531f * phase(step);
-    o[game::kJumpPhaseSlot] = std::cos(a);
-    o[game::kJumpPhaseSlot + 1] = std::sin(a);
+    o[game::kJumpPhaseSlot] = kern::dm::cos(a);
+    o[game::kJumpPhaseSlot + 1] = kern::dm::sin(a);
   }
   void privileged(const game::GameWorld::WalkerProbe& p, f32* out) override {
     if (!have_z0_) { z0_ = p.position.z; have_z0_ = true; }
@@ -140,7 +141,7 @@ class JumpTask : public Task {
     // air when the phase says so and push up into it, land on both soles; every term only as far as
     // the duck stays upright (a dive or a tumble is no jump).
     const f32 e = dz - reference(ph);
-    r.add("track_height", 8, up * std::exp(-e * e / (0.012f * 0.012f)));
+    r.add("track_height", 8, up * kern::dm::exp(-e * e / (0.012f * 0.012f)));
     r.add("airborne", 6, flight && airborne ? up : 0.0f);
     r.add("lift", 3, takeoff ? up * clamp(p.velocity.z, 0.0f, 1.0f) : 0.0f);
     r.add("landed", 3, ph >= 0.42f && flown_ && both ? up : 0.0f);

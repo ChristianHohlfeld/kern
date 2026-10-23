@@ -1,4 +1,5 @@
 #include "kern/game/demos.h"
+#include "kern/core/dmath.h"
 
 #include <cmath>
 #include <cstdio>
@@ -52,7 +53,7 @@ BodyComponent body(Motion motion, f32 mass = 0) {
 Vec3 emissive_color(Vec3 linear, f32* strength) {
   const f32 m = max_of(linear.x, max_of(linear.y, linear.z));
   *strength = m;
-  auto enc = [](f32 v) { return v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1 / 2.4f) - 0.055f; };
+  auto enc = [](f32 v) { return v <= 0.0031308f ? v * 12.92f : 1.055f * kern::dm::pow(v, 1 / 2.4f) - 0.055f; };
   return {enc(linear.x / m), enc(linear.y / m), enc(linear.z / m)};
 }
 
@@ -575,7 +576,7 @@ Level physics_lab_level() {
   for (int i = 0; i < 3; ++i) {
     char name[32];
     std::snprintf(name, sizeof name, "Rider %d", i + 1);
-    Actor r = make(name, {16 + 2.2f * std::cos(i * 2.1f), -4 + 2.2f * std::sin(i * 2.1f), 1.0f});
+    Actor r = make(name, {16 + 2.2f * kern::dm::cos(i * 2.1f), -4 + 2.2f * kern::dm::sin(i * 2.1f), 1.0f});
     r.folder = "Turntable";
     r.mesh = box_mesh({0.8f, 0.8f, 0.8f}, {0.95f, 0.8f, 0.25f}, 0.5f);
     r.body = body(Motion::dynamic);

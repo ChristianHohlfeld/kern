@@ -50,11 +50,16 @@ async function start() {
   status(`Starting ${workers} workers with ${envs} ducks each...`);
   try {
     wakeLock = await navigator.wakeLock?.request("screen").catch(() => null);
-    const seed = (Math.random() * 1e9) >>> 0;
+    const seed = Math.max(1, Number($("seed").value) || 1);
     learner = await spawn();
     collectors = await Promise.all(Array.from({ length: workers }, () => spawn()));
-    await Promise.all(collectors.map((w, i) => call(w, { type: "collector", task, envs, seed: seed + 101 * (i + 1) }, "ready")));
-    policy = (await call(learner, { type: "learner", task, seed, config: { steps: 24, initStd: Number($("initstd").value) || 1, learningRate: Number($("lr").value) || 1e-3 } }, "policy")).policy;
+    // Worker i steps ducks i*envs .. (i+1)*envs-1 of one run: the same run as natively with as many
+    // ducks in all (bit for bit, docs/training.md).
+    await Promise.all(collectors.map((w, i) => call(w, { type: "collector", task, envs, seed, first: i * envs }, "ready")));
+    const config = {};
+    if (Number($("initstd").value) > 0) config.initStd = Number($("initstd").value);
+    if (Number($("lr").value) > 0) config.learningRate = Number($("lr").value);
+    policy = (await call(learner, { type: "learner", task, seed, config }, "policy")).policy;
     loop(task).catch(error => { status(error.message, true); stop(); });
   } catch (error) {
     status(error.message, true);
@@ -68,10 +73,8 @@ async function loop(task) {
   while (running && iteration < total) {
     if (paused) { await new Promise(r => setTimeout(r, 200)); continue; }
     const t0 = performance.now();
-    // Pollen's push curriculum: shoves come in once the move has formed.
-    const push = iteration < 500 ? 0 : iteration < 1000 ? 0.27 : 1;
     const rollouts = await Promise.all(collectors.map(w =>
-      call(w, { type: "collect", policy: policy.slice(0), iteration: iteration + 1, push, steps }, "rollout").then(d => d.rollout)));
+      call(w, { type: "collect", policy: policy.slice(0), iteration: iteration + 1, steps }, "rollout").then(d => d.rollout)));
     const learned = await call(learner, { type: "learn", rollouts }, "learned", rollouts);
     policy = learned.policy;
     iteration = learned.stats.iteration;

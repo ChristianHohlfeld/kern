@@ -1,4 +1,5 @@
 #include "kern/game/level.h"
+#include "kern/core/dmath.h"
 
 #include "kern/audio/synth.h"
 
@@ -232,15 +233,15 @@ Vec3 quat_to_euler(Quat q) {
   if (n > 0) { q.x /= n; q.y /= n; q.z /= n; q.w /= n; }
   // ZYX (yaw, pitch, roll) decomposition.
   const f32 sinp = clamp(2 * (q.w * q.y - q.z * q.x), -1.0f, 1.0f);
-  const f32 pitch = std::asin(sinp);
+  const f32 pitch = kern::dm::asin(sinp);
   f32 roll, yaw;
   if (std::fabs(sinp) > 0.99999f) {
     // Gimbal lock: put everything into yaw.
     roll = 0;
-    yaw = std::atan2(-2 * (q.x * q.y - q.w * q.z), 1 - 2 * (q.x * q.x + q.z * q.z));
+    yaw = kern::dm::atan2(-2 * (q.x * q.y - q.w * q.z), 1 - 2 * (q.x * q.x + q.z * q.z));
   } else {
-    roll = std::atan2(2 * (q.w * q.x + q.y * q.z), 1 - 2 * (q.x * q.x + q.y * q.y));
-    yaw = std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+    roll = kern::dm::atan2(2 * (q.w * q.x + q.y * q.z), 1 - 2 * (q.x * q.x + q.y * q.y));
+    yaw = kern::dm::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
   }
   auto tidy = [](f32 deg) {
     const f32 r = std::round(deg * 1e4f) / 1e4f;
@@ -363,7 +364,7 @@ bool parse_hex_color(std::string_view s, Vec3& out) {
 }
 
 Vec3 srgb_to_linear(Vec3 c) {
-  auto f = [](f32 v) { return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };
+  auto f = [](f32 v) { return v <= 0.04045f ? v / 12.92f : kern::dm::pow((v + 0.055f) / 1.055f, 2.4f); };
   return {f(c.x), f(c.y), f(c.z)};
 }
 

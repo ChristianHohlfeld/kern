@@ -31,6 +31,18 @@ jobs:
       - name: Native unit tests (ASan/UBSan)
         run: CXX=g++ CC=gcc kern/tests/run.sh
 
+  # Bit-identical everywhere (docs/training.md, determinism): the Lehrer built with Apple clang on
+  # ARM must step the duck exactly as GCC on x86 and WebAssembly do (the golden hashes).
+  determinism:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Lehrer (Apple clang, arm64)
+        run: KERN_NATIVE=1 kern/tools/train.sh build-mac
+      - name: Same hashes as x86 and wasm
+        run: build-mac/kern_train --fingerprint 400 | diff - kern/tests/determinism_fingerprint.txt
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
