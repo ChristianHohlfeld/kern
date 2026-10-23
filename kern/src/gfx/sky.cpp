@@ -31,6 +31,7 @@ uniform vec3 uFogColor, uSunColor, uSunLight;
 uniform float uFogSunScatter, uFogHorizon;
 layout(location=0) out vec4 outColor;
 layout(location=1) out vec4 outHdr;
+layout(location=2) out vec4 outAo;  // scene target: no indirect share (WebGL needs every draw buffer written)
 float h21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float vnoise(vec2 p) {
   vec2 i = floor(p), f = fract(p);
@@ -99,6 +100,7 @@ void main() {
     ldr = mix(ldr, fogColor, uFogHorizon * (1.0 - smoothstep(-0.02, 0.16, d.z)));
   }
   outColor = vec4(ldr, 1.0);
+  outAo = vec4(0.0);
 }
 )GLSL";
 

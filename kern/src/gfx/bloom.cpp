@@ -47,22 +47,54 @@ void main() {
 constexpr const char* kCopy = "uniform sampler2D tSrc;\nvoid main() { o = vec4(texture(tSrc, vUv).rgb, 1.0); }\n";
 
 constexpr const char* kCombine = R"GLSL(
-uniform sampler2D tScene, tHdr, tB1, tB2;
+uniform sampler2D tScene, tHdr, tB1, tB2, tAoShare;
+uniform highp sampler2D tAo, tDepth;
 uniform float uS1, uS2;
-uniform int uGrade;
+uniform int uGrade, uAoOn;
+uniform vec2 uAoScale;  // AO size / scene size
+uniform vec4 uProj;     // P[0][0], P[1][1], P[2][2], P[3][2]
 vec3 present(vec3 hdr) {
   vec3 rgb = acesFilmic(hdr);
   if (uGrade == 1) rgb = gradeColor(rgb);
   return linearToSrgb(clamp(rgb, 0.0, 1.0));
 }
+// GTAO visibility at a scene pixel: depth-aware bilinear upsample (texels of another surface get no weight).
+float aoVisibility(ivec2 px) {
+  float w = uProj.w / ((texelFetch(tDepth, px, 0).r * 2.0 - 1.0) + uProj.z);
+  vec2 p = (vec2(px) + 0.5) * uAoScale - 0.5;
+  ivec2 b = ivec2(floor(p)), last = textureSize(tAo, 0) - 1;
+  vec2 f = p - floor(p);
+  float tolerance = w * 0.03 + 0.03, sum = 0.0, weights = 0.0;
+  for (int j = 0; j < 2; ++j)
+    for (int i = 0; i < 2; ++i) {
+      vec2 s = texelFetch(tAo, clamp(b + ivec2(i, j), ivec2(0), last), 0).rg;
+      float wt = ((i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) + 1e-3) * max(0.0, 1.0 - abs(s.g - w) / tolerance);
+      sum += s.r * wt;
+      weights += wt;
+    }
+  return weights > 1e-5 ? sum / weights : 1.0;
+}
+// Multi-bounce fit of GTAO (Jimenez et al. 2016): bright albedo regains light bounced between occluders.
+vec3 aoMultiBounce(float v, vec3 albedo) {
+  vec3 a = 2.0404 * albedo - 0.3324, b = -4.7951 * albedo + 0.6417, c = 2.7552 * albedo + 0.6903;
+  return max(vec3(v), ((v * a + b) * v + c) * v);
+}
 void main() {
   vec3 scene = texture(tScene, vUv).rgb;
   vec3 b = texture(tB1, vUv).rgb * uS1 + texture(tB2, vUv).rgb * uS2;
-  if (max(b.r, max(b.g, b.b)) < 1e-4) { o = vec4(scene, 1.0); return; }
-  vec3 h = max(texture(tHdr, vUv).rgb, 0.0);
-  o = vec4(clamp(scene + present(h + b) - present(h), 0.0, 1.0), 1.0);
+  bool glow = max(b.r, max(b.g, b.b)) >= 1e-4;
+  vec4 share = vec4(0.0);
+  if (uAoOn == 1) share = texelFetch(tAoShare, ivec2(gl_FragCoord.xy), 0);
+  bool occluded = max(share.r, max(share.g, share.b)) > 0.002;
+  if (!glow && !occluded) { o = vec4(scene, 1.0); return; }
+  vec3 h = max(texture(tHdr, vUv).rgb, 0.0), h2 = h;
+  // Only the indirect share of the pixel (recorded by the forward pass, already faded by fog) is occluded.
+  if (occluded) h2 *= 1.0 - share.rgb * (1.0 - aoMultiBounce(aoVisibility(ivec2(gl_FragCoord.xy)), vec3(share.a)));
+  o = vec4(clamp(scene + present(h2 + b) - present(h), 0.0, 1.0), 1.0);
 }
 )GLSL";
+
+constexpr u32 kColorAttachment2 = 0x8CE2;
 
 u32 make_texture(i32 w, i32 h, bool hdr) {
   const u32 t = gl::createTexture();
@@ -84,8 +116,8 @@ void bind_unit(u32 unit, u32 texture) {
 
 void BloomPass::bind_scene() const {
   gl::bindFramebuffer(gl::FRAMEBUFFER, main_.framebuffer);
-  const u32 buffers[2] = {gl::COLOR_ATTACHMENT0, gl::COLOR_ATTACHMENT1};
-  gl::drawBuffers(buffers, 2);
+  const u32 buffers[3] = {gl::COLOR_ATTACHMENT0, gl::COLOR_ATTACHMENT1, kColorAttachment2};
+  gl::drawBuffers(buffers, 3);
 }
 
 BloomState BloomPass::state() const {
@@ -124,6 +156,12 @@ bool BloomPass::init_programs() {
   c_s2_ = combine_.location("uS2");
   c_exposure_ = combine_.location("uExposure");
   c_grade_ = combine_.location("uGrade");
+  c_ao_on_ = combine_.location("uAoOn");
+  c_ao_share_ = combine_.location("tAoShare");
+  c_ao_ = combine_.location("tAo");
+  c_depth_ = combine_.location("tDepth");
+  c_ao_scale_ = combine_.location("uAoScale");
+  c_proj_ = combine_.location("uProj");
   vao_ = gl::createVertexArray();
   initialised_ = true;
   return true;
@@ -144,6 +182,7 @@ void BloomPass::free_targets() {
     if (t->texture) gl::deleteTexture(t->texture);
     if (t->hdr) gl::deleteTexture(t->hdr);
     if (t->depth) gl::deleteTexture(t->depth);
+    if (t->ao) gl::deleteTexture(t->ao);
     if (t->framebuffer) gl::deleteFramebuffer(t->framebuffer);
     *t = Target{};
   }
@@ -155,8 +194,15 @@ bool BloomPass::resize(i32 w, i32 h) {
   free_targets();
   main_ = make_target(w, h, false);
   main_.hdr = make_texture(w, h, true);
+  // Indirect-light share for ambient occlusion: RGBA8, so the three targets stay at 16 bytes per pixel
+  // (the tile budget of tile-based mobile GPUs).
+  main_.ao = make_texture(w, h, false);
+  gl::bindTexture(gl::TEXTURE_2D, main_.ao);
+  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST);
+  gl::texParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST);
   gl::bindFramebuffer(gl::FRAMEBUFFER, main_.framebuffer);
   gl::framebufferTexture2D(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT1, gl::TEXTURE_2D, main_.hdr, 0);
+  gl::framebufferTexture2D(gl::FRAMEBUFFER, kColorAttachment2, gl::TEXTURE_2D, main_.ao, 0);
   // Depth as a texture: ambient occlusion reads it after the depth prepass.
   main_.depth = gl::createTexture();
   gl::bindTexture(gl::TEXTURE_2D, main_.depth);
@@ -198,9 +244,7 @@ bool BloomPass::begin(i32 width, i32 height, f64 now, bool page_hidden) {
     if (!slow_since_) slow_since_ = now;
     if (now - slow_since_ > kDisableAfterMs && glow_on_) glow_on_ = false;
   } else slow_since_ = 0;
-  gl::bindFramebuffer(gl::FRAMEBUFFER, main_.framebuffer);
-  const u32 buffers[2] = {gl::COLOR_ATTACHMENT0, gl::COLOR_ATTACHMENT1};
-  gl::drawBuffers(buffers, 2);
+  bind_scene();
   return true;
 }
 
@@ -222,7 +266,7 @@ void BloomPass::blur(Target& src, Target& tmp) {
   draw(blur_, &src);
 }
 
-void BloomPass::end(f32 exposure) {
+void BloomPass::end(f32 exposure, const Occlusion* occlusion) {
   gl::disable(gl::DEPTH_TEST);
   gl::disable(gl::BLEND);
   gl::disable(gl::CULL_FACE);
@@ -255,9 +299,21 @@ void BloomPass::end(f32 exposure) {
   gl::uniform1f(c_s2_, glow_on_ ? kStrengthWide : 0);
   gl::uniform1f(c_exposure_, exposure);
   gl::uniform1i(c_grade_, options_.grade ? 1 : 0);
+  gl::uniform1i(c_ao_share_, 4);
+  gl::uniform1i(c_ao_, 5);
+  gl::uniform1i(c_depth_, 6);
+  gl::uniform1i(c_ao_on_, occlusion ? 1 : 0);
+  if (occlusion) {
+    bind_unit(4, main_.ao);
+    bind_unit(5, occlusion->texture);
+    bind_unit(6, main_.depth);
+    gl::uniform2f(c_ao_scale_, occlusion->scale_x, occlusion->scale_y);
+    const Mat4& p = occlusion->projection;
+    gl::uniform4f(c_proj_, p.m[0], p.m[5], p.m[10], p.m[14]);
+  }
   draw(combine_, nullptr);
   // Unbind: a sampler left on a render target would be a feedback loop next frame.
-  for (i32 i = 3; i >= 0; --i) bind_unit(static_cast<u32>(i), 0);
+  for (i32 i = 6; i >= 0; --i) bind_unit(static_cast<u32>(i), 0);
   gl::bindVertexArray(0);
   gl::depthMask(1);
 }

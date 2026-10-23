@@ -795,20 +795,33 @@ f32 GameWorld::apply_lighting(Vec3 eye) {
   const f32 night = smoothstep(0.06f, -0.16f, sun.z);
   const f32 dusk = clamp(1 - std::fabs(sun.z) * 4, 0.0f, 1.0f) * (1 - night * 0.6f);
   Lighting& l = r_.lighting;
-  const Vec3 day_sun{2.8f, 2.47f, 2.11f}, dusk_sun{2.3f, 1.25f, 0.62f}, moon_light{0.16f, 0.2f, 0.32f};
+  // Daylight balance: one sky irradiance (the environment dome, no extra hemisphere light on top) with
+  // a clear-sky sun : sky irradiance of about 5 : 1 on a horizontal surface, as measured outdoors
+  // (sun ~100 klx, sky ~20 klx), and a ground bounce that follows from that light.
+  const Vec3 day_sun{4.6f, 4.05f, 3.46f}, dusk_sun{3.75f, 2.05f, 1.02f}, moon_light{0.16f, 0.2f, 0.32f};
   l.sun_direction = sun.z > -0.04f ? sun : moon;
   l.sun_color = mix3(mix3(day_sun, dusk_sun, dusk), moon_light, night);
-  l.sky_color = mix3({0.469f, 0.609f, 0.85f}, {0.035f, 0.05f, 0.1f}, night);
-  l.ground_color = mix3({0.125f, 0.094f, 0.054f}, {0.012f, 0.012f, 0.02f}, night);
+  // The hemisphere light only remains as the night fill it always was.
+  l.sky_color = Vec3{0.035f, 0.05f, 0.1f} * night;
+  l.ground_color = Vec3{0.012f, 0.012f, 0.02f} * night;
   l.fog_color = mix3(mix3({0.474f, 0.584f, 0.716f}, {0.62f, 0.45f, 0.36f}, dusk * 0.6f), {0.03f, 0.04f, 0.07f}, night);
   l.fog_density = w.fog_density;
   // Ground haze that clears above the roofs, glows toward the sun and meets the sky at the horizon.
   l.fog_height_falloff = 0.012f;
   l.fog_sun_scatter = 0.55f * (1 - night * 0.7f);
   l.fog_horizon = 0.85f;
-  l.env_intensity = 0.9f - 0.78f * night;
+  l.env_intensity = 0.53f - 0.41f * night;
   l.env_zenith = mix3({0.05f, 0.2f, 0.62f}, {0.012f, 0.022f, 0.06f}, night);
   l.env_horizon = mix3({0.52f, 0.66f, 0.86f}, {0.05f, 0.075f, 0.13f}, night);
+  {
+    // Ground bounce: radiance of a ground of albedo 0.25 lit by the sun and the sky (E / pi), as the
+    // lower half of the environment, so shadowed walls receive what the sunlit street throws back.
+    const auto lum = [](Vec3 c) { return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; };
+    const f32 sky_radiance = lum(mix3(l.env_horizon, l.env_zenith, 0.35f)) * l.env_intensity;
+    const f32 irradiance = lum(l.sun_color) * max_of(sun.z, 0.0f) + kPi * sky_radiance;
+    const Vec3 bounce = Vec3{1.0f, 0.95f, 0.85f} * (0.25f * irradiance / kPi / max_of(l.env_intensity, 1e-3f));
+    l.env_ground = mix3(bounce, {0.105f, 0.127f, 0.084f}, night);
+  }
   l.exposure = w.exposure * (1.0f + 0.35f * night);
   r_.sky.sun = sun;
   r_.sky.moon = moon;

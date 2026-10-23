@@ -36,7 +36,7 @@ async function openStudio(url, viewport = {width: 1024, height: 640}) {
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
-  page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
+  page.on("console", m => { if (m.type() === "error" || /GL_INVALID/.test(m.text())) errors.push(m.text()); });
   await page.goto(url);
   await page.waitForFunction(() => window.KernStudio && window.KernStudio.frames() > 5, null, {timeout: 90000});
   await page.waitForTimeout(400);

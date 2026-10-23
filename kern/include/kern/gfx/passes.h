@@ -108,7 +108,14 @@ class BloomPass {
   void configure(const BloomOptions& options) { options_ = options; }
   /// Binds the scene target for (width, height); false = render directly to the screen.
   bool begin(i32 width, i32 height, f64 now_ms, bool page_hidden);
-  void end(f32 exposure);
+  /// Ambient occlusion for the composite: the GTAO target (visibility, view depth) and how it maps to the scene.
+  struct Occlusion {
+    u32 texture = 0;
+    f32 scale_x = 1, scale_y = 1;  // AO size / scene size
+    Mat4 projection;
+  };
+  /// Composites to the screen; `occlusion` darkens the indirect share the scene recorded in its third target.
+  void end(f32 exposure, const Occlusion* occlusion = nullptr);
   void destroy(bool contextLost);
   BloomState state() const;
   /// The scene target's depth (DEPTH_COMPONENT24 texture, nearest) and rebinding it after other passes.
@@ -116,7 +123,7 @@ class BloomPass {
   void bind_scene() const;
 
  private:
-  struct Target { u32 texture = 0, framebuffer = 0, hdr = 0, depth = 0; i32 w = 0, h = 0; };
+  struct Target { u32 texture = 0, framebuffer = 0, hdr = 0, depth = 0, ao = 0; i32 w = 0, h = 0; };
   bool init_programs();
   bool resize(i32 w, i32 h);
   void free_targets();
@@ -134,6 +141,7 @@ class BloomPass {
   // uniform locations
   u32 bright_src_ = 0, bright_threshold_ = 0, blur_src_ = 0, blur_dir_ = 0, copy_src_ = 0;
   u32 c_scene_ = 0, c_hdr_ = 0, c_b1_ = 0, c_b2_ = 0, c_s1_ = 0, c_s2_ = 0, c_exposure_ = 0, c_grade_ = 0;
+  u32 c_ao_on_ = 0, c_ao_share_ = 0, c_ao_ = 0, c_depth_ = 0, c_ao_scale_ = 0, c_proj_ = 0;
 };
 
 // ---------------------------------------------------------------------------

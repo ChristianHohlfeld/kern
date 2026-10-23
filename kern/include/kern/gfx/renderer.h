@@ -8,14 +8,13 @@
 // Frame:
 //   1. sun shadow map - redrawn only when a caster, the sun or the
 //      texel-snapped focus changed
-//   2. with the scene target (bloom on, perspective): depth prepass of the
-//      opaque meshes, then GTAO from that depth (passes.h)
-//   3. opaque meshes, front to back (early depth rejection); ambient light
-//      takes the GTAO visibility
-//   4. sky at the far plane, only where nothing was drawn
-//   5. transparent meshes, back to front by world bounds
+//   2. opaque meshes, front to back (early depth rejection); into the scene
+//      target they also write their share of indirect light
+//   3. sky at the far plane, only where nothing was drawn
+//   4. transparent meshes, back to front by world bounds
+//   5. GTAO from the scene depth (before the view-model clears it)
 //   6. view-model layer (first-person items) after a depth clear
-//   7. bloom/grade composite
+//   7. bloom/grade composite, which also applies the ambient occlusion
 //
 // Context loss: rendering pauses; context_restored() rebuilds every program
 // and re-uploads all meshes and engine-owned textures from their CPU copies.
@@ -82,7 +81,6 @@ struct RenderParams {
 
 struct RenderStats {
   u32 draw_calls = 0, shadow_draw_calls = 0, shadow_resolution = 0;
-  u32 depth_draw_calls = 0;  // depth prepass (ambient occlusion)
   bool ao = false;           // ambient occlusion applied this frame
   bool shadow_reused = false;
   f64 triangles = 0;
@@ -224,7 +222,7 @@ class Renderer {
     u32 fog_density, exposure, env_intensity, grade, fog_height_falloff, fog_sun_scatter;
     u32 point_count, point_pos_range, point_color_intensity;
     u32 shadow_enabled, shadow_map, shadow_projection, shadow_bias;
-    u32 ao_enabled, ao_map, ao_scale, view_forward;
+    u32 ao_out;
   } u_{};
 
   std::unique_ptr<SunShadowMap> shadow_;
@@ -235,10 +233,6 @@ class Renderer {
   SkyPass sky_pass_;
   BloomPass bloom_;
   AmbientOcclusionPass ao_;
-  Program depth_program_;
-  struct DepthLocations { u32 vp, bones, skinned, material, cutoff, has_texture, texture; } du_{};
-  void draw_depth_prepass(const Mat4& vp, RenderStats& stats);
-  bool init_depth_program();
   PointLights point_lights_;
   u64 scene_revision_ = 0, shadow_revision_ = 0;
 
