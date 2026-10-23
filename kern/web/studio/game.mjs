@@ -65,12 +65,15 @@ export class StudioEngine {
     }
   }
   /** Loads the robot's policy set (microduck/<file>.onnx next to the page; the dev page reads the
-   *  repository's copy). Once; a missing file leaves that move unavailable. */
+   *  repository's copy). A file that fails is fetched again later; until then the move it
+   *  drives is unavailable (the duck stands and says why). */
   async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/microduck/"] : ["microduck/"]) {
     if (this.policiesLoading) return this.policiesLoading;
-    const files = (this.result(this.e.kern_studio_pending_policies()) || []).filter(f => !(this.policiesTried ??= new Set()).has(f));
+    // A file that failed is asked for again later (5 s, 10 s, 20 s ... at most every minute).
+    const retry = this.policyRetry ??= new Map(), now = Date.now();
+    const files = (this.result(this.e.kern_studio_pending_policies()) || []).filter(f => !retry.has(f) || retry.get(f).at <= now);
     if (!files.length) return;
-    for (const f of files) this.policiesTried.add(f);
+    for (const f of files) retry.set(f, {at: Infinity, n: retry.get(f)?.n ?? 0});
     this.policiesLoading = Promise.all(files.map(async file => {
       for (const base of bases) {
         try {
@@ -86,7 +89,9 @@ export class StudioEngine {
           }
         } catch { /* next base */ }
       }
-      console.warn("Kern: robot policy " + file + " not found");
+      const n = retry.get(file).n + 1;
+      retry.set(file, {at: Date.now() + Math.min(60000, 5000 * 2 ** (n - 1)), n});
+      console.warn("Kern: robot policy " + file + " not loaded, trying again in " + Math.round(Math.min(60000, 5000 * 2 ** (n - 1)) / 1000) + " s");
       return false;
     })).finally(() => { this.policiesLoading = null; });
     return this.policiesLoading;

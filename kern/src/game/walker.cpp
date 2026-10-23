@@ -462,6 +462,13 @@ const PolicySet& policy_set() {
         d.duration = static_cast<f32>(p["duration_s"].as_number());
         d.chain = p["chain"].as_bool();
         if (p["action_scale"].is_number()) d.action_scale = static_cast<f32>(p["action_scale"].as_number());
+        // A constant command (command.value) and the unwind after it (unwind_s with command.idle).
+        const json::Value& value = cmd["value"], &idle = cmd["idle"];
+        for (int i = 0; i < 3; ++i) {
+          if (value.is_array() && value.items().size() > static_cast<std::size_t>(i)) d.command[i] = static_cast<f32>(value.items()[i].as_number());
+          if (idle.is_array() && idle.items().size() > static_cast<std::size_t>(i)) d.unwind[i] = static_cast<f32>(idle.items()[i].as_number());
+        }
+        if (p["unwind_s"].is_number()) d.unwind_s = static_cast<f32>(p["unwind_s"].as_number());
         out.skills.push_back(std::move(d));
       }
     }
@@ -900,6 +907,7 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     w.driving = w.sit == Sit::sitting ? "sit" : "rise";
   } else if (w.rollers) {
     net = walker_policy("roller.onnx");
+    for (int i = 51; i < 61; ++i) obs[i] = 0;  // trained without head or body commands
     w.driving = "walk";
   } else if (w.alpha_gait && twist <= kStandingThreshold && walker_policy("alpha_stand.onnx")) {
     net = walker_policy("alpha_stand.onnx");
@@ -909,12 +917,16 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     net = walker_policy(w.alpha_gait ? "alpha_walking.onnx" : "velstand.onnx");
     w.driving = "walk";
   }
-  if (!net) {  // the set is still loading (the page fetches it): walk meanwhile
-    net = walker_policy("velstand.onnx");
-    scale = kActionScaleWalk;
-    w.driving = "walk";
+  if (!net) {
+    // Its network is not loaded (the page fetches the set, and fetches again after a failure): no
+    // other network stands in for it - the servos hold the home pose, and the duck says why once.
+    const std::string file = w.rollers ? "roller.onnx" : "alpha_walking.onnx";
+    if (w.driving != "waiting") say("Micro Duck: " + file + " is not loaded yet, it stands until it is");
+    std::fill(std::begin(w.action), std::end(w.action), 0.0f);
+    w.driving = "waiting";
+  } else {
+    net->run(obs, w.action);
   }
-  net->run(obs, w.action);
   for (i32 j = 0; j < kJoints; ++j) {
     const f32 a = std::isfinite(w.action[j]) ? w.action[j] : 0.0f;
     w.action[j] = a;  // raw: the observation feeds the policy its own output back

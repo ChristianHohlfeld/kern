@@ -4010,18 +4010,26 @@ TEST(micro_duck_runs_every_move_of_its_set) {
   // then the walk takes over again; the duck stands at the end.
   load_duck_policies();
   const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
-  struct Case { const char* move; bool rollers; f32 seconds; const char* label; };
-  const Case cases[] = {{"sit", false, 6, "sit"},      {"pick", false, 6, "ground_pick"}, {"kick_left", false, 4, "kick_left"},
-                        {"kick_right", false, 4, "kick_right"}, {"roulade", false, 8, "roulade"}, {"pick", true, 7, "crouch"}};
+  // up_lo .. up_hi: the lowest the trunk's up axis (world z of its z axis) must and may reach during
+  // the move - the pick bends forward, the roulade goes over, a kick keeps it standing.
+  // Open: kick_right tips over in Kern (lowest -0.45) with the ball where training puts it and
+  // without a ball, also when its network drives for 2 s instead of robotd's 0.5 (docs/walker.md
+  // section 12); kick_left stands (0.94). Its bound stays open until that is found.
+  struct Case { const char* move; bool rollers; f32 seconds; const char* label; f32 up_lo, up_hi; };
+  const Case cases[] = {{"sit", false, 6, "sit", 0.5f, 1.0f},          {"pick", false, 6, "ground_pick", 0.3f, 0.9f},
+                        {"kick_left", false, 4, "kick_left", 0.5f, 1.0f}, {"kick_right", false, 4, "kick_right", -1.0f, 1.0f},
+                        {"roulade", false, 8, "roulade", -1.0f, 0.0f},   {"pick", true, 7, "crouch", 0.3f, 1.0f}};
   for (const Case& c : cases) {
     GameFixture f;
     game::Level l = game::basic_level();
     for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+    if (std::getenv("KERN_DUCK_MOVE") && std::string(c.move) != std::getenv("KERN_DUCK_MOVE")) continue;
     if (std::string(c.move).rfind("kick", 0) == 0) {
-      // As in training: a 70 mm, 15 g ball just in front of the kicking foot (real size, x4 here).
+      // As in training (microduck_ball_kick_env_cfg.py: BALL_OFFSET_X 0.09, BALL_OFFSET_ABS_Y 0.042 on
+      // the kicking foot's side, BALL_RADIUS 0.035): a 70 mm, 15 g ball in front of the foot (x4 here).
       game::Actor ball;
       ball.name = "Ball";
-      ball.transform.position = {0.32f, std::string(c.move) == "kick_left" ? 0.2f : -0.2f, 0.14f};
+      ball.transform.position = {0.09f * 4, (std::string(c.move) == "kick_left" ? 0.042f : -0.042f) * 4, 0.035f * 4};
       ball.mesh = game::MeshComponent{};
       ball.mesh->shape = game::Shape::sphere;
       ball.mesh->radius = 0.14f;
@@ -4062,6 +4070,8 @@ TEST(micro_duck_runs_every_move_of_its_set) {
     CHECK(saw);
     CHECK(f.world->walker_driving(duck) == "walk");
     CHECK(m.m[10] > 0.5f);  // on its feet (a hard kick can leave it leaning a while)
+    CHECK(min_up >= c.up_lo);
+    CHECK(min_up <= c.up_hi);
   }
 }
 
