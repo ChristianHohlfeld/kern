@@ -871,6 +871,114 @@ TEST(physics_joints_and_grab) {
   CHECK(physics::version().major >= 0);
 }
 
+// A small servo leg (real size: a 72 g trunk, two 5 cm links, a foot) built at scale s: lengths x s,
+// masses x s^3 (same density), torques and stiffness x s^4, damping x s^4.5, time x sqrt(s), contact
+// and joint stiffness / sqrt(s), contact speeds x sqrt(s) - Kern's walker scale (game::kWalkerScale). Returns,
+// per real millisecond of 1.5 s, the hip angle and the trunk height in real metres.
+static std::vector<std::pair<f32, f32>> scaled_servo_leg(f32 s, bool on_ground) {
+  using namespace physics;
+  const f32 rs = std::sqrt(s);
+  World w;
+  WorldSettings ws;
+  ws.enable_sleep = false;
+  ws.contact_hertz = 60 / rs;          // real 60 Hz
+  ws.contact_speed = 1.5f * rs;        // real 1.5 m/s
+  ws.restitution_threshold = 0.5f * rs;
+  CHECK(w.create(ws));
+  auto box = [&](Body b, Vec3 size, Vec3 center) {
+    ShapeSettings sh;
+    sh.size = size * s;
+    sh.center = center * s;
+    sh.material.density = 1000;
+    sh.material.friction = 0.8f;
+    CHECK(w.create_shape(b, sh).valid());
+  };
+  if (on_ground) {
+    BodySettings g;
+    g.type = BodyType::fixed;
+    g.position = Vec3{0, 0, -0.05f} * s;
+    box(w.create_body(g), {1, 1, 0.1f}, {});
+  }
+  const f32 z0 = on_ground ? 0.112f : 0.3f;  // trunk centre: the foot ~1.5 mm above the floor
+  BodySettings tb;
+  tb.type = on_ground ? BodyType::dynamic : BodyType::fixed;
+  tb.position = Vec3{0, 0, z0} * s;
+  const Body trunk = w.create_body(tb);
+  box(trunk, {0.06f, 0.04f, 0.03f}, {});
+  if (on_ground) {
+    MotionLocks locks;  // the trunk moves in x and z only
+    locks.linear[1] = locks.angular[0] = locks.angular[1] = locks.angular[2] = true;
+    w.set_motion_locks(trunk, locks);
+  }
+  BodySettings lb;
+  lb.position = Vec3{0, 0, z0 - 0.04f} * s;
+  const Body thigh = w.create_body(lb);
+  box(thigh, {0.015f, 0.015f, 0.05f}, {});
+  lb.position = Vec3{0, 0, z0 - 0.09f} * s;
+  const Body shin = w.create_body(lb);
+  box(shin, {0.015f, 0.015f, 0.05f}, {});
+  box(shin, {0.05f, 0.03f, 0.008f}, {0.005f, 0, -0.025f});  // the foot
+  auto hinge = [&](Body a, Body b, Vec3 anchor) {
+    JointSettings j;
+    j.body_a = a;
+    j.body_b = b;
+    j.frame_a = frame_from_axis(w.local_point(a, anchor * s), {0, 1, 0}, false);
+    j.frame_b = frame_from_axis(w.local_point(b, anchor * s), {0, 1, 0}, false);
+    j.constraint_hertz = 480 / rs;  // as the duck's servo joints: 240 Hz at 4x, real 480 Hz
+    j.constraint_damping_ratio = 2;
+    const Joint jt = w.create_joint(j);
+    CHECK(jt.valid());
+    return jt;
+  };
+  const Joint hip = hinge(trunk, thigh, {0, 0, z0 - 0.015f}), knee = hinge(thigh, shin, {0, 0, z0 - 0.065f});
+  const f32 k = 1.0f * s * s * s * s, c = 0.01f * s * s * s * s * rs, friction = 0.004f * s * s * s * s;  // N*m/rad, N*m*s/rad, N*m (real)
+  std::vector<std::pair<f32, f32>> out;
+  const f32 dt = 0.001f;  // real seconds per step
+  for (int i = 0; i < 1500; ++i) {
+    const f32 t = static_cast<f32>(i) * dt;
+    const f32 bend = 0.35f + 0.3f * std::sin(6.28318531f * 1.5f * t);  // squat at 1.5 Hz (real)
+    w.set_joint_spring(hip, -bend, k, c);
+    w.set_joint_spring(knee, 2 * bend, k, c);
+    w.set_joint_motor(hip, true, 0, friction);
+    w.set_joint_motor(knee, true, 0, friction);
+    w.step(dt * rs, 4);
+    out.push_back({w.joint_angle(hip), w.pose(trunk).position.z / s});
+  }
+  return out;
+}
+
+TEST(physics_scale_is_a_unit_system) {
+  // Kern builds the Micro Duck 4x as large (game::kWalkerScale) so that its centimetre links sit
+  // where Box3D's tolerances are made for. With every quantity scaled by its dimension that is only
+  // a change of units: the same real motion (docs/physics.md, scale). What does not scale are
+  // Box3D's fixed lengths (linear slop 5 mm, speculative distance 20 mm): at 4x they are 1.25 / 5 mm
+  // of the real robot - finer than the real robot simulated at 1:1 would get.
+  const bool print = std::getenv("KERN_SCALE_PRINT") != nullptr;
+  // Joints, springs, friction, gravity: the same motion at any scale (float rounding apart).
+  {
+    const auto a = scaled_servo_leg(1, false), b = scaled_servo_leg(4, false);
+    f32 worst = 0;
+    for (std::size_t i = 0; i < a.size(); ++i) worst = max_of(worst, std::fabs(a[i].first - b[i].first));
+    if (print) std::printf("  hanging leg, 1x vs 4x: hip angles differ by at most %.2e rad\n", worst);
+    CHECK(worst < 1e-6f);  // powers of two: bit for bit
+  }
+  // Standing and squatting on the floor: contacts add the unscaled tolerances. The duck's 4x against
+  // 8x (finer still) bounds what they cost; 1x (the real size in Box3D) is the coarse end.
+  {
+    const auto x1 = scaled_servo_leg(1, true), x4 = scaled_servo_leg(4, true), x8 = scaled_servo_leg(8, true);
+    f32 d48 = 0, d14 = 0, a48 = 0;
+    for (std::size_t i = 0; i < x4.size(); ++i) {
+      d48 = max_of(d48, std::fabs(x4[i].second - x8[i].second));
+      d14 = max_of(d14, std::fabs(x1[i].second - x4[i].second));
+      a48 = max_of(a48, std::fabs(x4[i].first - x8[i].first));
+    }
+    if (print)
+      std::printf("  squatting leg: trunk height 4x vs 8x within %.2f mm (hip %.4f rad), 1x vs 4x within %.2f mm\n", d48 * 1000, a48, d14 * 1000);
+    CHECK(x4.back().second > 0.07f);  // it stands and squats (did not fall through or over)
+    CHECK(d48 < 0.001f);
+  }
+}
+
 TEST(physics_hull_mesh) {
   const Vec3 cube[8] = {{-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1}, {-1, -1, 1}, {1, -1, 1}, {1, 1, 1}, {-1, 1, 1}};
   MeshData m;

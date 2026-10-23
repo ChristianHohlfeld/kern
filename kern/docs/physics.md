@@ -44,6 +44,47 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
 *[gemessen]* Micro Duck in echter Größe (2–4 cm große Glieder): Der Rumpf sank innerhalb von 10 Frames
 9 cm durch die Beine, selbst mit verschweißten Gelenken. In 4-facher Größe halten die Gelenke.
 
+### Ist die 4-fache Ente noch der echte Roboter?
+
+Ja. Die Skalierung ist ein Wechsel der Einheiten, kein größerer Roboter: Wenn jede Größe mit ihrer
+Dimension skaliert wird, rechnet Box3D dieselbe Bewegung. Was nach außen geht, ist in echten
+Einheiten: `walker_probe`, die Beobachtungen der Netze, Logs und Kalibrierung (`docs/lehrer.md`).
+
+| Größe | Faktor bei S = 4 | Beispiel |
+|---|---|---|
+| Länge | ×4 | |
+| Zeit | ×2 (√S) | 1 echte Sekunde = 2 Sekunden der Welt |
+| Masse | ×64 (S³, gleiche Dichte) | |
+| Moment, Steifigkeit (N·m/rad) | ×256 (S⁴) | |
+| Dämpfung (N·m·s/rad) | ×512 (S^4,5) | |
+| Geschwindigkeit | ×2 (√S) | |
+| Beschleunigung, Schwerkraft | ×1 | g bleibt 9,81 m/s² |
+| Frequenzen (Federn, Kontakt- und Gelenkweichheit) | ×½ (1/√S) | |
+
+Test `physics_scale_is_a_unit_system` baut ein kleines Servo-Bein (72 g Rumpf, zwei 5-cm-Glieder,
+Federservos mit Reibung) in 1-, 4- und 8-facher Größe:
+
+- **Frei hängend** (Gelenke, Federn, Reibung, Schwerkraft): 1× und 4× laufen **Bit für Bit gleich**
+  (Faktoren sind Zweierpotenzen, Gleitkomma rundet identisch).
+- **Auf dem Boden, in die Knie gehend:** Hier wirken Box3Ds feste Längen (Linear Slop 5 mm,
+  Speculative Distance 20 mm), die nicht mitskalieren. 4× und 8× liegen 0,23 mm auseinander, 1× und
+  4× 0,27 mm. Bei 4× sind die Toleranzen 1,25 mm bzw. 5 mm des echten Roboters, also feiner als bei
+  echter Größe.
+
+Was in echten Einheiten fest eingestellt ist (und deshalb kalibriert wird, nicht skaliert):
+
+| Wert in der Welt | im echten Roboter |
+|---|---|
+| Kontaktsteifigkeit 30 Hz, Dämpfung 10 | 60 Hz, Dämpfung 10 |
+| Kontakt-Ausdrückgeschwindigkeit 3 m/s | 1,5 m/s |
+| Restitutionsschwelle 1 m/s | 0,5 m/s |
+| Gelenkweichheit der Servo-Gelenke 240 Hz, Dämpfung 2 | 480 Hz, Dämpfung 2 |
+
+Die Abweichung zum echten Roboter kommt also nicht aus der Skalierung, sondern aus den Modellen
+(Servo, Kontakt, Massen). Die werden mit Messungen am echten Gerät abgeglichen und über Logs
+nachkorrigiert (`docs/lehrer.md`, digitaler Zwilling). Ein Roboter mit anderer Größe bekommt einfach
+ein anderes S.
+
 ## 2. Massenverhältnisse
 
 - **Schwere Körper nicht an leichten aufhängen.** Ab etwa 10:1 leidet die Stabilität.
