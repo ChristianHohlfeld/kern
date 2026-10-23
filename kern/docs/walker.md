@@ -438,7 +438,7 @@ apirrone/microduck_sounds portiert. Es gibt keine Samples und kein Netz.
   - Lautstärke folgt der Arbeit (Last × Drehzahl) und leise der Haltelast, die Tonhöhe der Drehzahl
     der Motoren und etwas der Last. Gemessen: stehend Last 0,02 und Arbeit 0, gehend Last 0,06 und
     Arbeit 1,2 (Test `micro_duck_servo_load_drives_its_sound`). Leise, unter Schritten und Stimme.
-- **Berührungen:** Die Gehäuse und Servo-Housings klingen bei jeder Berührung nach Kunststoff
+- **Berührungen:** Die Gehäuse und Servo-Housings klingen bei jeder Berührung weich und dumpf nach Kunststoff
   (`builtin:plastic`), mit dem Boden wie miteinander. Die Sohlen klingen als leiser, kleiner
   Schritt (`builtin:plastic_step`, als Impact Sound ihrer Collider): dumpf und leise, ein Schritt
   pro Fuß höchstens alle 0,5 s (Simulationszeit), weil eine Sohle von der Ferse zur Spitze abrollt

@@ -322,6 +322,9 @@ Buffer struck(u32 rate, std::initializer_list<Partial> modes, f32 click, f32 cli
     y += lp * (white - y);
     out[i] += static_cast<f32>(env * y);
   }
+  // A soft onset (2 ms): nothing in a touch of plastic snaps on in one sample.
+  const std::size_t ramp = std::min<std::size_t>(n, rate / 500);
+  for (std::size_t i = 0; i < ramp; ++i) out[i] *= static_cast<f32>(i) / static_cast<f32>(ramp);
   f32 top = 0;
   for (f32 v : out) top = std::max(top, std::abs(v));
   if (top > 0) for (f32& v : out) v *= peak / top;
@@ -781,8 +784,9 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
     add(out, synthesize(b, rate));
   } else if (name == "impact" || name == "impact_light") {
     const bool light = name == "impact_light";
-    SynthPatch n = patch(Wave::noise, 5000, 0.0008f, 0.005f, light ? 0.07f : 0.16f, light ? 0.45f : 0.7f);
-    n.lowpass = light ? 3500 : 2200;
+    // A body landing on something: a thud, not a crash - the noise is kept below 2 kHz.
+    SynthPatch n = patch(Wave::noise, 5000, 0.002f, 0.005f, light ? 0.07f : 0.16f, light ? 0.4f : 0.65f);
+    n.lowpass = light ? 1900 : 1500;
     n.lowpass_sweep = -3;
     n.seed = light ? 17 : 13;
     out = synthesize(n, rate);
@@ -798,9 +802,9 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
     s.slide = -6;
     add(out, synthesize(s, rate));
   } else if (name == "plastic") {
-    // A printed plastic shell or servo housing tapping the floor or another part: hard, bright,
-    // short (a small robot - the partials sit high and die within a few tens of milliseconds).
-    out = struck(rate, {{1180, 0.020f, 0.55f}, {2710, 0.013f, 0.38f}, {4230, 0.008f, 0.26f}, {6950, 0.004f, 0.14f}}, 0.5f, 1.4f, 7000, 0.12f, 0.34f, 71);
+    // A printed plastic shell or servo housing touching the floor or another part: a dull, soft
+    // "tock" - hollow plastic rings low and briefly, with no glassy highs.
+    out = struck(rate, {{420, 0.030f, 0.6f}, {980, 0.016f, 0.3f}, {1750, 0.007f, 0.12f}}, 0.25f, 3, 1800, 0.12f, 0.28f, 71);
   } else if (name == "plastic_step") {
     // A small sole set down: a soft, dull tap - low partials, a muffled contact, quiet.
     // Softer and duller than a knock: the TPU-padded sole on the floor is mostly a thud.
