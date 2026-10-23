@@ -4387,6 +4387,58 @@ TEST(train_ppo_learns_to_reach) {
   CHECK(a[0] > 0.3f && a[1] < -0.3f);
 }
 
+TEST(train_ppo_learns_from_collectors_elsewhere) {
+  // The browser's shape: collectors (Web Workers) get the policy as a flat buffer, return their
+  // rollouts as bytes, and the learner learns from all of them.
+  train::PpoConfig cfg;
+  cfg.actor_hidden = cfg.critic_hidden = {32, 32};
+  cfg.init_std = 0.5f;
+  cfg.steps_per_env = 40;
+  cfg.learning_rate = 3e-3f;
+  cfg.seed = 4;
+  train::Ppo ppo(cfg, 4, 4, 2);
+  struct Worker {
+    std::vector<std::unique_ptr<ReachEnv>> owned;
+    std::vector<train::Env*> envs;
+    train::Collector collector;
+    train::Policy policy;
+  };
+  Worker workers[2];
+  for (int w = 0; w < 2; ++w) {
+    workers[w].collector = train::Collector(50 + w);
+    for (int i = 0; i < 8; ++i) {
+      workers[w].owned.push_back(std::make_unique<ReachEnv>(200 + 10 * w + i));
+      workers[w].owned.back()->reset();
+      workers[w].envs.push_back(workers[w].owned.back().get());
+    }
+  }
+  f32 first = 0, last = 0;
+  for (int it = 0; it < 60; ++it) {
+    const std::vector<f32> policy = ppo.policy().serialize();
+    std::vector<train::Rollout> received(2);
+    for (int w = 0; w < 2; ++w) {
+      CHECK(workers[w].policy.deserialize(policy.data(), policy.size()));
+      train::Rollout r;
+      workers[w].collector.collect(workers[w].envs, cfg.steps_per_env, workers[w].policy, r);
+      const std::vector<u8> bytes = r.serialize();
+      CHECK(received[static_cast<std::size_t>(w)].deserialize(bytes.data(), bytes.size()));
+    }
+    const train::IterationStats s = ppo.learn({&received[0], &received[1]});
+    if (it == 0) first = s.mean_return;
+    last = s.mean_return;
+  }
+  std::printf("  reach (2 collectors): return %.3f -> %.3f\n", first, last);
+  CHECK(last > first * 0.5f);
+  // A policy that went through the buffer acts exactly as the learner's.
+  train::Policy copy;
+  const std::vector<f32> buf = ppo.policy().serialize();
+  CHECK(copy.deserialize(buf.data(), buf.size()));
+  f32 obs[4] = {0.3f, -0.2f, -0.6f, 0.5f}, a[2], b[2];
+  ppo.act(obs, a);
+  copy.act(obs, b);
+  CHECK(a[0] == b[0] && a[1] == b[1]);
+}
+
 TEST(train_exports_onnx_like_pollens_networks) {
   train::Rng rng(21);
   train::Mlp actor;

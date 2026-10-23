@@ -2,6 +2,11 @@
 // Duck's networks with): Gaussian actor with a learnable std, asymmetric critic, running observation
 // normalisers, GAE, clipped surrogate and value losses, entropy bonus, adaptive learning rate from
 // the KL divergence, gradient clipping per network, Adam.
+//
+// Collecting and learning are separate so that they can run in different places: a Collector only
+// needs the Policy (actor, std, normaliser) and returns a Rollout; the learner (Ppo) takes the
+// rollouts of all collectors (threads here, Web Workers in the browser), updates, and hands out the
+// next Policy. Both serialise to flat buffers.
 #pragma once
 
 #include <functional>
@@ -30,10 +35,49 @@ using ParallelFor = std::function<void(i32 n, const std::function<void(i32)>& fn
 /// One worker per hardware thread (std::thread); sequential where there are no threads.
 ParallelFor thread_pool(i32 threads = 0);
 
+/// What acting needs: the actor network, its observation normaliser and the action noise.
+struct Policy {
+  Mlp actor;
+  Normalizer normalizer;
+  std::vector<f32> stddev;
+  /// The mean action (what the exported network computes).
+  void act(const f32* observation, f32* action) const;
+  std::vector<f32> serialize() const;
+  bool deserialize(const f32* data, std::size_t size);
+};
+
+/// steps x envs transitions, [step][env] rows, plus where each environment stands at the end.
+struct Rollout {
+  i32 envs = 0, steps = 0, obs = 0, critic = 0, actions = 0;
+  std::vector<f32> observation, critic_obs, action, reward;
+  std::vector<u8> terminal, timeout;
+  std::vector<f32> last_critic;
+  std::vector<f32> episode_returns;  // episodes that ended during the rollout
+  std::vector<i32> episode_lengths;
+  f64 seconds = 0;
+  std::vector<u8> serialize() const;
+  bool deserialize(const u8* data, std::size_t size);
+};
+
+/// Steps environments with a Policy's sampled actions.
+class Collector {
+ public:
+  explicit Collector(u64 seed = 1) : rng_(seed) {}
+  /// `steps` steps of every environment (finished episodes reset); the environments must have been
+  /// reset once before the first call.
+  void collect(std::vector<Env*>& envs, i32 steps, const Policy& policy, Rollout& out, const ParallelFor& parallel = {});
+
+ private:
+  Rng rng_;
+  std::vector<Rng> env_rng_;
+  std::vector<f32> episode_return_;
+  std::vector<i32> episode_length_;
+};
+
 struct IterationStats {
   i32 iteration = 0;
-  f32 mean_reward = 0;          // per step, over the rollout
-  f32 mean_return = 0;          // of the episodes that ended in this rollout (0 when none did)
+  f32 mean_reward = 0;          // per step, over the rollouts
+  f32 mean_return = 0;          // of the episodes that ended in them (0 when none did)
   f32 mean_length = 0;          // their length in steps
   i32 episodes = 0;
   f32 value_loss = 0, surrogate_loss = 0, entropy = 0, learning_rate = 0, mean_std = 0;
@@ -44,37 +88,39 @@ struct IterationStats {
 class Ppo {
  public:
   Ppo(const PpoConfig& config, i32 obs_size, i32 critic_size, i32 action_size);
-  /// One iteration: steps_per_env steps of every environment (resetting finished episodes), then
-  /// the update. The environments must have been reset once before the first call.
+  /// Collect (steps_per_env steps of every environment here, in parallel) and learn.
   IterationStats iterate(std::vector<Env*>& envs, const ParallelFor& parallel = {});
+  /// Learn from rollouts collected elsewhere with the current policy().
+  IterationStats learn(const std::vector<const Rollout*>& rollouts);
   /// The deterministic action (the mean) for one observation, as the exported network computes it.
-  void act(const f32* observation, f32* action) const;
+  void act(const f32* observation, f32* action) const { policy_.act(observation, action); }
 
-  const Mlp& actor() const { return actor_; }
+  const Policy& policy() const { return policy_; }
+  const Mlp& actor() const { return policy_.actor; }
   const Mlp& critic() const { return critic_; }
-  const Normalizer& actor_normalizer() const { return actor_norm_; }
-  const std::vector<f32>& stddev() const { return std_; }
+  const Normalizer& actor_normalizer() const { return policy_.normalizer; }
+  const std::vector<f32>& stddev() const { return policy_.stddev; }
   const PpoConfig& config() const { return cfg_; }
   i64 total_steps() const { return total_steps_; }
   f32 learning_rate() const { return lr_; }
+  i32 iteration() const { return iteration_; }
 
  private:
   void update(IterationStats& stats);
   PpoConfig cfg_;
   i32 obs_ = 0, crit_ = 0, act_ = 0;
-  Mlp actor_, critic_;
-  Normalizer actor_norm_, critic_norm_;
-  std::vector<f32> std_;
+  Policy policy_;
+  Mlp critic_;
+  Normalizer critic_norm_;
   Adam actor_adam_, critic_adam_;
   f32 lr_ = 1e-3f;
   Rng rng_;
-  std::vector<Rng> env_rng_;
+  Collector collector_;
+  Rollout local_;
   i32 iteration_ = 0;
   i64 total_steps_ = 0;
-  std::vector<f32> episode_return_;
-  std::vector<i32> episode_length_;
-  // The rollout, [step][env] rows.
-  std::vector<f32> obs_buf_, crit_buf_, act_buf_, mu_buf_, logp_buf_, value_buf_, reward_buf_, done_buf_, return_buf_, adv_buf_;
+  // The learner's batch: every row of every rollout.
+  std::vector<f32> obs_buf_, crit_buf_, act_buf_, mu_buf_, logp_buf_, value_buf_, return_buf_, adv_buf_;
 };
 
 }  // namespace kern::train

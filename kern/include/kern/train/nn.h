@@ -4,6 +4,7 @@
 #pragma once
 
 #include <initializer_list>
+#include <utility>
 #include <vector>
 
 #include "kern/core/base.h"
@@ -71,6 +72,9 @@ class Normalizer {
   const std::vector<f32>& mean() const { return mean_; }
   std::vector<f32> divisor() const;  // std + eps
   i32 size() const { return static_cast<i32>(mean_.size()); }
+  const std::vector<f32>& variance() const { return var_; }
+  f64 count() const { return count_; }
+  void set(std::vector<f32> mean, std::vector<f32> variance, f64 count) { mean_ = std::move(mean); var_ = std::move(variance); count_ = count; }
 
  private:
   std::vector<f32> mean_, var_;
