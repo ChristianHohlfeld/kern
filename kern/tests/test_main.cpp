@@ -18,6 +18,7 @@
 #include "kern/game/walker.h"
 #include "kern/train/env.h"
 #include "kern/train/nn.h"
+#include "kern/train/ppo.h"
 #include "kern/studio/studio.h"
 #include "kern/net/client_server.h"
 #include "kern/game/net_game.h"
@@ -4324,6 +4325,67 @@ TEST(train_adam_fits_a_curve_and_the_normaliser_tracks) {
   CHECK(std::fabs(n.divisor()[0] - (std::sqrt(v0) + 0.01)) < 1e-4 && std::fabs(n.divisor()[1] - (std::sqrt(v1) + 0.01)) < 1e-4);
 }
 
+namespace {
+// A point that should go to a target: PPO's quick sanity check (seconds, not hours).
+class ReachEnv : public train::Env {
+ public:
+  explicit ReachEnv(u64 seed) : rng_(seed) {}
+  i32 obs_size() const override { return 4; }
+  i32 critic_size() const override { return 4; }
+  i32 action_size() const override { return 2; }
+  void reset() override {
+    for (f32& v : s_) v = rng_.uniform(-1, 1);
+    steps_ = 0;
+  }
+  const f32* observation() const override { return s_; }
+  const f32* critic() const override { return s_; }
+  Step step(const f32* a) override {
+    for (int k = 0; k < 2; ++k) s_[k] += clamp(a[k], -1.0f, 1.0f) * 0.1f;
+    const f32 d = std::hypot(s_[0] - s_[2], s_[1] - s_[3]);
+    Step r;
+    r.reward = -d * 0.1f;
+    r.timeout = ++steps_ >= 40;
+    return r;
+  }
+
+ private:
+  train::Rng rng_;
+  f32 s_[4] = {};
+  i32 steps_ = 0;
+};
+}  // namespace
+
+TEST(train_ppo_learns_to_reach) {
+  train::PpoConfig cfg;
+  cfg.actor_hidden = cfg.critic_hidden = {32, 32};
+  cfg.init_std = 0.5f;
+  cfg.steps_per_env = 40;
+  cfg.learning_rate = 3e-3f;
+  cfg.seed = 4;
+  std::vector<std::unique_ptr<ReachEnv>> owned;
+  std::vector<train::Env*> envs;
+  for (int i = 0; i < 16; ++i) {
+    owned.push_back(std::make_unique<ReachEnv>(100 + i));
+    owned.back()->reset();
+    envs.push_back(owned.back().get());
+  }
+  train::Ppo ppo(cfg, 4, 4, 2);
+  const auto pool = train::thread_pool(2);
+  f32 first = 0, last = 0;
+  for (int it = 0; it < 60; ++it) {
+    const train::IterationStats s = ppo.iterate(envs, pool);
+    CHECK(std::isfinite(s.value_loss) && std::isfinite(s.surrogate_loss));
+    if (it == 0) first = s.mean_return;
+    last = s.mean_return;
+  }
+  std::printf("  reach: return %.3f -> %.3f\n", first, last);
+  CHECK(last > first * 0.5f);  // returns are negative: at least twice as good
+  // The deterministic policy heads for the target.
+  f32 obs[4] = {-0.5f, 0.2f, 0.6f, -0.4f}, a[2];
+  ppo.act(obs, a);
+  CHECK(a[0] > 0.3f && a[1] < -0.3f);
+}
+
 TEST(micro_duck_observation_between_ticks_is_what_its_controller_sees) {
   // The trainer reads the observation between ticks (walker_observation); it must be exactly what
   // the controller builds at the tick (IMU, joints, lagged speeds, last action).
@@ -4367,7 +4429,7 @@ TEST(train_duck_env_runs_episodes_headless) {
   i32 steps = 0;
   while (!terminal && !timeout) {
     net->run(env.observation(), a);
-    const train::DuckEnv::Step s = env.step(a);
+    const train::Env::Step s = env.step(a);
     CHECK(std::isfinite(s.reward));
     terminal = s.terminal;
     timeout = s.timeout;

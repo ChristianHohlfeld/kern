@@ -69,24 +69,41 @@ std::unique_ptr<Task> make_jump_task();
 /// Stand still at home (the pipeline's smoke test: quick to learn, easy to check).
 std::unique_ptr<Task> make_stand_task();
 
+/// An environment the trainer learns in: reset, then observation / step. The actor sees
+/// observation() (obs_size), the critic critic() (critic_size, the actor's first).
+class Env {
+ public:
+  virtual ~Env() = default;
+  virtual i32 obs_size() const = 0;
+  virtual i32 critic_size() const = 0;
+  virtual i32 action_size() const = 0;
+  virtual void reset() = 0;
+  virtual const f32* observation() const = 0;
+  virtual const f32* critic() const = 0;
+  struct Step { f32 reward = 0; bool terminal = false, timeout = false; };
+  /// One step with `action`. After a terminal or timeout step the observations show the final
+  /// state; the caller resets.
+  virtual Step step(const f32* action) = 0;
+};
+
 /// One duck on a flat floor in its own GameWorld (no GPU: the renderer stays headless), driven tick
 /// by tick from outside: reset, then observation / step.
-class DuckEnv {
+class DuckEnv : public Env {
  public:
   DuckEnv(std::unique_ptr<Task> task, u64 seed);
   ~DuckEnv();
   DuckEnv(const DuckEnv&) = delete;
   DuckEnv& operator=(const DuckEnv&) = delete;
   Task& task() { return *task_; }
-  i32 critic_size() const { return kObs + task_->privileged(); }
-  void reset();
+  i32 obs_size() const override { return kObs; }
+  i32 critic_size() const override { return kObs + task_->privileged(); }
+  i32 action_size() const override { return kActions; }
+  void reset() override;
   /// The actor's observation (61) and the critic's (61 + privileged), at the coming tick.
-  const f32* observation() const { return obs_.data(); }
-  const f32* critic() const { return critic_.data(); }
-  struct Step { f32 reward = 0; bool terminal = false, timeout = false; };
-  /// One control tick (50 Hz real) with `action`. After a terminal or timeout step the observations
-  /// show the final state; call reset() for the next episode.
-  Step step(const f32* action);
+  const f32* observation() const override { return obs_.data(); }
+  const f32* critic() const override { return critic_.data(); }
+  /// One control tick (50 Hz real) with `action`.
+  Step step(const f32* action) override;
   i32 steps() const { return step_; }
   f32 episode_return() const { return return_; }
   game::GameWorld& world();

@@ -19,7 +19,7 @@ werden wie dort als Gewicht × Term × dt summiert.
 |---|---|
 | 1. Headless-Simulation: Ente ohne GPU, extern gesteuert, Episoden, Sprung-Aufgabe | fertig |
 | 2. MLP mit Backprop und Adam | fertig |
-| 3. PPO (Rezept wie rsl_rl: GAE, Clip, adaptive Lernrate, asymmetrischer Critic) | offen |
+| 3. PPO (Rezept wie rsl_rl: GAE, Clip, adaptive Lernrate, asymmetrischer Critic) | fertig |
 | 4. ONNX-Export im Format von Pollens Netzen | offen |
 | 5. Variation (Domain Randomization), Training parallel auf allen Kernen | offen |
 | 6. Training im Browser (Web Worker, Desktop und Handy) | offen |
@@ -94,3 +94,24 @@ Die Gewichte sind ein erster Entwurf. Sie werden mit dem Training abgestimmt (Sc
   Netzen.
 - **Test:** Adam lernt sin(x) (mittlerer quadratischer Fehler < 0,01). Der Normalisierer stimmt mit
   Mittelwert und Varianz des ganzen Datensatzes überein.
+
+## 3. PPO (`src/train/ppo.cpp`)
+
+PPO folgt rsl_rls Implementierung, mit der Pollen seine Netze trainiert:
+
+- **Actor:** Gauß-Verteilung um die Netzausgabe; die Standardabweichung ist ein lernbarer Parameter
+  je Aktion (`std_type: scalar`, Start 1,0).
+- **Critic:** sieht zusätzlich die privilegierten Werte der Aufgabe (asymmetrisch).
+- **Normalisierer:** je ein laufender Normalisierer für Actor und Critic, aktualisiert nach jedem
+  Schritt mit den neuen Beobachtungen.
+- **Rollout:** 24 Schritte je Umgebung. Bei Zeitablauf wird die Belohnung mit γ·V gestützt
+  (Bootstrapping).
+- **Vorteile:** GAE (γ 0,99, λ 0,95), über den ganzen Rollout normiert.
+- **Update:** 5 Epochen × 4 Minibatches.
+  - Verlust: geclippter Surrogate (0,2) + Wertverlust geclippt (Faktor 1) − 0,01 · Entropie.
+  - Adaptive Lernrate über die KL-Divergenz (Ziel 0,01, Faktor 1,5, Grenzen 1e-5 bis 1e-2).
+  - Gradient je Netz auf Norm 1 begrenzt, dann Adam.
+- **Parallel:** Die Umgebungen laufen über `thread_pool` auf allen Kernen. In WebAssembly läuft das
+  der Reihe nach; dort teilen Web Worker die Arbeit auf (Schritt 6).
+- **Test `train_ppo_learns_to_reach`:** Ein Punkt lernt, zu einem Ziel zu fahren. Die Rückgabe
+  verbessert sich von −5,7 auf −0,8 in 60 Iterationen (9 s im Sanitizer-Build).

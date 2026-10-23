@@ -3,6 +3,7 @@
 // Batched and cache-friendly; no dependency beyond the standard library.
 #pragma once
 
+#include <initializer_list>
 #include <vector>
 
 #include "kern/core/base.h"
@@ -50,6 +51,9 @@ class Adam {
  public:
   f32 lr = 1e-3f, beta1 = 0.9f, beta2 = 0.999f, eps = 1e-8f, max_norm = 1.0f;
   void step(std::vector<f32>& params, std::vector<f32>& grad);
+  /// One step over several parameter blocks clipped together (a network and its std, say).
+  struct Block { f32* params; f32* grad; std::size_t size; };
+  void step(std::initializer_list<Block> blocks);
   void reset() { m_.clear(); v_.clear(); t_ = 0; }
 
  private:

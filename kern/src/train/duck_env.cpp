@@ -72,7 +72,7 @@ void DuckEnv::observe() {
   if (task_->privileged()) task_->privileged(probe_, critic_.data() + kObs);
 }
 
-DuckEnv::Step DuckEnv::step(const f32* action) {
+Env::Step DuckEnv::step(const f32* action) {
   game::GameWorld& w = *impl_->world;
   std::memcpy(previous_action_, last_action_, sizeof previous_action_);
   for (i32 j = 0; j < kActions; ++j) last_action_[j] = std::isfinite(action[j]) ? action[j] : 0.0f;

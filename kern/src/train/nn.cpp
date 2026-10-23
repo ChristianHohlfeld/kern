@@ -119,25 +119,34 @@ void Mlp::backward(const Cache& cache, const f32* dout, f32* grad, f32* dx) cons
   }
 }
 
-void Adam::step(std::vector<f32>& params, std::vector<f32>& grad) {
-  if (m_.size() != params.size()) { m_.assign(params.size(), 0.0f); v_.assign(params.size(), 0.0f); t_ = 0; }
+void Adam::step(std::vector<f32>& params, std::vector<f32>& grad) { step({Block{params.data(), grad.data(), params.size()}}); }
+
+void Adam::step(std::initializer_list<Block> blocks) {
+  std::size_t total = 0;
+  for (const Block& b : blocks) total += b.size;
+  if (m_.size() != total) { m_.assign(total, 0.0f); v_.assign(total, 0.0f); t_ = 0; }
   if (max_norm > 0) {
     f64 sq = 0;
-    for (f32 g : grad) sq += static_cast<f64>(g) * g;
+    for (const Block& b : blocks)
+      for (std::size_t k = 0; k < b.size; ++k) sq += static_cast<f64>(b.grad[k]) * b.grad[k];
     const f32 norm = static_cast<f32>(std::sqrt(sq));
     if (norm > max_norm) {
       const f32 s = max_norm / (norm + 1e-6f);
-      for (f32& g : grad) g *= s;
+      for (const Block& b : blocks)
+        for (std::size_t k = 0; k < b.size; ++k) b.grad[k] *= s;
     }
   }
   ++t_;
   const f32 c1 = 1 - std::pow(beta1, static_cast<f32>(t_)), c2 = 1 - std::pow(beta2, static_cast<f32>(t_));
   const f32 step = lr / c1, root_c2 = std::sqrt(c2);
-  for (std::size_t k = 0; k < params.size(); ++k) {
-    const f32 g = grad[k];
-    m_[k] = beta1 * m_[k] + (1 - beta1) * g;
-    v_[k] = beta2 * v_[k] + (1 - beta2) * g * g;
-    params[k] -= step * m_[k] / (std::sqrt(v_[k]) / root_c2 + eps);
+  std::size_t at = 0;
+  for (const Block& b : blocks) {
+    for (std::size_t k = 0; k < b.size; ++k, ++at) {
+      const f32 g = b.grad[k];
+      m_[at] = beta1 * m_[at] + (1 - beta1) * g;
+      v_[at] = beta2 * v_[at] + (1 - beta2) * g * g;
+      b.params[k] -= step * m_[at] / (std::sqrt(v_[at]) / root_c2 + eps);
+    }
   }
 }
 
