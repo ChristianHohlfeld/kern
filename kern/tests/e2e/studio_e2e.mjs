@@ -379,6 +379,15 @@ const vpCenter = async (page, i = 0) => {
     await cmd(page, {cmd: "stop"});
   }
 
+  // The Micro Duck: its policy runs, its head camera and ToF show in the corner while playing.
+  {
+    await cmd(page, {cmd: "new", template: "basic"});
+    await cmd(page, {cmd: "spawn", item: "micro_duck", at: [4, -3, 0]});
+    await cmd(page, {cmd: "play", mode: "play"});
+    check(await until(async () => (await status(page)).robot?.zones?.length === 64, 60000), "the Micro Duck shows its head camera and ToF while playing");
+    await cmd(page, {cmd: "stop"});
+  }
+
   // Help.
   await page.evaluate(() => { window.__keys = []; addEventListener("keydown", e => window.__keys.push(e.code + (e.defaultPrevented ? "!" : ""))); });
   await page.keyboard.press("F1");

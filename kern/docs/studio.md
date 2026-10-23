@@ -244,7 +244,10 @@ Actors werden repliziert, auch an Spieler, die später dazukommen.
 - **Micro Duck:** Pollen Robotics' zweibeiniger Roboter mit seinem echten, trainierten Netz
   (velstand v8).
   - Steuerung: W/S laufen, A/D drehen, Leertaste quakt.
-  - Ohne Eingabe steht die Ente; gestürzt steht sie selbst wieder auf.
+  - Ohne Eingabe läuft sie autonom: Sie erkundet den Raum mit Kopf-ToF und Kamera, weicht
+    Hindernissen aus und steht nach einem Sturz selbst wieder auf (Details › Walker › Autonomous).
+  - Oben rechts im Viewport zeigt Studio ihre Kopfkamera und das ToF-Gitter (Show › Robot Camera).
+  - Logic steuert sie mit den Knoten der Kategorie Robots (Walk, Look, Robot ToF, Robot Camera Sees …).
   - Beim Einfügen stellt Studio die Physik auf 100 Hz mit 16 Sub-Steps.
   - Details: [`walker.md`](walker.md).
 - **Geräteerkennung:** Die Engine erkennt Touch, Maus+Tastatur und Gamepad selbst und schaltet auf

@@ -153,3 +153,92 @@ Siehe `third_party/microduck/README.md`. Der Import prüft:
 - die Graphstruktur (Sub, Div, 4× Gemm, ELU).
 
 Weicht etwas ab, bricht er ab.
+
+## 8. Sensoren
+
+Die Ente sieht nur, was der echte Roboter sieht. Alle Sensoren sitzen an den Stellen, die das MJCF
+festlegt (Sites `head_camera`, `tof`, `imu`, vom Import übernommen).
+
+### Kopf-ToF
+
+Wie der VL53L8CX des Roboters (Quellen: `kinematics/src/tof.rs`, `tof/` im microduck-Repo):
+
+| Eigenschaft | Wert |
+|---|---|
+| Zonen | 8 × 8 |
+| Sichtfeld | 45° × 45° |
+| Reichweite | bis 4 m |
+| Bildrate | 15 Hz echt |
+
+- **Messung:** Jede Zone ist ein Box3D-Ray-Cast, der die eigenen Glieder überspringt
+  (`World::cast_ray_ignoring`).
+- **Klassifikation** wie im Roboter:
+  - **Boden:** Ein abwärts gerichteter Strahl, der mindestens 85 % der Sensorhöhe überwindet.
+  - **Zu nah:** horizontal unter 10 cm (Rauschband).
+  - **Hindernis:** alles andere, mit horizontaler Entfernung, Richtung und der Belegung der linken
+    und rechten Hälfte.
+
+### Kopfkamera
+
+- IMX219 hinter M12-Optik, 62° horizontal, 16:9.
+- Studio zeigt sie beim Spielen oben rechts im Viewport (Show-Flag **Robot Camera**), daneben das
+  ToF-Gitter: rot = Hindernis, heller = näher; grün = Boden; gelb = zu nah.
+- Logic fragt sie mit **Robot Camera Sees** ab: im Bild und nicht verdeckt (Ray-Cast).
+
+### IMU
+
+Gravitation im Rumpf-Frame. „Gefallen“ heißt gz > −0,5 (`duck-control/src/safety.rs`).
+
+## 9. Autonomes Verhalten
+
+Fährt niemand die Ente, entscheidet sie selbst (`src/game/walker_brain.cpp`). Das ist die
+Verhaltens-Schicht des echten Roboters: Zustände, die dieselben Kommandos geben wie ein Gamepad
+(Twist und Kopfpose für die Policy).
+
+| Zustand | Was die Ente tut |
+|---|---|
+| Chill | steht, bewegt den Kopf leicht |
+| LookAround | steht und schaut sich um (Kopf ±57°) |
+| Wander | läuft mit 0,3 m/s auf die am wenigsten besuchte freie Richtung zu; der Kopf schaut in die Kurve und leicht nach unten |
+| TurnInPlace | dreht auf der Stelle zur gewählten Richtung |
+| BackOff | etwas zu nah: kurz rückwärts und weg |
+| Zoomies | selten, ausgeruht: ein kurzer schneller Lauf |
+| GetUp | gestürzt: wartet, bis die Policy aufgestanden ist |
+
+Die Steuerung dahinter:
+
+- **Energie:** sinkt beim Laufen, steigt beim Stehen. Sie entscheidet zwischen Ruhe und Erkunden.
+- **Erkundungsgedächtnis:** ein Raster aus Zellen von 0,5 m. Gezählt werden Besuche, die langsam
+  vergessen werden, und Zellen, in denen der ToF ein Hindernis sah. Das wählt die nächste Richtung.
+- **Hindernisse** liest sie nur aus frischen ToF-Bildern (jünger als 0,3 s):
+  - unter 0,7 m voraus: langsamer werden und ausweichen;
+  - unter 0,32 m: anhalten und zur freieren Seite drehen;
+  - unter 0,16 m: zurücksetzen.
+
+Wer fährt, in dieser Reihenfolge, wie beim echten Roboter:
+
+1. Der Stick des Spielers. Die Autonomie pausiert, bis 2 s lang keine Eingabe kam.
+2. Ein Logic-Kommando (**Walk**, **Look**).
+3. Das autonome Verhalten (an/aus: Details › Walker › Autonomous oder der Knoten
+   **Set Autonomous**).
+
+Zufall kommt aus einem Generator mit dem Actor als Seed, daher läuft die Ente deterministisch.
+
+*[gemessen]* Test `micro_duck_roams_on_its_own_with_its_tof`: In einem 1,5 × 1,5 m großen Raum
+(echte Größe) mit einer Kiste erkundet die Ente in 45 s die Fläche. Sie wendet vor den Wänden und
+fällt nie.
+
+## 10. Blueprint-Knoten (Kategorie Robots)
+
+| Knoten | Wirkung |
+|---|---|
+| Walk | Twist wie das Gamepad (vorwärts bis 0,4 m/s, seitwärts 0,3 m/s, drehen 57 °/s); Dauer 0 = bis zum nächsten Walk |
+| Look | Kopf gieren / nicken (Kamera und ToF schauen mit) |
+| Set Autonomous | eigenes Verhalten an / aus |
+| Quack | Quaken mit Nicken |
+| Robot ToF | Hindernis gesehen, Entfernung, Richtung, freie linke / rechte Hälfte |
+| Robot Camera Sees | ein Actor im Bild: sichtbar, Richtung, Entfernung |
+| Robot State | Verhalten (Chill, Wander … Driven, Logic), gefallen, Geschwindigkeit |
+
+Vorlage **Robot: walk and turn away with its ToF** (Templates im Blueprint-Editor): Die Ente
+läuft per Logic und dreht weg, sobald der ToF etwas näher als 1,6 m sieht.
