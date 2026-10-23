@@ -376,13 +376,16 @@ Die Ablaufsteuerung folgt `robotd/src/control.rs`:
 | Ducken auf Rollen | `roller_crouch.onnx` (0,8) | Phase, Periode 5 s | 2 | X | PICK |
 | Schnabel auf / zu | Mund-Servo | | 6 | | BEAK |
 
-- **Schnabel beim Aufheben:** Er öffnet sich beim Ground Pick und schließt sich bei φ = 0,42,
-  wenn der Schnabel am Boden ist. Das übernimmt auf dem Roboter der Client, also die App.
+- **Schnabel beim Aufheben (Kern):** Er bleibt beim Absenken zu, öffnet bei φ = 0,16 und beißt bei
+  φ = 0,24 zu. Auf dem Roboter macht das der Mensch mit dem Trigger.
 - **Action-Scale und Filter:** Der Daemon fährt den echten Roboter mit Scale 0,9 und einem
   Tiefpass auf den Sollwerten (Kopf 0,5, Beine 0,7). Das ist Sim-to-Real-Tuning für die Hardware.
   - Kern simuliert die Trainingsphysik und fährt deshalb jedes Netz wie trainiert: Scale 1, kein
     Filter. Nur das Action-Scale aus dem Set gilt (Rollen 0,8).
   - *[gemessen]* Mit 0,9 und Tiefpass kippen die Kicks um, mit 1,0 ohne Filter stehen sie.
+  - Umschaltbar pro Ente: Details › Controller › „Actions to servo goals“ (`actions`:
+    `training` oder `robot` = Scale 0,9, Tiefpass Kopf 0,5 / Beine 0,7 wie `robotd-params`).
+    Test `micro_duck_walks_with_the_robot_daemons_action_profile`: auch so steht und geht sie.
 - **Rollschuhe:** Katalogeintrag „Micro Duck (Rollers)“ (Rollen-MJCF
   `robot_groundcontact_rollers_backlash.xml`).
   - Die Knöchel tragen Kufen statt Füßen.
@@ -404,7 +407,39 @@ Die Ablaufsteuerung folgt `robotd/src/control.rs`:
 | Rolle | dreht sich ganz und steht wieder |
 | Ducken auf Rollen | ok |
 
-## 13. Stimme
+## 13. Abweichungen von Pollens Runtime (geprüft 23.10.2026)
+
+Verglichen mit `pollen-robotics/microduck` (robotd, duck-control, robotd-params, autod im Branch
+`autonomous-mode`). Kern ist eine eigene Engine auf Box3D; Pollens MJCF und Trainingswerte dienen
+nur als Referenz für die Werte.
+
+| Bereich | Original | Kern |
+|---|---|---|
+| Observation (61) | duck-control obs.rs | gleich; Inferenz = onnxruntime bis 1e-6 |
+| Gelenkreihenfolge, Default-Pose | model.rs | gleich |
+| Gelenkgrenzen | MJCF `range` | gleich, als harte Box3D-Grenzen |
+| Sollwert-Klemmung | safety.rs ±π | gleich |
+| Regeltakt | 50 Hz, Befehl 1 Tick verzögert | gleich (Physik 4× größer, Zeit √4 langsamer) |
+| Action-Scale / Tiefpass | 0,9 und 0,5 / 0,7 | Standard wie trainiert (1,0, kein Filter); `robot` wählbar |
+| Rollen, Ground Pick | Scale 0,8 / Phasen aus dem Manifest | gleich |
+| Kopf-Kommando | ±1,10 / ±1,10 / ±1,40 / ±0,31 rad | gleich |
+| Twist | robot.move unbegrenzt, Pad 0,4 / 0,3 / 1,0 | auf 0,4 / 0,3 / 1,0 begrenzt |
+| Sturz | Schwerkraft z > −0,5 für 200 ms | gleich |
+| Mund | −5° … 30°, nicht Teil der Policy | gleich |
+| Idle-Look-around, Stimme | idle_head.rs, sounds | portiert |
+| Autonomie | autod (12 Zustände) | portiert; ToF über Kerns Raycast, Hören/Streicheln per API |
+| Policy umgangen? | – | nein: kein Pose-Setzen, kein Teleport, keine Zusatzkräfte, kein Blending |
+
+**Kern-eigen (nicht im Original):** Ball spielen und Socken holen (Abschnitt 9), Schnabel-Timing
+beim Ground Pick, Kunststoff- und Schritt-Geräusche, Servo-Geräusch aus der Last.
+
+**Kopf nach unten:** Nacken negativ und Kopf-Pitch positiv neigen nach unten. Nur Kopf 1,1: Kamera
+56° nach unten, sieht 10–30 cm vor dem Rumpf. Nacken −1,1 und Kopf 1,1: 87°, sieht 6–15 cm, also
+die Socke an der Greifstelle (Test `micro_duck_camera_sees_the_floor_in_front_when_looking_down`).
+Beim Anlauf auf die Socke senkt sie den Nacken nicht: Das verlagert das Gewicht nach vorn, die
+Füße setzen nach, und die Greifstelle ist verloren.
+
+## 14. Stimme
 
 Die Stimme der Ente ist der Synthesizer des Roboters (`src/audio/duck_voice.cpp`). Er ist eine
 Portierung von `sounds/` aus pollen-robotics/microduck (Apache-2.0), das selbst

@@ -409,6 +409,9 @@ namespace {
 constexpr f32 kActionScaleWalk = 1.0f, kActionScaleRoller = 0.8f;
 constexpr f32 kStandingActionScale = 1.0f;
 constexpr f32 kHeadLowpass = 1.0f, kLegsLowpass = 1.0f;            // 1 = pass-through
+// The robot's daemon (robotd-params: action_scale 0.9 walking, head_lowpass 0.5, legs_lowpass 0.7),
+// selectable per walker (ControllerComponent::actions = "robot").
+constexpr f32 kRobotActionScaleWalk = 0.9f, kRobotHeadLowpass = 0.5f, kRobotLegsLowpass = 0.7f;
 constexpr f32 kStandingThreshold = 0.05f;                          // DEFAULT_STANDING_THRESHOLD (twist)
 constexpr f32 kChainWindow = 0.15f;                                // CHAIN_WINDOW
 constexpr f32 kActuatorTravel = 3.14159265f;                       // safety.rs ACTUATOR_MIN / MAX (rad)
@@ -599,6 +602,7 @@ void GameWorld::create_walkers() {
     w->voice_rng = w->voice_seed | 1u;
     w->rollers = a.controller->rollers;
     w->alpha_gait = a.controller->gait == "alpha";
+    w->robot_actions = a.controller->actions == "robot";
     w->decimation = max_of(1, static_cast<i32>(std::lround(kControlPeriod * slow * hz)));
     w->delay = max_of(0, static_cast<i32>(std::lround(kActuatorDelay * slow * hz)));
     if (std::fabs(static_cast<f32>(w->decimation) / hz - kControlPeriod * slow) > 1e-4f)
@@ -925,7 +929,7 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
   if (w.sit == Sit::rising && w.sit_remaining <= 0) w.sit = Sit::up;
   // The command each network is trained on, and which network drives.
   std::shared_ptr<const WalkerPolicy> net;
-  f32 scale = w.rollers ? kActionScaleRoller : kActionScaleWalk;
+  f32 scale = w.rollers ? kActionScaleRoller : w.robot_actions ? kRobotActionScaleWalk : kActionScaleWalk;
   const f32 twist = std::sqrt(obs[48] * obs[48] + obs[49] * obs[49] + obs[50] * obs[50]);
   if (w.skill >= 0) {
     const SkillDef& d = set.skills[static_cast<std::size_t>(w.skill)];
@@ -982,7 +986,7 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     // presses the joint into its stop - Box3D's hard limit, the MJCF range, as in MuJoCo.
     f32 t = clamp(kDuckLinks[j + 1].home + scale * a, -kActuatorTravel, kActuatorTravel);
     if (w.has_previous) {
-      const f32 alpha = j >= 5 && j < 9 ? kHeadLowpass : kLegsLowpass;
+      const f32 alpha = j >= 5 && j < 9 ? (w.robot_actions ? kRobotHeadLowpass : kHeadLowpass) : (w.robot_actions ? kRobotLegsLowpass : kLegsLowpass);
       t = alpha * t + (1 - alpha) * w.previous_target[j];
     }
     w.previous_target[j] = w.target[j] = t;

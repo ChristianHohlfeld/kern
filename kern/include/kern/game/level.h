@@ -180,6 +180,9 @@ struct ControllerComponent {
   bool autonomous = true;       // roams on its own (camera, ToF) whenever nobody drives it
   std::string gait = "velstand";  // walking network: "velstand" (walks and stands) or "alpha" (alpha_walking + alpha_stand)
   bool rollers = false;         // wears the roller skates (roller.onnx and the crouch drive it)
+  // How network outputs become servo goals: "training" (scale 1, no filter, as the networks were
+  // trained) or "robot" (the robot's daemon: scale 0.9, low-pass head 0.5 / legs 0.7).
+  std::string actions = "training";
 };
 
 enum class WeaponKind : u8 { rifle, pistol, shotgun, sniper };

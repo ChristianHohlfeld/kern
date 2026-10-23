@@ -3935,13 +3935,14 @@ struct DuckRun {
   f32 end_up = 1;
   std::string driving;  // every network that drove, in order ("walk stand ...")
 };
-DuckRun run_duck(f32 seconds, const game::PlayInput& in, bool print = false, Vec3 euler = {}, bool rollers = false, const char* gait = nullptr) {
+DuckRun run_duck(f32 seconds, const game::PlayInput& in, bool print = false, Vec3 euler = {}, bool rollers = false, const char* gait = nullptr, const char* actions = nullptr) {
   GameFixture f;
   game::Level l = game::basic_level();
   for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
   const game::ActorId duck = add_duck(l, {0, 0, euler.y != 0 || euler.x != 0 ? .3f : 0.0f}, false, rollers);
   l.find(duck)->transform.rotation = euler;
   if (gait) l.find(duck)->controller->gait = gait;
+  if (actions) l.find(duck)->controller->actions = actions;
   f.world->sync(l);
   CHECK(f.world->start(l, game::SimMode::play));
   auto pose = [&](Vec3& p, f32& up, f32& heading) {
@@ -4161,6 +4162,21 @@ TEST(micro_duck_rolls_forward_on_its_skates) {
   CHECK(r.driving.find("walk") != std::string::npos);
   CHECK(d > 0.3f);
   CHECK(r.min_up > 0.8f);
+}
+
+TEST(micro_duck_walks_with_the_robot_daemons_action_profile) {
+  // ControllerComponent::actions = "robot": robotd's action scale 0.9 and low-pass (head 0.5,
+  // legs 0.7) instead of the training's 1.0 and no filter. It stands and walks either way.
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  const DuckRun still = run_duck(6, {}, print, {}, false, nullptr, "robot");
+  CHECK(still.min_up > 0.9f);
+  game::PlayInput fwd;
+  fwd.move_y = 1;
+  const DuckRun walk = run_duck(8, fwd, print, {}, false, nullptr, "robot");
+  const f32 d = std::hypot(walk.end.x - walk.start.x, walk.end.y - walk.start.y) / game::kWalkerScale;
+  if (print) std::printf("robot profile: %.3f m real in 8 s, min up %.2f\n", d, walk.min_up);
+  CHECK(d > 0.3f);
+  CHECK(walk.min_up > 0.8f);
 }
 
 TEST(micro_duck_walks_on_its_alpha_gait) {

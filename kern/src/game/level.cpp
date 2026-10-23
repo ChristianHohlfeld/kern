@@ -504,6 +504,7 @@ json::Value actor_to_json(const Actor& a) {
     if (k.mode == ControlMode::walker) {
       x.set("autonomous", k.autonomous);
       x.set("gait", k.gait);
+      x.set("actions", k.actions);
       if (k.rollers) x.set("rollers", true);
     }
     x.set("maxSpeed", num(k.max_speed));
@@ -766,6 +767,8 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       kr.enumeration("mode", kControlNames, k.mode);
       kr.boolean("autonomous", k.autonomous);
       kr.string("gait", k.gait);
+      kr.string("actions", k.actions);
+      if (k.actions != "robot") k.actions = "training";
       if (k.gait != "velstand" && k.gait != "alpha") k.gait = "velstand";
       kr.boolean("rollers", k.rollers);
       kr.number("maxSpeed", k.max_speed, 0, 1000);

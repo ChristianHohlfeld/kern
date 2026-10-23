@@ -31,6 +31,7 @@ constexpr const char* kMotion[] = {"static", "Static", "kinematic", "Kinematic",
 constexpr const char* kColliders[] = {"auto", "Fit to mesh", "box", "Box", "sphere", "Sphere", "capsule", "Capsule", "hull", "Convex hull", nullptr};
 constexpr const char* kJoints[] = {"hinge", "Hinge (revolute)", "slider", "Slider (prismatic)", "ball", "Ball (spherical)", "fixed", "Fixed (weld)", "distance", "Distance / rope",
                                    "wheel", "Wheel (suspension)", "motor", "Motor", "parallel", "Parallel", "noCollision", "No collision (filter)", nullptr};
+constexpr const char* kActionProfiles[] = {"training", "As trained (scale 1, no filter)", "robot", "As the robot's daemon (scale 0.9, low-pass 0.5 / 0.7)", nullptr};
 constexpr const char* kGaits[] = {"velstand", "velstand (walks and stands, v8)", "alpha", "alpha_walking + alpha_stand (older pair)", nullptr};
 constexpr const char* kModes[] = {"hovercar", "Hover car", "rolling", "Rolling ball", "character", "Character", "flyer", "Flyer", "vehicle", "Vehicle", "soldier", "Soldier (first person shooter)", "walker", "Walker (robot on its trained network)", nullptr};
 constexpr const char* kWeaponKinds[] = {"rifle", "Rifle", "pistol", "Pistol", "shotgun", "Shotgun", "sniper", "Sniper rifle", nullptr};
@@ -140,6 +141,7 @@ constexpr FieldDef kController[] = {
     {"headBob", "Head bob", F::boolean},
     {"autonomous", "Autonomous (camera, ToF)", F::boolean, 0, 0, 0, "", nullptr, "Walker"},
     {"gait", "Walking network", F::choice, 0, 0, 0, "", kGaits},
+    {"actions", "Actions to servo goals", F::choice, 0, 0, 0, "", kActionProfiles},
     {"engineSound", "Engine loop", F::sound_auto, 0, 0, 0, "", nullptr, "Sound"},
     {"jumpSound", "Jump", F::sound},
     {"boostSound", "Boost", F::sound},
