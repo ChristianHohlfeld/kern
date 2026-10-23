@@ -452,11 +452,11 @@ json::Value Studio::logic_palette(const json::Value& c) const {
       consider({"On " + s.name + " Entered", "State Machines", m.name + " entered " + s.name, "event.state_enter", {{"machine", m.name}, {"state", s.name}}});
     }
   // Categories in the order people reach for them.
-  static const char* order[] = {"Events", "Flow", "Variables", "Game", "Actors", "Physics", "Combat", "Effects", "Audio", "State Machines",
+  static const char* order[] = {"Events", "Flow", "Variables", "Game", "Actors", "Robots", "Physics", "Combat", "Effects", "Audio", "State Machines",
                                 "Math", "Logic", "Vector", "Text", "Values", "Utilities"};
   auto cat_rank = [](const std::string& c) {
-    for (int i = 0; i < 16; ++i) if (c == order[i]) return i;
-    return 16;
+    for (int i = 0; i < static_cast<int>(std::size(order)); ++i) if (c == order[i]) return i;
+    return static_cast<int>(std::size(order));
   };
   std::stable_sort(entries.begin(), entries.end(), [&](const Entry& a, const Entry& b) {
     if (a.rank != b.rank) return a.rank < b.rank;
@@ -1053,6 +1053,16 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
         "transitions":[{"id":30,"from":21,"to":22,"trigger":"timer","seconds":4},{"id":31,"from":22,"to":23,"trigger":"timer","seconds":1.5},{"id":32,"from":23,"to":21,"trigger":"timer","seconds":4}]}],
         "nodes":[{"id":1,"type":"event.state_enter","x":0,"y":0,"params":{"machine":"Light","state":"any"}},{"id":2,"type":"state.get","x":32,"y":192,"params":{"machine":"Light"}},
         {"id":3,"type":"game.message","x":352,"y":0}],"links":[[1,"then",3,"exec"],[2,"state",3,"text"]]})";
+    else if (which == "robot_avoid")
+      text = R"({"nodes":[{"id":1,"type":"event.begin","x":0,"y":0},{"id":2,"type":"walker.autonomous","x":320,"y":0,"values":{"enable":false}},
+        {"id":3,"type":"event.every","x":0,"y":224,"params":{"seconds":"0.25"}},{"id":4,"type":"flow.branch","x":320,"y":224},
+        {"id":5,"type":"walker.tof","x":-352,"y":416},{"id":6,"type":"math.compare","x":-32,"y":448,"params":{"op":"<"},"values":{"b":1.6}},
+        {"id":7,"type":"logic.and","x":96,"y":384},
+        {"id":8,"type":"walker.move","x":608,"y":160,"values":{"forward":0,"turn":45,"duration":0.6}},
+        {"id":9,"type":"walker.move","x":608,"y":400,"values":{"forward":0.3}}],
+        "comments":[{"id":20,"x":-384,"y":176,"w":1280,"h":480,"text":"Walk, and turn while the ToF sees something closer than 1.6 m"}],
+        "links":[[1,"then",2,"exec"],[3,"then",4,"exec"],[5,"blocked",7,"a"],[5,"distance",6,"a"],[6,"result",7,"b"],[7,"result",4,"condition"],
+        [4,"true",8,"exec"],[4,"false",9,"exec"]]})";
     else return fail_result("unknown template");
     json::Value j;
     logic::Graph part;
@@ -1078,6 +1088,11 @@ json::Value Studio::logic_command(const std::string& name, const json::Value& c)
         g.nodes.push_back(std::move(n));
       }
       for (const logic::Link& l : part.links) g.links.push_back({remap[l.from], l.out, remap[l.to], l.in});
+      for (logic::CommentBox cb : part.comments) {
+        cb.id = g.next_id++;
+        cb.y += y0;
+        g.comments.push_back(std::move(cb));
+      }
       return true;
     });
   }

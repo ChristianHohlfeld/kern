@@ -365,6 +365,73 @@ void add_actor_nodes(logic::Library& lib) {
                  "Mesh colour (0..1 each).", "material paint tint"));
 }
 
+/// Robots (walkers, the Micro Duck): drive them, look, read their ToF and camera. Commands are in
+/// the robot's own units (the real duck's m/s and degrees); distances are world metres.
+void add_walker_nodes(logic::Library& lib) {
+  const json::Value none = json::Value(0.0);
+  lib.add(action("walker.move", "Walk", "Robots",
+                 {data("target", "Robot", PinType::actor, 0), data("forward", "Forward (m/s)", PinType::number, 0.3), data("strafe", "Sideways (m/s)", PinType::number, 0.0),
+                  data("turn", "Turn (°/s)", PinType::number, 0.0), data("duration", "Duration (s, 0 = keep)", PinType::number, 0.0)},
+                 {}, [](Context& c, GameWorld& w) {
+                   w.walker_command(target(c), static_cast<f32>(c.in_number("forward")), static_cast<f32>(c.in_number("strafe")),
+                                    static_cast<f32>(c.in_number("turn") * 3.14159265358979 / 180), static_cast<f32>(c.in_number("duration")));
+                 },
+                 "Walks the robot like its gamepad: forward up to 0.4 m/s, sideways 0.3, turning 57 °/s (its trained ranges). Overrides its own behaviour "
+                 "for the duration (0: until the next Walk; Set Autonomous gives it back).",
+                 "drive move go duck robot walker twist"));
+  lib.add(action("walker.look", "Look", "Robots",
+                 {data("target", "Robot", PinType::actor, 0), data("yaw", "Yaw (°, + left)", PinType::number, 0.0), data("pitch", "Pitch (°, + down)", PinType::number, 0.0),
+                  data("duration", "Duration (s, 0 = keep)", PinType::number, 0.0)},
+                 {}, [](Context& c, GameWorld& w) {
+                   constexpr f64 k = 3.14159265358979 / 180;
+                   w.walker_look(target(c), static_cast<f32>(c.in_number("yaw") * k), static_cast<f32>(c.in_number("pitch") * k), static_cast<f32>(c.in_number("duration")));
+                 },
+                 "Turns the robot's head (its camera and ToF look there): yaw up to 80°, pitch up to 63°.", "head camera gaze duck robot"));
+  lib.add(action("walker.autonomous", "Set Autonomous", "Robots", {data("target", "Robot", PinType::actor, 0), data("enable", "Autonomous", PinType::boolean, true)}, {},
+                 [](Context& c, GameWorld& w) { w.walker_set_autonomous(target(c), c.in_bool("enable")); },
+                 "On: the robot roams on its own (camera, ToF, exploration memory) whenever nobody drives it. Off: it stands until driven.",
+                 "brain behaviour wander ai duck robot"));
+  lib.add(action("walker.quack", "Quack", "Robots", {data("target", "Robot", PinType::actor, 0)}, {},
+                 [](Context& c, GameWorld& w) { w.walker_quack(target(c)); }, "The duck quacks and nods.", "sound duck robot"));
+  lib.add(getter("walker.tof", "Robot ToF", "Robots", {data("target", "Robot", PinType::actor, 0)},
+                 {data("blocked", "Obstacle Seen", PinType::boolean), data("distance", "Nearest (m)", PinType::number), data("bearing", "Bearing (°, + left)", PinType::number),
+                  data("left", "Free Left (0-1)", PinType::number), data("right", "Free Right (0-1)", PinType::number)},
+                 [](Context& c, GameWorld& w) {
+                   GameWorld::WalkerSensors s;
+                   const bool ok = w.walker_sensors(target(c), s);
+                   c.out("blocked", Value::boolean(ok && s.nearest >= 0));
+                   c.out("distance", Value::number(ok ? s.nearest : -1.0));
+                   c.out("bearing", Value::number(ok ? s.nearest_bearing * 180 / 3.14159265358979 : 0.0));
+                   c.out("left", Value::number(ok ? s.free_left : 0.0));
+                   c.out("right", Value::number(ok ? s.free_right : 0.0));
+                 },
+                 "The head time-of-flight sensor (8 x 8 zones, 45°): the nearest obstacle with the robot's own floor filter. -1 = nothing in range (4 m real).",
+                 "distance sensor depth obstacle duck robot"));
+  lib.add(getter("walker.sees", "Robot Camera Sees", "Robots", {data("target", "Robot", PinType::actor, 0), data("other", "Actor", PinType::actor, 0)},
+                 {data("visible", "Visible", PinType::boolean), data("bearing", "Bearing (°, + left)", PinType::number), data("distance", "Distance (m)", PinType::number)},
+                 [](Context& c, GameWorld& w) {
+                   bool visible = false;
+                   f32 bearing = 0, distance = -1;
+                   w.walker_sees(target(c), c.in_actor("other"), visible, bearing, distance);
+                   c.out("visible", Value::boolean(visible));
+                   c.out("bearing", Value::number(bearing * 180 / 3.14159265358979));
+                   c.out("distance", Value::number(distance));
+                 },
+                 "Whether the actor is in the head camera's picture (62° x 37°) with nothing in between.", "vision see detect camera duck robot"));
+  lib.add(getter("walker.state", "Robot State", "Robots", {data("target", "Robot", PinType::actor, 0)},
+                 {data("state", "Behaviour", PinType::text), data("fallen", "Fallen", PinType::boolean), data("speed", "Speed (m/s)", PinType::number)},
+                 [](Context& c, GameWorld& w) {
+                   GameWorld::WalkerSensors s;
+                   const bool ok = w.walker_sensors(target(c), s);
+                   c.out("state", Value::text(w.walker_state(target(c))));
+                   c.out("fallen", Value::boolean(ok && s.fallen));
+                   c.out("speed", Value::number(ok ? s.speed : 0.0));
+                 },
+                 "What the robot is doing (Chill, LookAround, Wander, TurnInPlace, BackOff, Zoomies, GetUp; Driven / Logic when someone drives it).",
+                 "behaviour status fallen duck robot"));
+  (void)none;
+}
+
 void add_game_nodes(logic::Library& lib) {
   const json::Value zero3 = vec3(0, 0, 0);
   lib.add(action("game.message", "Show Message", "Game", {data("text", "Text", PinType::text, "Hello!")}, {}, [](Context& c, GameWorld& w) { w.show_message(c.in_text("text")); },
@@ -467,6 +534,7 @@ const bool kRegistered = [] {
   add_events(lib);
   add_actor_nodes(lib);
   add_game_nodes(lib);
+  add_walker_nodes(lib);
   return true;
 }();
 

@@ -169,6 +169,7 @@ struct ControllerComponent {
   f32 look_sensitivity = 1;     // mouse / touch / gamepad look scale
   bool head_bob = true;
   // walker
+  bool autonomous = true;       // roams on its own (camera, ToF) whenever nobody drives it
 };
 
 enum class WeaponKind : u8 { rifle, pistol, shotgun, sniper };

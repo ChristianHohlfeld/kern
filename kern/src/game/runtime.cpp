@@ -2422,7 +2422,10 @@ bool GameWorld::update_camera(Camera& cam, f32 dt, const PlayInput& in) {
         target = center + Vec3{0, 0, c.camera_height * 0.25f};
         Vec3 desired = target - dir * dist;
         // Keep the camera out of walls (Box3D ray from the target).
-        const physics::RayHit hit = physics_.cast_ray(target, desired - target, ~0ull, body);
+        // A robot's own links are not walls (the ray starts inside its body).
+        const WalkerBrain* robot = c.mode == ControlMode::walker ? walker_brain(player_) : nullptr;
+        const physics::RayHit hit = robot ? physics_.cast_ray_ignoring(target, desired - target, Span<const physics::Body>(robot->bodies, 15))
+                                          : physics_.cast_ray(target, desired - target, ~0ull, body);
         if (hit.hit) desired = target + (desired - target) * max_of(0.05f, hit.fraction - 0.04f);
         camera_eye_ = camera_reset_ ? desired : damp3(camera_eye_, desired, 12, dt);
         eye = camera_eye_;

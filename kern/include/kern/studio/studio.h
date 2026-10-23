@@ -40,6 +40,7 @@ const char* view_mode_name(ViewMode m);
 struct ShowFlags {
   bool grid = true, icons = true, colliders = false, joints = true, contacts = false;
   bool bounds = false, stats = false, fog = true, sky = true, selection = true;
+  bool robot_camera = true;  // while playing: a walker's head camera picture-in-picture and its ToF
 };
 
 /// Renderer layer bits used by Studio.
@@ -400,6 +401,8 @@ class Studio {
   std::vector<std::pair<u32, u32>> logic_breakpoints_;
   std::pair<u32, u32> logic_break_hit_{0, 0};
   void check_logic_breakpoints();
+  void render_robot_camera(Viewport& v);
+  struct { u32 viewport = 0; f32 w = 0, h = 0; ActorId walker = 0; } robot_view_;  // the robot camera last drawn (css px)
   json::Value details_json() const;
   json::Value world_json() const;
   json::Value catalog_json() const;

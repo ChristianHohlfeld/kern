@@ -235,6 +235,8 @@ class StudioPage {
       get state() { return self.engine.state(); },
       get status() { return self.engine.status(); },
       get logic() { return self.logic; },  // the Blueprint editor (tests)
+      get dialog() { return self.dialog?.name ?? null; },
+      get logicOpenCached() { return !!self.state?.logic?.open; },
       key: (code, opts = {}) => self.engine.key(opts.key ?? code, code, opts.down !== false, (opts.shift ? 1 : 0) | (opts.ctrl ? 2 : 0) | (opts.alt ? 4 : 0), false),
       pointer: (viewport, type, x, y, opts = {}) => self.engine.pointer(viewport, POINTER[type], x, y, opts),
       viewportRect: i => self.views[i].el.getBoundingClientRect().toJSON(),
@@ -519,8 +521,39 @@ class StudioPage {
     }
   }
 
+  /** The robot camera in the corner (drawn by the engine): its frame, what it does, its ToF grid. */
+  renderRobot(r) {
+    if (!r) { if (this.robotEl) this.robotEl.hidden = true; return; }
+    const vp = this.views[r.viewport]?.el;
+    if (!vp) return;
+    if (!this.robotEl) {
+      this.robotEl = document.createElement("div");
+      this.robotEl.className = "robot-pip";
+      this.robotEl.innerHTML = `<div class="rp-cam"><span class="rp-label">HEAD CAMERA</span><span class="rp-state"></span></div><div class="rp-tof"><canvas width="8" height="8"></canvas><span class="rp-label">TOF 8×8</span><span class="rp-near"></span></div>`;
+    }
+    if (this.robotEl.parentElement !== vp) vp.append(this.robotEl);
+    this.robotEl.hidden = false;
+    const cam = this.robotEl.querySelector(".rp-cam");
+    cam.style.width = r.w + "px";
+    cam.style.height = r.h + "px";
+    this.robotEl.querySelector(".rp-tof").style.height = r.h + "px";
+    this.robotEl.querySelector(".rp-state").textContent = r.fallen ? "Fallen" : r.state || "";
+    this.robotEl.querySelector(".rp-near").textContent = r.nearest >= 0 ? `${r.nearest.toFixed(2)} m` : "clear";
+    const g = this.robotEl.querySelector("canvas").getContext("2d");
+    const img = g.createImageData(8, 8);
+    for (let i = 0; i < 64; i++) {
+      const z = r.zones[i], d = r.ranges[i];
+      // obstacle: red, brighter when near; floor: green; too close: yellow; nothing: dark
+      const near = d > 0 ? Math.max(0, Math.min(1, 1 - d / 2)) : 0;
+      const c = z === 3 ? [90 + 165 * near, 40 * (1 - near), 40 * (1 - near)] : z === 2 ? [30, 90, 45] : z === 1 ? [230, 200, 40] : [24, 26, 30];
+      img.data.set([c[0], c[1], c[2], 255], i * 4);
+    }
+    g.putImageData(img, 0, 0);
+  }
+
   renderStatus(st) {
     if (st?.logicTrace && this.state?.logic?.open) this.logic.setTrace(st.logicTrace);
+    this.renderRobot(st?.robot);
     if (!st || !this.state) return;
     const s = this.state;
     // Frame rate measured here (the page's own frames).
@@ -1635,6 +1668,7 @@ class StudioPage {
   initInput() {
     const editable = el => el && (el.isContentEditable || (el.matches?.("input, textarea, select") && !el.matches("input[type=checkbox], input[type=range], input[type=color]")));
     const onKey = (e, down) => {
+      if (this.dialog && !$("#dialogLayer").firstElementChild) this.dialog = null;  // a dialog that is gone takes no keys
       if (this.dialog) {
         if (down && e.key === "Escape") { this.dialog.close(); e.preventDefault(); }
         else if (down && e.key === "Enter" && !e.target.matches?.("textarea")) { this.dialog.submit(); e.preventDefault(); }

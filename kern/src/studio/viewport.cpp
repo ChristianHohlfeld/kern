@@ -576,6 +576,7 @@ void Studio::frame(f64 now_ms) {
                          : play_ == PlayState::playing && !ejected_ && play_camera_valid_ ? play_camera_ : camera_of(active);
   world_->present(now_ms, eye_cam.eye);
   update_audio(eye_cam, dt);
+  robot_view_ = {};  // render_robot_camera sets it again
   // Clear the whole drawing buffer once (gaps between quad viewports).
   for (Viewport& v : views_) {
     if (!v.visible) continue;
@@ -661,6 +662,32 @@ void Studio::render_viewport(Viewport& v, f64 now_ms) {
     const std::string err = last_error();
     if (status_text_ != "Render: " + err) report("Render: " + err, "error");
   }
+  render_robot_camera(v);
+}
+
+void Studio::render_robot_camera(Viewport& v) {
+  // What the robot sees: its head camera (the real duck's IMX219, 62 degrees, 16:9) in the corner of
+  // the viewport that plays, while a walker runs.
+  if (!v.flags.robot_camera || play_ == PlayState::editing || v.index != active_view_ || world_->walkers().empty()) return;
+  ActorId who = 0;
+  for (ActorId w : world_->walkers()) if (w == world_->player()) who = w;
+  Camera cam;
+  if (!world_->walker_camera(who, cam)) return;
+  const i32 margin = static_cast<i32>(12 * v.dpr);
+  const i32 w = clamp(v.rect.w / 4, static_cast<i32>(150 * v.dpr), static_cast<i32>(420 * v.dpr)), h = static_cast<i32>(static_cast<f32>(w) * 9 / 16);
+  if (v.rect.w < w + 2 * margin || v.rect.h < h + 2 * margin) return;
+  RenderParams p;
+  p.layers = layer::scene;
+  p.sky = true;
+  p.clear_color = {0.09f, 0.1f, 0.12f, 1};
+  p.has_viewport = true;
+  // Top right of the viewport (drawing buffer pixels, y up from the bottom like the viewports).
+  p.viewport = {v.rect.x + v.rect.w - w - margin, v.rect.y + v.rect.h - h - margin, w, h};
+  robot_view_ = {v.index, w / v.dpr, h / v.dpr, who};  // the page frames it and shows the ToF beside it
+  r_->camera = cam;
+  world_->apply_lighting(cam.eye);
+  RenderStats stats;
+  r_->render(p, stats);
 }
 
 }  // namespace kern::studio

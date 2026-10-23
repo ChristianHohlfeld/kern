@@ -227,6 +227,7 @@ export class LogicEditor {
       t("Score zone (overlap +10)", "score_zone"),
       t("Spawner (a cube every 3 s)", "spawner"),
       t("Traffic light (state machine)", "traffic_light"),
+      t("Robot: walk and turn away with its ToF", "robot_avoid"),
     ], r.left, r.bottom + 2);
   }
 

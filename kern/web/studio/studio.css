@@ -360,3 +360,12 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 
 #main.logic-open { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 #main.logic-open #side, #main.logic-open #sideSplit { display: none; }
+
+/* the robot camera (drawn by the engine in the corner) and its ToF grid */
+.robot-pip { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: row-reverse; gap: 8px; pointer-events: none; z-index: 2; }
+.robot-pip[hidden] { display: none; }
+.rp-cam { position: relative; border: 2px solid rgba(255,255,255,.75); border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,.5); box-sizing: border-box; margin: -2px; }
+.rp-tof { position: relative; aspect-ratio: 1; border: 2px solid rgba(255,255,255,.75); border-radius: 4px; overflow: hidden; background: #000; }
+.rp-tof canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+.rp-label { position: absolute; left: 6px; top: 4px; font: 700 9.5px/1 var(--mono, monospace); letter-spacing: .08em; color: #fff; text-shadow: 0 1px 2px #000; }
+.rp-state, .rp-near { position: absolute; left: 6px; bottom: 5px; font: 600 11px/1 var(--mono, monospace); color: #ffd36b; text-shadow: 0 1px 2px #000; }

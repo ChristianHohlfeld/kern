@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cmath>
+#include <memory>
 
 #include "kern/game/runtime.h"
 
@@ -63,6 +64,17 @@ struct GameWorld::WalkerBrain {
   physics::Body bodies[15];        // trunk + links: what its own sensors do not see
   WalkerSensors sensors;
   f64 next_tof = 0;                // simulation time of the next ToF frame
+  // Who drives (each control tick, in this order): the player's stick, then a Logic command, then
+  // the autonomous brain; times are real seconds.
+  bool autonomous = true;
+  f32 manual_left = 0;             // the player touched the controls this recently
+  f32 drive_left = 0, look_left = 0;  // Logic commands (< 0 = until the next one)
+  f32 drive_cmd[3] = {}, look_cmd[2] = {};
+  // The autonomous brain (walker_brain.cpp).
+  struct Brain;
+  std::shared_ptr<Brain> brain;
+  f32 auto_cmd[3] = {}, auto_head[4] = {};
+  std::string state = "";
 };
 
 class GameWorld::LogicHost : public logic::Host {

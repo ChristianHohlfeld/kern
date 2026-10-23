@@ -12,6 +12,8 @@ namespace kern::game {
 /// physics / 50 Hz control in real size; Kern builds it 4x larger (time runs 2x slower), so 100 Hz
 /// and a policy step every 4 physics steps reproduce the training timing exactly.
 constexpr f32 kWalkerStepHz = 100;
+/// The Micro Duck is built this many times its real size (Box3D's size range, docs/walker.md).
+constexpr f32 kWalkerScale = 4;
 
 /// Micro Duck (Pollen Robotics' biped, from the MJCF its walking policy was trained on) as actors
 /// in the catalog's convention: [0] is the trunk (a walker controller); `parent` and joint targets

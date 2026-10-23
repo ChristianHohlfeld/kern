@@ -3706,8 +3706,9 @@ TEST(micro_duck_policy_matches_the_onnx_reference) {
 
 namespace {
 /// A level with a Micro Duck on the floor (the catalog's insertion: ids = index + 1 + offset).
-game::ActorId add_duck(game::Level& l, Vec3 at) {
+game::ActorId add_duck(game::Level& l, Vec3 at, bool autonomous = false) {
   std::vector<game::Actor> parts = game::micro_duck_actors();
+  parts[0].controller->autonomous = autonomous;
   const game::ActorId base = l.next_id;
   for (std::size_t i = 0; i < parts.size(); ++i) {
     game::Actor a = parts[i];
@@ -3800,6 +3801,94 @@ TEST(micro_duck_stands_walks_and_turns_on_its_policy) {
     if (print) std::printf("fallen %.0f %.0f: up %.3f z %.3f\n", fallen.x, fallen.y, r.end_up, r.end.z);
     CHECK(r.end_up > .9f);
   }
+}
+
+TEST(micro_duck_roams_on_its_own_with_its_tof) {
+  // A 6 x 6 m room (real 1.5 x 1.5 m: the duck is built 4x) with a box in it: the duck walks around on
+  // its own, sees the walls with its ToF, turns away and never falls.
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {2.5f, 0.5f, 0.5f};
+  auto wall = [&](Vec3 p, Vec3 size) {
+    game::Actor a;
+    a.name = "Wall";
+    a.transform.position = p;
+    a.mesh = game::MeshComponent{};
+    a.mesh->size = size;
+    l.add(a);
+  };
+  wall({4, 0, 1}, {0.4f, 8, 2});
+  wall({-4, 0, 1}, {0.4f, 8, 2});
+  wall({0, 4, 1}, {8, 0.4f, 2});
+  wall({0, -4, 1}, {8, 0.4f, 2});
+  const game::ActorId duck = add_duck(l, {-1.5f, -1.5f, 0}, true);
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  Vec3 start, lo{1e9f, 1e9f, 0}, hi{-1e9f, -1e9f, 0};
+  Mat4 m;
+  f.world->actor_matrix(duck, m);
+  start = m.translation();
+  f32 min_up = 1, closest = 1e9f;
+  std::vector<std::string> states;
+  bool saw_wall = false;
+  for (int i = 0; i < 60 * 90; ++i) {  // 90 s simulated (45 s real)
+    f.world->step(1.0f / 60, {});
+    f.world->actor_matrix(duck, m);
+    const Vec3 p = m.translation();
+    min_up = min_of(min_up, m.m[10]);
+    lo = {min_of(lo.x, p.x), min_of(lo.y, p.y), 0};
+    hi = {max_of(hi.x, p.x), max_of(hi.y, p.y), 0};
+    closest = min_of(closest, min_of(4 - std::fabs(p.x), 4 - std::fabs(p.y)));
+    const std::string st = f.world->walker_state(duck);
+    if (states.empty() || states.back() != st) states.push_back(st);
+    game::GameWorld::WalkerSensors ws;
+    if (f.world->walker_sensors(duck, ws) && ws.nearest > 0) saw_wall = true;
+  }
+  if (std::getenv("KERN_DUCK_PRINT")) {
+    std::printf("roam: area %.2f x %.2f m, closest to a wall %.2f m, min up %.2f, states:", hi.x - lo.x, hi.y - lo.y, closest, min_up);
+    for (const std::string& st : states) std::printf(" %s", st.c_str());
+    std::printf("\n");
+  }
+  CHECK(saw_wall);
+  CHECK(min_up > 0.7f);                           // it does not fall
+  CHECK((hi.x - lo.x) + (hi.y - lo.y) > 2.0f);    // it gets around
+  CHECK(closest > 0.25f);                         // it keeps off the walls (the trunk centre)
+  CHECK(std::find(states.begin(), states.end(), "Wander") != states.end());
+  CHECK(std::find(states.begin(), states.end(), "TurnInPlace") != states.end());
+}
+
+TEST(micro_duck_blueprint_nodes_drive_and_sense) {
+  // The level's Logic drives the duck: autonomy off, walk forward; its camera sees the cube ahead.
+  GameFixture f;
+  game::Level l = game::basic_level();
+  game::ActorId cube = 0;
+  for (game::Actor& a : l.actors) if (a.name == "Cube") { a.transform.position = {6, 0, 0.5f}; cube = a.id; }
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+  l.logic = logic_graph(R"({"variables":[{"name":"Sees","type":"bool","value":false},{"name":"Dist","type":"float","value":-1}],
+    "nodes":[{"id":1,"type":"event.begin"},{"id":2,"type":"walker.autonomous","values":{"enable":false}},{"id":3,"type":"walker.move","values":{"forward":0.3}},
+      {"id":4,"type":"event.tick"},{"id":5,"type":"var.set","params":{"variable":"Sees"}},{"id":6,"type":"walker.sees"},
+      {"id":7,"type":"var.set","params":{"variable":"Dist"}},{"id":8,"type":"walker.tof"}],
+    "links":[[1,"then",2,"exec"],[2,"then",3,"exec"],[4,"then",5,"exec"],[6,"visible",5,"value"],[5,"then",7,"exec"],[8,"distance",7,"value"]]})");
+  for (logic::Node& n : l.logic.nodes) if (n.type == "walker.sees") n.set_value("other", json::Value(static_cast<f64>(cube)));
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  Mat4 m;
+  for (int i = 0; i < 60 * 6; ++i) f.world->step(1.0f / 60, {});
+  CHECK(f.world->actor_matrix(duck, m));
+  CHECK(m.translation().x > 0.5f);                            // it walked forward
+  CHECK(f.world->walker_state(duck) == "Logic");
+  logic::Instance* inst = f.world->logic_runtime()->find(0);
+  CHECK(inst && inst->get("Sees").as_bool());                 // the cube is in its picture
+  CHECK(inst && inst->get("Dist").as_number() > 0);           // and in its ToF
+}
+
+TEST(studio_robot_template_compiles) {
+  StudioFixture f;
+  CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"logicOpen","owner":0})")["ok"].as_bool());
+  CHECK(f.cmd(R"({"cmd":"logicTemplate","template":"robot_avoid"})")["ok"].as_bool());
+  CHECK(f.s->level().logic.nodes.size() == 9 && f.s->level().logic.comments.size() == 1);
+  CHECK(no_errors(logic::check(f.s->level().logic)));
 }
 
 TEST(micro_duck_builds_from_its_mjcf) {

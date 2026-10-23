@@ -491,6 +491,7 @@ json::Value actor_to_json(const Actor& a) {
     const ControllerComponent& k = *a.controller;
     json::Value x = json::Value::object();
     x.set("mode", control_mode_name(k.mode));
+    if (k.mode == ControlMode::walker) x.set("autonomous", k.autonomous);
     x.set("maxSpeed", num(k.max_speed));
     x.set("acceleration", num(k.acceleration));
     x.set("turnRate", num(k.turn_rate));
@@ -739,6 +740,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       ControllerComponent k;
       Reader kr{*x, error};
       kr.enumeration("mode", kControlNames, k.mode);
+      kr.boolean("autonomous", k.autonomous);
       kr.number("maxSpeed", k.max_speed, 0, 1000);
       kr.number("acceleration", k.acceleration, 0, 1000);
       kr.number("turnRate", k.turn_rate, 0, 3600);

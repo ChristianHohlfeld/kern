@@ -58,7 +58,7 @@ static_assert(kLinkCount == kJoints + 1, "trunk + the policy's 14 joints");
 // are below that, so Kern builds it at 4x with one conversion factor at the boundary. Froude
 // similarity keeps the motion the same: lengths x S, masses x S^3, inertias x S^5, torques and
 // servo stiffness x S^4, damping x S^4.5, time x sqrt(S) - and the policy sees real units.
-constexpr f32 kDuckScale = 4;
+constexpr f32 kDuckScale = kWalkerScale;
 
 // The XL330 servo as trained (BAM "m6" model at the nominal 7.4 V; docs/walker.md section 4):
 // stiffness K = V * kt/R * 0.5755 /rad, damping = back-EMF kt^2/R + viscous friction, Coulomb
@@ -307,6 +307,7 @@ void GameWorld::create_walkers() {
       continue;
     }
     const f32 hz = clamp(level_.world.step_hz, 15.0f, 480.0f), slow = std::sqrt(kDuckScale);
+    w->autonomous = a.controller->autonomous;
     w->decimation = max_of(1, static_cast<i32>(std::lround(kControlPeriod * slow * hz)));
     w->delay = max_of(0, static_cast<i32>(std::lround(kActuatorDelay * slow * hz)));
     if (std::fabs(static_cast<f32>(w->decimation) / hz - kControlPeriod * slow) > 1e-4f)
@@ -350,6 +351,86 @@ bool GameWorld::walker_camera(ActorId id, Camera& out) const {
   out.near = 0.01f * kDuckScale;
   out.far = 400;
   return true;
+}
+
+bool GameWorld::walker_command(ActorId id, f32 forward, f32 strafe, f32 turn, f32 hold) {
+  bool any = false;
+  for (auto& w : walkers_)
+    if (!id || w->actor == id) {
+      w->drive_cmd[0] = forward;
+      w->drive_cmd[1] = strafe;
+      w->drive_cmd[2] = turn;
+      w->drive_left = hold > 0 ? hold : -1;
+      any = true;
+    }
+  return any;
+}
+
+bool GameWorld::walker_look(ActorId id, f32 yaw, f32 pitch, f32 hold) {
+  bool any = false;
+  for (auto& w : walkers_)
+    if (!id || w->actor == id) {
+      w->look_cmd[0] = yaw;
+      w->look_cmd[1] = pitch;
+      w->look_left = hold > 0 ? hold : -1;
+      any = true;
+    }
+  return any;
+}
+
+bool GameWorld::walker_set_autonomous(ActorId id, bool on) {
+  bool any = false;
+  for (auto& w : walkers_)
+    if (!id || w->actor == id) {
+      w->autonomous = on;
+      if (on) w->drive_left = w->look_left = 0;  // hand back to the brain
+      any = true;
+    }
+  return any;
+}
+
+bool GameWorld::walker_quack(ActorId id) {
+  bool any = false;
+  for (auto& w : walkers_)
+    if (!id || w->actor == id) {
+      const Actor* a = level_.find(w->actor);
+      cue(a && a->controller ? a->controller->jump_sound : std::string("builtin:quack"), physics_.pose(w->trunk).position + Vec3{0, 0, .1f * kDuckScale}, .9f, 1, true,
+          audio::Bus::sfx, w->actor);
+      w->quack = .3f;
+      any = true;
+    }
+  return any;
+}
+
+bool GameWorld::walker_sees(ActorId id, ActorId target, bool& visible, f32& bearing, f32& distance) const {
+  visible = false;
+  bearing = 0;
+  distance = -1;
+  const WalkerBrain* w = walker_brain(id);
+  Camera cam;
+  Mat4 m;
+  if (!w || !target || !walker_camera(w->actor, cam) || !actor_matrix(target, m)) return false;
+  // The target's centre in the camera's frame: inside the picture (62 x 37 degrees) and not hidden.
+  const Vec3 to = m.translation() - cam.eye, f = normalize(cam.target - cam.eye), u = normalize(cam.up), r = cross(f, u);
+  const f32 x = dot(to, f), y = dot(to, r), z = dot(to, u);
+  distance = length(to);
+  bearing = std::atan2(-y, x);
+  if (x <= 0) return true;
+  const f32 tan_h = std::tan(kCameraHfov / 2), tan_v = std::tan(cam.fov / 2);
+  if (std::fabs(y) > x * tan_h || std::fabs(z) > x * tan_v) return true;
+  const physics::RayHit hit = physics_.cast_ray_ignoring(cam.eye, to, Span<const physics::Body>(w->bodies, 15));
+  auto it = actor_of_body_.find(hit.body.id);
+  // Seen when the first thing on the line is the target itself (or one of its welded parts).
+  visible = !hit.hit || (it != actor_of_body_.end() && (it->second == target || level_.body_owner(target) == it->second));
+  return true;
+}
+
+std::string GameWorld::walker_state(ActorId id) const {
+  const WalkerBrain* w = walker_brain(id);
+  if (!w) return {};
+  if (w->manual_left > 0) return "Driven";
+  if (w->drive_left != 0) return "Logic";
+  return w->autonomous ? w->state : "Idle";
 }
 
 /// One frame of the head ToF: 64 beams from the sensor (Box3D ray casts that skip the robot's own
@@ -435,12 +516,34 @@ void GameWorld::drive_walkers(f32 h) {
     WalkerBrain& w = *wp;
     if (w.step % w.decimation == 0) {
       // ---- one control tick (50 Hz real): observation -> policy -> joint targets ----------------
+      // Who drives: the player's stick, then a Logic command, then the autonomous brain.
       const PlayInput in = w.has_input ? w.input : PlayInput{};
-      const f32 cmd[3] = {clamp(in.move_y, -1.0f, 1.0f) * kMaxForward, 0, -clamp(in.move_x, -1.0f, 1.0f) * kMaxTurn};
+      const bool touched = std::fabs(in.move_x) > 0.05f || std::fabs(in.move_y) > 0.05f;
+      if (touched) w.manual_left = 2.0f;  // like the real duck's pad: autonomy pauses while you drive
+      sense_walker(w);
+      think_walker(w, kControlPeriod);
+      f32 cmd[3] = {0, 0, 0}, head[4] = {0, 0, 0, 0};
+      if (w.manual_left > 0) {
+        cmd[0] = clamp(in.move_y, -1.0f, 1.0f) * kMaxForward;
+        cmd[2] = -clamp(in.move_x, -1.0f, 1.0f) * kMaxTurn;
+      } else if (w.drive_left != 0) {
+        std::memcpy(cmd, w.drive_cmd, sizeof cmd);
+      } else if (w.autonomous) {
+        std::memcpy(cmd, w.auto_cmd, sizeof cmd);
+      }
+      if (w.look_left != 0) { head[2] = w.look_cmd[0]; head[1] = w.look_cmd[1]; }
+      else if (w.autonomous && w.manual_left <= 0) std::memcpy(head, w.auto_head, sizeof head);
+      if (w.quack > 0) head[1] += .35f;  // the quack nods
+      cmd[0] = clamp(cmd[0], -kMaxForward, kMaxForward);
+      cmd[1] = clamp(cmd[1], -kMaxStrafe, kMaxStrafe);
+      cmd[2] = clamp(cmd[2], -kMaxTurn, kMaxTurn);
+      for (int i = 0; i < 4; ++i) head[i] = clamp(head[i], -kHeadRange[i], kHeadRange[i]);
       for (int i = 0; i < 3; ++i) w.command[i] += kCommandAlpha * (cmd[i] - w.command[i]);
-      const f32 head[4] = {0, w.quack > 0 ? .35f : 0.0f, 0, 0};  // neck_pitch, head_pitch, head_yaw, head_roll
       for (int i = 0; i < 4; ++i) w.head[i] += kCommandAlpha * (head[i] - w.head[i]);
       w.quack = max_of(0.0f, w.quack - kControlPeriod);
+      w.manual_left = max_of(0.0f, w.manual_left - kControlPeriod);
+      if (w.drive_left > 0) w.drive_left = max_of(0.0f, w.drive_left - kControlPeriod);  // < 0 holds until the next command
+      if (w.look_left > 0) w.look_left = max_of(0.0f, w.look_left - kControlPeriod);
 
       const physics::Pose tp = physics_.pose(w.trunk);
       const Quat qi{-tp.rotation.x, -tp.rotation.y, -tp.rotation.z, tp.rotation.w};

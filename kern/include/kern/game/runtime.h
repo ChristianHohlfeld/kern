@@ -344,6 +344,9 @@ class GameWorld {
   bool walker_look(ActorId id, f32 yaw, f32 pitch, f32 hold);
   /// Autonomy on / off (on: it roams on its own whenever nobody drives it).
   bool walker_set_autonomous(ActorId id, bool on);
+  bool walker_quack(ActorId id);
+  /// Head camera of walker `id`: is `target` in its picture with nothing in between?
+  bool walker_sees(ActorId id, ActorId target, bool& visible, f32& bearing, f32& distance) const;
   /// The current behaviour of walker `id` ("Wander", "Chill"... "" = none).
   std::string walker_state(ActorId id) const;
   /// Every walker actor of the running world.
@@ -373,6 +376,7 @@ class GameWorld {
   void create_walkers();
   void drive_walkers(f32 h);
   void sense_walker(WalkerBrain& w);
+  void think_walker(WalkerBrain& w, f32 dt);  // the autonomous behaviour (walker_brain.cpp)
   WalkerBrain* walker_brain(ActorId id) const;
   void drive_servos(f32 dt);
   void drive_traffic(f32 dt);

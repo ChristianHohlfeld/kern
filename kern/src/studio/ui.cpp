@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "internal.h"
+#include "kern/game/walker.h"
 #include "kern/game/demos.h"
 #include "kern/studio/studio.h"
 
@@ -452,8 +453,8 @@ json::Value Studio::menu_json(std::string_view name) const {
     const std::pair<const char*, bool> flags[] = {{"grid", v.flags.grid},           {"icons", v.flags.icons},   {"selection", v.flags.selection},
                                                   {"colliders", v.flags.colliders}, {"joints", v.flags.joints}, {"contacts", v.flags.contacts},
                                                   {"bounds", v.flags.bounds},       {"fog", v.flags.fog},       {"sky", v.flags.sky},
-                                                  {"stats", v.flags.stats}};
-    const char* flag_labels[] = {"Grid", "Icons", "Selection Outline", "Collision Shapes", "Constraints", "Contact Points", "Bounds", "Fog", "Sky", "Stats"};
+                                                  {"stats", v.flags.stats},         {"robotCamera", v.flags.robot_camera}};
+    const char* flag_labels[] = {"Grid", "Icons", "Selection Outline", "Collision Shapes", "Constraints", "Contact Points", "Bounds", "Fog", "Sky", "Stats", "Robot Camera"};
     for (std::size_t i = 0; i < std::size(flags); ++i) {
       json::Value c = cmd("showFlag");
       c.set("viewport", active_view_);
@@ -826,6 +827,7 @@ json::Value Studio::viewports_json() const {
     f.set("fog", v.flags.fog);
     f.set("sky", v.flags.sky);
     f.set("stats", v.flags.stats);
+    f.set("robotCamera", v.flags.robot_camera);
     o.set("flags", std::move(f));
     o.set("fov", static_cast<f64>(v.camera.fov));
     list.push(std::move(o));
@@ -1044,6 +1046,27 @@ json::Value Studio::status() {
   }
   if (touch_ctl_.view().visible && play_ == PlayState::playing && input_.touch()) s.set("touch", touch_json());
   if (logic_open_ && world_->running()) s.set("logicTrace", logic_trace_json());
+  if (robot_view_.w > 0) {
+    // The robot camera in the corner: the page frames it and draws the ToF grid beside it.
+    game::GameWorld::WalkerSensors ws;
+    if (world_->walker_sensors(robot_view_.walker, ws)) {
+      json::Value r = json::Value::object();
+      r.set("viewport", robot_view_.viewport);
+      r.set("w", static_cast<f64>(robot_view_.w));
+      r.set("h", static_cast<f64>(robot_view_.h));
+      r.set("state", world_->walker_state(robot_view_.walker));
+      json::Value zones = json::Value::array(), ranges = json::Value::array();
+      for (int i = 0; i < game::GameWorld::WalkerSensors::kZones; ++i) {
+        zones.push(static_cast<u32>(ws.zone[i]));
+        ranges.push(internal::round_num(ws.range[i] / game::kWalkerScale, 100));  // real metres
+      }
+      r.set("zones", std::move(zones));
+      r.set("ranges", std::move(ranges));
+      r.set("nearest", internal::round_num(ws.nearest < 0 ? -1.0f : ws.nearest / game::kWalkerScale, 100));
+      r.set("fallen", ws.fallen);
+      s.set("robot", std::move(r));
+    }
+  }
   if (logic::Runtime* rt = world_->running() ? world_->logic_runtime() : nullptr) {
     json::Value lg = json::Value::object();
     u32 compiled = 0;
@@ -1570,7 +1593,7 @@ json::Value Studio::run(const json::Value& c) {
     const bool v = c["value"].as_bool();
     bool* target = k == "grid" ? &f.grid : k == "icons" ? &f.icons : k == "selection" ? &f.selection : k == "colliders" ? &f.colliders
                  : k == "joints" ? &f.joints : k == "contacts" ? &f.contacts : k == "bounds" ? &f.bounds : k == "fog" ? &f.fog
-                 : k == "sky" ? &f.sky : k == "stats" ? &f.stats : nullptr;
+                 : k == "sky" ? &f.sky : k == "stats" ? &f.stats : k == "robotCamera" ? &f.robot_camera : nullptr;
     if (!target) return error("unknown show flag " + k);
     *target = v;
     ++scene_revision_;

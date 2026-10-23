@@ -133,6 +133,7 @@ constexpr FieldDef kController[] = {
     {"eyeHeight", "Eye height", F::number, 0.2, 10, 0.01, "m"},
     {"lookSensitivity", "Look sensitivity", F::number, 0.05, 10, 0.05},
     {"headBob", "Head bob", F::boolean},
+    {"autonomous", "Autonomous (camera, ToF)", F::boolean, 0, 0, 0, "", nullptr, "Walker"},
     {"engineSound", "Engine loop", F::sound_auto, 0, 0, 0, "", nullptr, "Sound"},
     {"jumpSound", "Jump", F::sound},
     {"boostSound", "Boost", F::sound},
