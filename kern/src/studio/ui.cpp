@@ -1687,6 +1687,7 @@ json::Value Studio::run(const json::Value& c) {
     return ok();
   }
   if (name == "open") return ok(load_level_text(str("text"), str("name").empty() ? "level" : str("name")));
+  if (name == "restore") return ok(restore_autosave(str("text"), str("name").empty() ? "level" : str("name")));
   if (name == "save") {
     json::Value r = ok();
     r.set("text", level_text());

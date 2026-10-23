@@ -500,6 +500,52 @@ const vpCenter = async (page, i = 0) => {
   await ctx.close();
 }
 
+// ---- restore from the last session --------------------------------------------------------
+// Offered only when the last session left unsaved work behind (docs/studio.md, "Wiederherstellen").
+{
+  const {ctx, page, errors} = await openStudio(base + "/generated/studio.html");
+  page.on("dialog", d => d.accept().catch(() => {}));  // "leave the page?" when reloading unsaved work
+  // The offer is a toast shown at start; read it as soon as the Studio exists (it hides after 15 s).
+  const offer = () => page.evaluate(() => {
+    const t = document.getElementById("toast");
+    return t && /last session/.test(t.textContent) ? t.textContent : "";
+  });
+  const reload = async () => {
+    await page.reload();
+    await page.waitForFunction(() => window.KernStudio && window.KernStudio.frames() > 0, null, {timeout: 90000});
+  };
+  const stored = () => page.evaluate(() => localStorage.getItem("kern-studio.autosave.v1"));
+  check(!(await offer()), "restore: first start offers nothing");
+  await reload();
+  check(!(await offer()), "restore: a reload without changes offers nothing");
+  check(!(await stored()), "restore: a clean editor stores nothing");
+  // A change that is undone again leaves nothing to restore.
+  await cmd(page, {cmd: "spawn", item: "cube", at: [40, 40, 120]});
+  await cmd(page, {cmd: "undo"});
+  check(!(await state(page)).level.dirty, "restore: undone back to the opened level is clean");
+  await reload();
+  check(!(await offer()), "restore: a change undone before the reload offers nothing");
+  // An unsaved change, then a reload: offered.
+  await cmd(page, {cmd: "spawn", item: "cube", at: [40, 40, 120]});
+  const id = (await state(page)).selection[0];
+  check((await state(page)).level.dirty, "restore: the change is unsaved");
+  await reload();
+  check(/Restore "Orb Run"/.test(await offer()), "restore: a reload with unsaved changes offers the level");
+  // Restore brings the change back, still unsaved.
+  await page.evaluate(() => document.querySelector('#toast [data-a="0"]').click());
+  let s = await until(async () => { const v = await state(page); return v.outliner.rows.some(r => r.id === id) && v; });
+  check(!!s && s.level.dirty, "restore: the restored level has the change and is still unsaved");
+  // Not saved yet: offered again on the next reload; Dismiss drops it for good.
+  await reload();
+  check(!!(await offer()), "restore: still unsaved after restoring, offered again");
+  await page.evaluate(() => document.querySelector('#toast [data-a="1"]').click());
+  check(!(await stored()), "restore: Dismiss deletes the stored copy");
+  await reload();
+  check(!(await offer()), "restore: after Dismiss a reload offers nothing");
+  check(errors.length === 0, "no page errors around restoring" + (errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""));
+  await ctx.close();
+}
+
 // ---- narrow window ----------------------------------------------------------------------
 {
   const {ctx, page, errors} = await openStudio(base + "/generated/studio.html", {width: 820, height: 900});

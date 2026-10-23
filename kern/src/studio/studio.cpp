@@ -245,6 +245,10 @@ bool Studio::load_level(game::Level level, bool reset_history) {
     history_index_ = 0;
     saved_serial_ = history_[0].serial;
     save_due_ = -1;
+    // A stored autosave of the previous document stays where it is (it may hold that
+    // document's unsaved work); it is replaced once this one gets changes of its own.
+    autosave_owned_ = false;
+    autosave_discard_ = false;
   }
   // Viewport cameras from the level.
   ViewCamera& c = views_[0].camera;
@@ -399,13 +403,35 @@ bool Studio::jump_history(std::size_t index) {
 void Studio::mark_saved() {
   if (!history_.empty()) saved_serial_ = history_[history_index_].serial;
   save_due_ = -1;
+  if (autosave_owned_) { autosave_owned_ = false; autosave_discard_ = true; }
   touch();
+}
+
+bool Studio::restore_autosave(std::string_view text, std::string_view name) {
+  if (!load_level_text(text, name)) return false;
+  saved_serial_ = 0;  // serials start at 1: no history state is the saved one
+  autosave_owned_ = true;
+  touch();
+  return true;
 }
 
 std::string Studio::take_autosave(f64 now_ms) {
   if (save_due_ < 0 || now_ms < save_due_ || play_ != PlayState::editing) return {};
   save_due_ = -1;
+  if (!dirty()) {
+    // Undone back to the saved state: nothing is unsaved, an older copy must not come back.
+    if (autosave_owned_) { autosave_owned_ = false; autosave_discard_ = true; }
+    return {};
+  }
+  autosave_owned_ = true;
+  autosave_discard_ = false;
   return level_text();
+}
+
+bool Studio::take_autosave_discard() {
+  const bool discard = autosave_discard_;
+  autosave_discard_ = false;
+  return discard;
 }
 
 // ---------------------------------------------------------------------------

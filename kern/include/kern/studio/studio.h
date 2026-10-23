@@ -194,7 +194,14 @@ class Studio {
   json::Value status();         // per-frame state (hud, stats, camera, overlays)
   u64 revision() const { return revision_; }
   json::Value take_ui();
+  /// Autosave (see docs/studio.md, "Wiederherstellen"): the level text when a change is due
+  /// and the document has unsaved changes, else empty. A due change that leaves the
+  /// document clean (undone back to the saved state) writes nothing; it asks the host to
+  /// drop the stored copy instead (take_autosave_discard).
   std::string take_autosave(f64 now_ms);
+  /// True once when the host's stored autosave belongs to this document and no longer
+  /// holds unsaved work (saved, or undone back to the saved state). The host deletes it.
+  bool take_autosave_discard();
   /// Unsaved changes: the current history state differs from the saved one.
   bool dirty() const { return history_.empty() || history_[history_index_].serial != saved_serial_; }
   const std::vector<LogLine>& log() const { return log_; }
@@ -278,6 +285,9 @@ class Studio {
   std::size_t history_index() const { return history_index_; }
   /// Marks the current state as saved (dirty() becomes false until the next change).
   void mark_saved();
+  /// Opens a level from the host's autosave: like opening it, but the document stays
+  /// unsaved (dirty) - its content is in no file - and the stored autosave belongs to it.
+  bool restore_autosave(std::string_view text, std::string_view name);
   static constexpr std::size_t kMaxHistory = 500;
 
   // selection
@@ -425,6 +435,8 @@ class Studio {
   std::string transaction_;               // transaction token of the edit being committed
   u64 next_serial_ = 1, saved_serial_ = 0;
   f64 save_due_ = -1;
+  bool autosave_owned_ = false;           // the host's stored autosave is a copy of this document
+  bool autosave_discard_ = false;         // ... and should be deleted (take_autosave_discard)
   std::vector<ActorId> selection_;
   std::vector<game::Actor> clipboard_;
   std::array<Viewport, 4> views_;

@@ -250,14 +250,22 @@ class StudioPage {
     };
   }
 
+  // Restore from the last session (docs/studio.md, "Wiederherstellen"). The stored copy exists only
+  // while a document has unsaved changes: the engine writes it for dirty documents and asks for it to
+  // be deleted once they are saved or undone back to the saved state. A normal reload of a clean
+  // editor finds nothing; a crash, a closed tab or an update reload with unsaved work finds it.
   offerRestore() {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(AUTOSAVE_KEY) || "null"); } catch { /* storage unavailable */ }
     if (!saved?.text) return;
     this.toast(`Restore "${saved.name}" from your last session?`, [
-      {label: "Restore", primary: true, run: () => { this.engine.command({cmd: "open", text: saved.text, name: saved.name}); this.fileHandle = null; }},
-      {label: "Dismiss", run: () => {}},
+      {label: "Restore", primary: true, run: () => { this.engine.command({cmd: "restore", text: saved.text, name: saved.name}); this.fileHandle = null; }},
+      {label: "Dismiss", run: () => this.dropAutosave()},
     ], 15000);
+  }
+
+  dropAutosave() {
+    try { localStorage.removeItem(AUTOSAVE_KEY); } catch { /* storage unavailable */ }
   }
 
   // ---- frame loop -------------------------------------------------------------
@@ -324,6 +332,7 @@ class StudioPage {
 
   autosave(time) {
     const text = this.engine.takeAutosave(time);
+    if (this.engine.takeAutosaveDiscard()) this.dropAutosave();
     if (!text) return;
     try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({name: this.state?.level?.name || "Untitled", text, time: Date.now()})); } catch { /* full or unavailable */ }
   }
@@ -816,9 +825,13 @@ class StudioPage {
       else if (f.type.startsWith("image/")) this.importTexture(f);
       else if (f.type.startsWith("audio/") || /\.(wav|mp3|ogg|oga|m4a|aac|flac|opus|webm)$/i.test(f.name)) for (const file of e.dataTransfer.files) await this.importSound(file);
     });
+    // Leaving the page: write a pending autosave now (or drop a stale one). pagehide also fires
+    // where beforeunload does not (mobile browsers, the tab is discarded, bfcache).
+    addEventListener("pagehide", () => this.autosave(Infinity));
+    addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") this.autosave(Infinity); });
     addEventListener("beforeunload", e => {
-      if (!this.engine.dirty()) return;
       this.autosave(Infinity);
+      if (!this.engine.dirty()) return;
       // Reloading into a new build: the autosave carries the level over (offered on the next start).
       if (window.__kernReloadForUpdate) return;
       e.preventDefault();
@@ -1664,7 +1677,7 @@ class StudioPage {
         download(r.file, r.text, "application/json");
       }
       this.engine.command({cmd: "saved"});
-      try { localStorage.removeItem(AUTOSAVE_KEY); } catch { /* ignore */ }
+      this.autosave(Infinity);  // the engine drops the stored copy if it was this level's
     } catch (error) {
       if (error?.name !== "AbortError") this.toast("Saving failed: " + error.message);
     }

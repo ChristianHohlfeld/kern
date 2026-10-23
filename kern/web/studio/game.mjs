@@ -52,6 +52,7 @@ export class StudioEngine {
   blur() { this.e.kern_studio_blur(); }
   setViewport(i, x, y, w, h, cssW, cssH, dpr, visible) { this.e.kern_studio_set_viewport(i, x, y, w, h, cssW, cssH, dpr, visible ? 1 : 0); }
   takeAutosave(now) { return this.text(this.e.kern_studio_take_autosave(now)); }
+  takeAutosaveDiscard() { return this.e.kern_studio_take_autosave_discard() === 1; }
   dirty() { return this.e.kern_studio_dirty() === 1; }
   textureSource(id) { return this.withStrings([id], (p, n) => this.text(this.e.kern_studio_texture_source(p, n))); }
   texturePixels(id, width, height, rgba) {
