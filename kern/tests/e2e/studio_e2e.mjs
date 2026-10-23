@@ -582,6 +582,38 @@ const vpCenter = async (page, i = 0) => {
   await ctx.close();
 }
 
+// ---- Android: open a level through the file picker and come back to the editor -------------------
+// Android has no showOpenFilePicker and its picker knows no ".klevel": the input must not filter.
+{
+  const ctx = await browser.newContext({viewport: {width: 844, height: 390}, hasTouch: true, isMobile: true,
+    userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"});
+  await ctx.addInitScript(() => { delete window.showOpenFilePicker; delete window.showSaveFilePicker; });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  await page.goto(base + "/generated/studio.html");
+  await page.waitForFunction(() => window.KernStudio && window.KernStudio.frames() > 3, null, {timeout: 120000});
+  await cmd(page, {cmd: "new", template: "basic"});
+  const text = (await cmd(page, {cmd: "save"})).text, picked = (await state(page)).level.name;
+  await cmd(page, {cmd: "new", template: "empty"});
+  check((await state(page)).level.name !== picked, "android: another level is open before picking");
+  const level = path.join(shots, "android-test.klevel");
+  fs.writeFileSync(level, text);
+  await page.tap('#menubar .mb[data-menu="file"]');
+  await until(() => page.locator(".menu .mi", {hasText: "Open Level"}).isVisible());
+  const chooser = page.waitForEvent("filechooser", {timeout: 20000}).catch(() => null);
+  await page.locator(".menu .mi", {hasText: "Open Level"}).tap();
+  const fc = await chooser;
+  check(!!fc, "android: Open Level opens the file picker");
+  check(await page.evaluate(() => !document.getElementById("fileOpen").hasAttribute("accept")), "android: the picker does not filter out .klevel files");
+  if (fc) await fc.setFiles(level);
+  check(await until(async () => (await state(page)).level.name === picked), "android: the picked level opens");
+  const f0 = await page.evaluate(() => window.KernStudio.frames());
+  check(await until(() => page.evaluate(n => window.KernStudio.frames() > n + 2, f0)), "android: back in the running editor after picking");
+  check(errors.length === 0, "no page errors when opening on Android" + (errors.length ? ": " + errors.join(" | ") : ""));
+  await ctx.close();
+}
+
 await browser.close();
 console.log(`${checks} checks, ${failures} failures (screenshots: ${shots})`);
 process.exit(failures ? 1 : 0);

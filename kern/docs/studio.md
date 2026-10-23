@@ -197,7 +197,7 @@ ungespeicherte Änderungen zeigt nichts an.
 ## Tests
 
 - `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave (nur bei ungespeicherten Änderungen, Löschen nach Speichern und Undo, `restore`), Packaging, Player-Modus
-- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Modul-Version und schmales Fenster
+- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Level öffnen auf Android über den Dateidialog, Modul-Version und schmales Fenster
 
 ## Logic: Blueprints, die C++ sind
 
@@ -328,5 +328,9 @@ Kern Studio unter `/editor/` ist eine installierbare Web-App:
   - Sonst erscheint **New version available · Update / Later**. Beim Update wird das Level per Autosave
     mitgenommen und beim nächsten Start angeboten (siehe [Wiederherstellen](#wiederherstellen-restore-from-last-session)).
   - Unten rechts steht die laufende Version, gelb, wenn online eine neuere bereitliegt.
+- **Level öffnen auf Android:** Android hat kein `showOpenFilePicker`, Studio öffnet den normalen
+  Dateiauswahl-Dialog. Der kennt die Endung `.klevel` nicht und würde mit einem Filter alle
+  gespeicherten Levels ausgrauen (heraus käme man nur mit Zurück). Auf Android filtert Studio deshalb
+  nicht; ist die gewählte Datei kein Level, erscheint ein Hinweis, und der Editor läuft weiter.
 - **Icons:** 192, 512 und maskable 512 im Manifest, dazu ein Apple Touch Icon (180) und ein Favicon
   (`site/editor/icons`).
