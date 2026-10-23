@@ -25,6 +25,7 @@ namespace {
 struct Options {
   std::string task = "jump", out, eval, log;
   i32 envs = 64, threads = 0, iterations = 1500, steps = 24, save_every = 50, episodes = 20;
+  f32 init_std = 1.0f, learning_rate = 1e-3f, entropy = 0.01f;
   u64 seed = 1;
 };
 
@@ -109,8 +110,12 @@ int main(int argc, char** argv) {
     else if (a == "--episodes") o.episodes = std::atoi(next());
     else if (a == "--log") o.log = next();
     else if (a == "--save-every") o.save_every = std::atoi(next());
+    else if (a == "--init-std") o.init_std = static_cast<f32>(std::atof(next()));
+    else if (a == "--lr") o.learning_rate = static_cast<f32>(std::atof(next()));
+    else if (a == "--entropy") o.entropy = static_cast<f32>(std::atof(next()));
     else {
       std::fprintf(stderr, "usage: kern_train [--task jump|stand] [--envs 64] [--threads N] [--iterations 1500] [--steps 24] [--seed 1] [--out task.onnx] [--log log.csv]\n"
+                           "                  [--init-std 1.0] [--lr 1e-3] [--entropy 0.01]\n"
                            "       kern_train --eval policy.onnx [--task jump] [--episodes 20]\n");
       return 2;
     }
@@ -129,6 +134,9 @@ int main(int argc, char** argv) {
   PpoConfig cfg;
   cfg.steps_per_env = o.steps;
   cfg.seed = o.seed;
+  cfg.init_std = o.init_std;
+  cfg.learning_rate = o.learning_rate;
+  cfg.entropy_coef = o.entropy;
   Ppo ppo(cfg, envs[0]->obs_size(), envs[0]->critic_size(), envs[0]->action_size());
   const ParallelFor pool = thread_pool(o.threads);
   FILE* log = o.log.empty() ? nullptr : std::fopen(o.log.c_str(), "w");

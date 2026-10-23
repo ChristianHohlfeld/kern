@@ -54,7 +54,7 @@ async function start() {
     learner = await spawn();
     collectors = await Promise.all(Array.from({ length: workers }, () => spawn()));
     await Promise.all(collectors.map((w, i) => call(w, { type: "collector", task, envs, seed: seed + 101 * (i + 1) }, "ready")));
-    policy = (await call(learner, { type: "learner", task, seed, config: { steps: 24 } }, "policy")).policy;
+    policy = (await call(learner, { type: "learner", task, seed, config: { steps: 24, initStd: Number($("initstd").value) || 1, learningRate: Number($("lr").value) || 1e-3 } }, "policy")).policy;
     loop(task).catch(error => { status(error.message, true); stop(); });
   } catch (error) {
     status(error.message, true);
