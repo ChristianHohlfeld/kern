@@ -478,10 +478,15 @@ class Studio {
     struct Finger { i32 id = -1; f32 x = 0, y = 0, x0 = 0, y0 = 0; f64 t0 = 0; };
     Finger f[2];
     i32 count = 0;
-    enum class Mode : u8 { none, look, grab, pinch } mode = Mode::none;
+    enum class Mode : u8 { none, look, orbit, pan, grab, pinch } mode = Mode::none;
     bool moved = false;
     game::ActorId actor = 0;
-    f32 spread = 0;   // pinch: the distance between the fingers
+    f32 spread = 0;          // pinch: the distance between the fingers
+    f32 mx = 0, my = 0;      // pinch: the midpoint between the fingers
+    Vec3 pivot;              // orbit / pinch: the point the camera turns about and zooms to
+    i32 gizmo = -1;          // the finger dragging a gizmo handle (it takes the mouse path)
+    f64 last_tap = -1e9;     // a second tap soon after frames the selection
+    f32 tap_x = 0, tap_y = 0;
   } free_touch_;
   bool free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms);
   void grab_depth(Viewport& v, f32 factor);

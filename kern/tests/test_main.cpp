@@ -3745,6 +3745,81 @@ TEST(touch_controls_layout_and_sticks) {
   CHECK(!v.visible);
 }
 
+TEST(studio_touch_navigates_the_editor_viewport) {
+  StudioFixture f;
+  game::Level l = game::basic_level();
+  game::ActorId cube = 0;
+  for (game::Actor& a : l.actors) if (a.name == "Cube") { a.transform.position = {0, 0, 0.5f}; cube = a.id; }
+  CHECK(cube != 0);
+  CHECK(f.s->load_level(l));
+  studio::ViewCamera& cam = f.s->viewport(0).camera;
+  cam.position = {0, -10, 4};
+  cam.yaw = 90;
+  cam.pitch = -20;
+  f.frames(2);
+  auto screen = [&](game::ActorId id) {
+    json::Value c = json::Value::object();
+    c.set("cmd", "project");
+    c.set("id", id);
+    json::Value r = f.s->command(c);
+    return std::pair<f32, f32>{static_cast<f32>(r["x"].as_number()), static_cast<f32>(r["y"].as_number())};
+  };
+  auto selected = [&]() { return f.s->state()["selection"].size(); };
+  f.cmd(R"({"cmd":"deselect"})");
+  f64 t = 1000;
+  // A tap selects what is under the finger.
+  auto [x, y] = screen(cube);
+  CHECK(f.s->touch_pointer(0, 1, x, y, t));
+  CHECK(f.s->touch_pointer(2, 1, x, y, t += 80));
+  CHECK(selected() == 1);
+  // A second tap frames the selection: the camera comes to the cube.
+  const f32 far = distance(cam.position, Vec3{0, 0, 0.5f});
+  f.s->touch_pointer(0, 2, x, y, t += 150);
+  f.s->touch_pointer(2, 2, x, y, t += 80);
+  CHECK(distance(cam.position, Vec3{0, 0, 0.5f}) < far);
+  // One finger orbits: the camera turns, the distance to the pivot stays.
+  f.cmd(R"({"cmd":"deselect"})");
+  cam.position = {0, -10, 4};
+  cam.yaw = 90;
+  cam.pitch = -20;
+  f.frames(2);
+  std::tie(x, y) = screen(cube);
+  const f32 d0 = distance(cam.position, Vec3{0, 0, 0.5f});
+  f.s->touch_pointer(0, 3, x, y, t += 1000);
+  for (int i = 1; i <= 10; ++i) f.s->touch_pointer(1, 3, x + 12.0f * static_cast<f32>(i), y, t += 16);
+  f.s->touch_pointer(2, 3, x + 120, y, t += 16);
+  CHECK(std::fabs(cam.yaw - 90) > 10);
+  CHECK(std::fabs(distance(cam.position, Vec3{0, 0, 0.5f}) - d0) < 0.5f);
+  CHECK(selected() == 0);  // a drag is not a tap
+  // Two fingers spreading zoom toward the point between them.
+  cam.position = {0, -10, 4};
+  cam.yaw = 90;
+  cam.pitch = -20;
+  f.frames(2);
+  std::tie(x, y) = screen(cube);
+  f.s->touch_pointer(0, 4, x - 20, y, t += 1000);
+  f.s->touch_pointer(0, 5, x + 20, y, t += 10);
+  for (int i = 1; i <= 10; ++i) { f.s->touch_pointer(1, 4, x - 20 - 8.0f * static_cast<f32>(i), y, t += 16); f.s->touch_pointer(1, 5, x + 20 + 8.0f * static_cast<f32>(i), y, t += 1); }
+  CHECK(distance(cam.position, Vec3{0, 0, 0.5f}) < d0 * 0.5f);
+  // ...and moving together they pan: the cube stays under them.
+  auto [cx, cy] = screen(cube);
+  for (int i = 1; i <= 10; ++i) { f.s->touch_pointer(1, 4, x - 100 + 6.0f * static_cast<f32>(i), y + 4.0f * static_cast<f32>(i), t += 16); f.s->touch_pointer(1, 5, x + 100 + 6.0f * static_cast<f32>(i), y + 4.0f * static_cast<f32>(i), t += 1); }
+  f.s->touch_pointer(2, 4, x - 40, y + 40, t += 16);
+  f.s->touch_pointer(2, 5, x + 160, y + 40, t += 16);
+  auto [ex, ey] = screen(cube);
+  CHECK(std::fabs(ex - (cx + 60)) < 12 && std::fabs(ey - (cy + 40)) < 12);
+  // Holding still opens the context menu.
+  f.s->take_ui();
+  std::tie(x, y) = screen(cube);
+  f.s->touch_pointer(0, 6, x, y, t += 1000);
+  f.s->touch_pointer(2, 6, x, y, t += 700);
+  const json::Value ui = f.s->take_ui();
+  bool popup = false;
+  for (std::size_t i = 0; i < ui.size(); ++i) popup = popup || ui[i]["action"].as_string() == "popup";
+  CHECK(popup);
+  CHECK(selected() == 1);
+}
+
 TEST(studio_touch_play_without_pointer_lock) {
   StudioFixture f;
   CHECK(f.cmd(R"({"cmd":"device","platform":{"fine":false,"coarse":true,"touchPoints":5},"safe":[0,0,0,0]})")["ok"].as_bool());

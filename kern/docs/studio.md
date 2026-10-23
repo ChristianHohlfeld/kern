@@ -225,6 +225,22 @@ ungespeicherte Änderungen zeigt nichts an.
 - **Nicht gespeichert, solange Play läuft:** Während Play/Simulate wird nichts geschrieben. Eine fällige
   Kopie folgt nach Stop.
 
+## Viewport mit den Fingern
+
+Im Editor und in Simulate steuert man die Kamera wie in einem 3D-Betrachter am Handy
+(`Studio::free_touch_pointer`):
+
+- **Ein Finger** dreht die Kamera um den Punkt unter dem Finger (oder um die Auswahl, wenn
+  „Orbit around selection" an ist). In Draufsicht und Seitenansichten verschiebt er die Ansicht.
+- **Zwei Finger** zoomen zum Punkt zwischen ihnen (auseinander näher, zusammen weiter weg) und
+  verschieben die Ansicht mit sich: Was unter den Fingern liegt, bleibt unter ihnen. Der Maßstab ist
+  der Abstand zu diesem Punkt, deshalb fühlt sich das an einer Socke wie an einem Häuserblock gleich an.
+- **Tippen** wählt aus, **zweimal tippen** holt die Auswahl ins Bild (wie F), **lange halten** öffnet
+  das Kontextmenü.
+- Ein Finger auf einem **Gizmo**-Griff verschiebt, dreht oder skaliert wie mit der Maus.
+- Ein Finger in einem anderen Viewport macht diesen zum aktiven; die Seite zoomt beim Pinch nie mit.
+- Test: `studio_touch_navigates_the_editor_viewport`.
+
 ## Beobachten und Anfassen (Observer-Kamera)
 
 Mit **World Settings → Observer camera** startet Play nicht hinter dem Spieler, sondern mit einer
@@ -236,7 +252,7 @@ das.
   - Ziehen ins Leere schaut sich um; rechte Maustaste und Mausrad wie im Editor.
 - **Handy:**
   - Ein Finger ins Leere schaut sich um.
-  - Zwei Finger fliegen: auseinander vorwärts, zusammen zurück; gemeinsam verschieben schwenkt.
+  - Zwei Finger zoomen und schwenken wie im Editor (siehe [Viewport mit den Fingern](#viewport-mit-den-fingern)).
 - **Anfassen:** Jeden Körper (dynamischer Box3D-Body) greift man mit dem Mouse Joint, mit der Maus
   wie mit dem Finger, auch in Simulate und nach Eject (Ctrl ist nicht mehr nötig).
   - Ein Motor-Joint mit Feder (7,5 Hz, kritisch gedämpft) zieht den gegriffenen Punkt zum Zeiger.

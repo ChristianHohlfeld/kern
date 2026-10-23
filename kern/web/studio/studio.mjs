@@ -510,7 +510,11 @@ class StudioPage {
       if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
       try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
       // Fingers on the playing viewport drive the engine's touch controls (sticks, look, buttons).
-      if (this.state?.viewports?.[i]?.active && routeTouch(this.engine, POINTER.down, e, pos)) { this.flushUi(); e.preventDefault(); return; }
+      // Outside Play a finger first makes its viewport the active one: the engine's touch navigation
+      // (orbit, pinch zoom and pan, tap, hold) works on the active viewport.
+      let active = !!this.state?.viewports?.[i]?.active;
+      if (!active && e.pointerType !== "mouse" && this.state?.play?.state !== "playing") { this.engine.command({cmd: "activeViewport", viewport: i}); active = true; }
+      if (active && routeTouch(this.engine, POINTER.down, e, pos)) { this.flushUi(); e.preventDefault(); return; }
       send(POINTER.down, e);
       this.flushUi();
       e.preventDefault();
@@ -529,6 +533,7 @@ class StudioPage {
       send(POINTER.wheel, e, {wheel: e.deltaY * scale});
     }, {passive: false});
     el.addEventListener("contextmenu", e => e.preventDefault());
+    el.addEventListener("gesturestart", e => e.preventDefault());  // iOS: pinching the viewport never zooms the page
     el.addEventListener("dblclick", e => {
       if (e.target.closest(".vp-bar")) return;
       if (this.state?.selection?.length && this.state.play.state === "editing") this.engine.command({cmd: "focus", viewport: i});

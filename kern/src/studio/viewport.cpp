@@ -359,15 +359,36 @@ void Studio::grab_depth(Viewport& v, f32 factor) {
   world_->move_grab(r.origin + r.direction * d);
 }
 
-// Fingers on a free camera (Simulate, ejected, the observer camera): one finger on a body takes it
-// with the mouse joint and drags it (up the screen lifts it), one finger elsewhere looks around, two
-// fingers pinch (fly forward / back) and pan; a short tap selects. A second finger while holding a
-// body pinches it nearer or farther.
+// Fingers on a free camera (editing, Simulate, ejected, the observer camera), as in mobile 3D viewers:
+// - one finger orbits about what is under it (or the selection); in a top / side view it pans;
+//   while watching (observer) it looks around;
+// - two fingers pinch to zoom toward the point between them and pan the view with them - the point
+//   under the fingers stays under them, at any scale;
+// - a tap selects, a second tap soon after frames the selection, holding still opens the context menu;
+// - running (Simulate): one finger on a body takes it with the mouse joint and drags it, a second
+//   finger pinches it nearer or farther;
+// - a finger on a gizmo handle drags the gizmo (it goes the mouse's way: returns false).
 bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
   Viewport& v = views_[active_view_];
-  if (v.type != ViewType::perspective) return false;
+  const bool persp = v.type == ViewType::perspective;
   FreeTouch& t = free_touch_;
   using Mode = FreeTouch::Mode;
+  auto tapped = [&](f32 tx, f32 ty, f64 at) {  // true on the second of two quick taps
+    if (at - t.last_tap < 400 && std::hypot(tx - t.tap_x, ty - t.tap_y) < 40) { t.last_tap = -1e9; return true; }
+    t.last_tap = at;
+    t.tap_x = tx;
+    t.tap_y = ty;
+    return false;
+  };
+  if (id == t.gizmo) {
+    // A quick tap on the gizmo (it sits on the selection) still counts toward a double tap.
+    if (type == 1 && std::hypot(x - t.f[0].x0, y - t.f[0].y0) > 8) t.moved = true;
+    if (type >= 2) {
+      t.gizmo = -1;
+      if (type == 2 && !t.moved && time_ms - t.f[0].t0 < 350 && tapped(x, y, time_ms) && !selection_.empty()) focus_selection(static_cast<i32>(active_view_));
+    }
+    return false;
+  }
   auto slot = [&](i32 pid) -> FreeTouch::Finger* {
     for (auto& f : t.f) if (f.id == pid) return &f;
     return nullptr;
@@ -375,7 +396,15 @@ bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
   auto spread = [&]() { return std::hypot(t.f[0].x - t.f[1].x, t.f[0].y - t.f[1].y); };
   const f32 sens = 0.3f * prefs_.mouse_sensitivity, inv = prefs_.invert_y ? -1.0f : 1.0f;
   if (type == 0) {  // down
-    if (t.count >= 2) return true;
+    if (t.count >= 2 || t.gizmo >= 0) return true;
+    if (t.count == 0 && gizmo_visible(v) && gizmo_hit(v, x, y)) {
+      t.gizmo = id;
+      t.moved = false;
+      t.f[0].x0 = x;
+      t.f[0].y0 = y;
+      t.f[0].t0 = time_ms;
+      return false;
+    }
     FreeTouch::Finger& f = t.f[t.f[0].id < 0 ? 0 : 1];
     f = {id, x, y, x, y, time_ms};
     ++t.count;
@@ -384,11 +413,22 @@ bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
       v.y = v.press_y = y;
       t.moved = false;
       t.actor = 0;
-      if (play_ == PlayState::simulating && grab_at(v, active_view_, x, y)) { t.mode = Mode::grab; t.actor = v.press_actor; }
-      else t.mode = Mode::look;
+      if (play_ == PlayState::simulating && persp && grab_at(v, active_view_, x, y)) { t.mode = Mode::grab; t.actor = v.press_actor; }
+      else if (!persp) t.mode = Mode::pan;
+      else if (observing_ && ejected_) t.mode = Mode::look;
+      else { t.mode = Mode::orbit; t.pivot = orbit_pivot(v); }
     } else {
+      t.moved = true;
       t.spread = max_of(1.0f, spread());
-      if (t.mode != Mode::grab) t.mode = Mode::pinch;
+      t.mx = (t.f[0].x + t.f[1].x) * 0.5f;
+      t.my = (t.f[0].y + t.f[1].y) * 0.5f;
+      if (t.mode != Mode::grab) {
+        t.mode = Mode::pinch;
+        v.x = t.mx;
+        v.y = t.my;
+        Vec3 hit;
+        t.pivot = persp && pick(active_view_, t.mx, t.my, &hit) ? hit : orbit_pivot(v);
+      }
     }
     touch();
     return true;
@@ -399,7 +439,7 @@ bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
     const f32 dx = x - f->x, dy = y - f->y;
     f->x = x;
     f->y = y;
-    if (std::hypot(x - f->x0, y - f->y0) > 6) t.moved = true;
+    if (std::hypot(x - f->x0, y - f->y0) > 8) t.moved = true;
     ViewCamera& c = v.camera;
     if (t.mode == Mode::grab) {
       if (t.count == 2) {
@@ -412,32 +452,94 @@ bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
         Ray r;
         if (ray(v, x, y, r)) world_->move_grab(r.origin + r.direction * distance(camera_of(v).eye, v.pivot));
       }
+    } else if (!t.moved) {
+      // Jitter of a tap does not move the camera.
     } else if (t.mode == Mode::look && t.count == 1) {
       c.yaw -= dx * sens;
       c.pitch = clamp(c.pitch - dy * sens * inv, -89.9f, 89.9f);
+    } else if (t.mode == Mode::orbit && t.count == 1) {
+      const f32 dist = max_of(0.3f, distance(c.position, t.pivot));
+      c.yaw -= dx * sens;
+      c.pitch = clamp(c.pitch - dy * sens * inv, -89.5f, 89.5f);
+      c.position = t.pivot - c.forward() * dist;
+    } else if (t.mode == Mode::pan && t.count == 1) {
+      Vec3 dir, up;
+      ortho_basis(v.type, dir, up);
+      const f32 per_px = c.ortho_height / max_of(1.0f, v.css_height);
+      c.ortho_center += cross(dir, up) * (-dx * per_px) + up * (dy * per_px);
+      v.grid_key = 0;
     } else if (t.mode == Mode::pinch && t.count == 2) {
       const f32 s = max_of(1.0f, spread());
-      const f32 move = camera_speed() * 0.02f;
-      c.position += c.forward() * ((s - t.spread) * move);  // spread: fly forward
-      const Vec3 up = cross(c.right(), c.forward());
-      c.position += c.right() * (-dx * 0.5f * move) + up * (dy * 0.5f * move);  // both fingers: pan
+      const f32 mx = (t.f[0].x + t.f[1].x) * 0.5f, my = (t.f[0].y + t.f[1].y) * 0.5f;
+      const f32 ratio = clamp(t.spread / s, 0.5f, 2.0f);  // fingers apart: nearer
+      const f32 mdx = mx - t.mx, mdy = my - t.my;
+      if (persp) {
+        // Zoom toward the point under the fingers, then move the view with them: the scale is the
+        // distance to that point, so it feels the same on a sock and on a city block.
+        const Vec3 off = c.position - t.pivot;
+        const f32 d = length(off), nd = clamp(d * ratio, 0.05f, 5000.0f);
+        if (d > 1e-4f) c.position = t.pivot + off * (nd / d);
+        const f32 per_px = 2 * nd * std::tan(c.fov * 0.5f * kDegToRad) / max_of(1.0f, v.css_height);
+        const Vec3 up = cross(c.right(), c.forward());
+        const Vec3 shift = c.right() * (-mdx * per_px) + up * (mdy * per_px);
+        c.position += shift;
+        t.pivot += shift;
+      } else {
+        Ray before;
+        ray(v, mx, my, before);
+        c.ortho_height = clamp(c.ortho_height * ratio, 0.5f, 20000.0f);
+        Ray after;
+        ray(v, mx, my, after);
+        Vec3 dir, up;
+        ortho_basis(v.type, dir, up);
+        const Vec3 zoom = before.origin - after.origin;
+        const f32 per_px = c.ortho_height / max_of(1.0f, v.css_height);
+        c.ortho_center += zoom - dir * dot(zoom, dir) + cross(dir, up) * (-mdx * per_px) + up * (mdy * per_px);
+        v.grid_key = 0;
+      }
       t.spread = s;
+      t.mx = mx;
+      t.my = my;
     }
     touch();
     return true;
   }
   // up / cancel
-  const bool tap = type == 2 && t.count == 1 && !t.moved && time_ms - f->t0 < 350;
+  const bool still = type == 2 && t.count == 1 && !t.moved;
+  const f64 held = time_ms - f->t0;
   f->id = -1;
   t.count = max_of(0, t.count - 1);
   if (t.mode == Mode::grab && (t.count == 0 || f == &t.f[0])) {
     end_drag(v);
-    t.mode = t.count ? Mode::look : Mode::none;
+    t.mode = t.count ? Mode::orbit : Mode::none;
+    if (t.count) t.pivot = orbit_pivot(v);
   }
-  if (tap) click(v, x, y, 0);
+  if (still && held < 350) {
+    click(v, x, y, 0);
+    if (tapped(x, y, time_ms) && !selection_.empty()) focus_selection(static_cast<i32>(active_view_));
+  } else if (still && held >= 500 && play_ == PlayState::editing) {
+    // Holding still: the context menu, as the right click.
+    const ActorId hit = pick(active_view_, x, y);
+    if (hit && !selected(hit)) select({hit});
+    json::Value a = json::Value::object();
+    a.set("action", "popup");
+    a.set("menu", "context");
+    a.set("entries", menu_json("context"));
+    a.set("viewport", active_view_);
+    a.set("x", x);
+    a.set("y", y);
+    push_ui(std::move(a));
+  }
   if (t.count == 0) t.mode = Mode::none;
   else if (t.f[0].id < 0) { t.f[0] = t.f[1]; t.f[1] = {}; }  // the remaining finger leads
-  if (t.mode == Mode::pinch && t.count == 1) t.mode = Mode::look;
+  if (t.mode == Mode::pinch && t.count == 1) {
+    // One finger left: it carries on from here without a jump.
+    v.x = t.f[0].x;
+    v.y = t.f[0].y;
+    if (!persp) t.mode = Mode::pan;
+    else if (observing_ && ejected_) t.mode = Mode::look;
+    else t.mode = Mode::orbit;
+  }
   touch();
   return true;
 }
@@ -459,7 +561,7 @@ bool Studio::touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
       touch();
     }
   }
-  if (play_ != PlayState::playing || ejected_) return play_ != PlayState::editing && free_touch_pointer(type, id, x, y, time_ms);
+  if (play_ != PlayState::playing || ejected_) return free_touch_pointer(type, id, x, y, time_ms);
   return touch_ctl_.pointer(type, id, x, y, time_ms);
 }
 
