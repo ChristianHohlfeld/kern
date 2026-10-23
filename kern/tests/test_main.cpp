@@ -4716,6 +4716,60 @@ TEST(lehrer_exports_onnx_like_pollens_networks) {
   CHECK(worst < 1e-4f);
 }
 
+TEST(micro_duck_jumps_for_real_in_the_studio) {
+  // kern/policies/jump.onnx, trained by the Lehrer (docs/lehrer.md), as the Studio runs it: the
+  // move "jump" on the duck standing in a level, the world stepped frame by frame. A real jump
+  // (JumpMeter's measure): every part of the duck off the floor for at least 60 ms, the trunk rising
+  // at least 5 mm in the air, never tilting past 30 degrees, standing again afterwards.
+  std::string dir = __FILE__;
+  dir = dir.substr(0, dir.find_last_of('/')) + "/../policies/";
+  std::vector<u8> bytes;
+  if (FILE* fp = std::fopen((dir + "jump.onnx").c_str(), "rb")) {
+    u8 buf[65536];
+    std::size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, fp)) > 0) bytes.insert(bytes.end(), buf, buf + n);
+    std::fclose(fp);
+  }
+  auto p = std::make_shared<game::WalkerPolicy>();
+  std::string error;
+  CHECK(game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), *p, &error));
+  p->file = "jump.onnx";
+  game::register_walker_policy(p);
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  int jumps = 0;
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    GameFixture f;
+    game::Level l = game::basic_level();
+    for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+    const game::ActorId duck = add_duck(l, {static_cast<f32>(attempt) * 0.4f, 0, 0});
+    f.world->sync(l);
+    CHECK(f.world->start(l, game::SimMode::simulate));
+    f.run(2);  // standing (1 s of the robot's time)
+    CHECK(f.world->walker_skill(duck, "jump").empty());
+    lehrer::JumpMeter m;
+    game::GameWorld::WalkerProbe probe;
+    bool saw = false, fell = false;
+    // The robot's 2 s move and 1 s after it; the meter samples every 20 ms of the robot's time.
+    for (int i = 0; i < 150; ++i) {
+      for (int k = 0; k < 4; ++k) f.world->step(1.0f / 100, {});
+      saw = saw || f.world->walker_driving(duck) == "jump";
+      CHECK(f.world->walker_probe(duck, probe));
+      m.tick(probe);
+      fell = fell || probe.body_contact || probe.gravity.z > -0.5f;
+    }
+    lehrer::JumpReport r;
+    const bool real = m.finish(fell, probe, r);
+    if (print)
+      std::printf("  jump %d: rose %.1f mm, flight %.0f ms, tilt %.0f deg, %s\n", attempt, r.rise_mm, r.flight_s * 1000, r.tilt_deg,
+                  real ? "a real jump" : fell ? "fell" : "no real jump");
+    CHECK(saw);
+    CHECK(!fell);
+    CHECK(f.world->walker_driving(duck) == "walk");
+    jumps += real ? 1 : 0;
+  }
+  CHECK(jumps >= 2);
+}
+
 TEST(micro_duck_jumps_with_a_network_trained_in_kern) {
   // Kern's own move: "jump" runs jump.onnx (from Kern Lehrer) like Pollen's kicks run theirs.
   GameFixture f;

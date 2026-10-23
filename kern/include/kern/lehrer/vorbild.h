@@ -5,8 +5,8 @@
 // the Lehrer teaches in three steps:
 //   1. Vorbild suchen: CMA-ES searches, in the simulation, a jump the duck can do - the leg servos'
 //      targets at five moments of the move (crouch, push, tuck, land, absorb; left and right
-//      mirrored), with Pollen's velstand network keeping the balance before the push and after the
-//      landing. Nothing is hand-set: the physics decides what works.
+//      mirrored), with Pollen's velstand network keeping the balance before the crouch and once the
+//      move is over. Nothing is hand-set: the physics decides what works.
 //   2. Nachahmen: the network learns to act like the demonstration (DAgger: it drives itself, the
 //      demonstration says what it should have done, it learns from all of that).
 //   3. Üben: PPO with the jump's reward makes it the network's own - robust to everything the
@@ -40,11 +40,12 @@ bool jump_demo_from_json(std::string_view text, JumpDemo& out, std::string* erro
 /// The demonstration found for the Micro Duck with the XL330 profile (built in).
 JumpDemo builtin_jump_demo();
 
-/// Acts as the demonstration: velstand before the push and after the landing, the demonstration's
-/// targets in between. It follows the episode through the probes (has it flown, landed).
+/// Acts as the demonstration: velstand until the crouch (15 % of the phase) and from half the phase
+/// on, the demonstration's targets in between (crouch, push, tuck, land, absorb).
 class JumpTeacher {
  public:
   explicit JumpTeacher(const JumpDemo& demo);
+  /// Before an episode (the teacher keeps no state now; kept for teachers that will).
   void reset();
   /// The action for control tick `step` with `observation` (61); `probe` is the state after the last tick.
   void act(const f32* observation, const game::GameWorld::WalkerProbe& probe, i32 step, f32* action);
@@ -53,8 +54,6 @@ class JumpTeacher {
  private:
   JumpDemo demo_;
   std::shared_ptr<const game::WalkerPolicy> velstand_;
-  f32 z0_ = 0;
-  bool have_z0_ = false, flown_ = false, landed_ = false;
 };
 
 /// How well a demonstration jumps (higher is better): height and flight time (capped: a safe jump
@@ -66,8 +65,9 @@ f32 score_jump_demo(const JumpDemo& demo, i32 episodes, u64 seed);
 JumpReport evaluate_jump_demo(const JumpDemo& demo, i32 episodes, u64 seed, bool randomized = false);
 
 /// Step 1: CMA-ES over the demonstration's keys. `threads` episodes at once.
-JumpDemo search_jump_demo(i32 generations, u64 seed, i32 threads,
-                          const std::function<void(i32 generation, f32 best_score, const JumpReport& clean)>& progress = {});
+/// From `start` (null: from home, a wider search).
+JumpDemo search_jump_demo(i32 generations, u64 seed, i32 threads, const JumpDemo* start = nullptr,
+                          const std::function<void(i32 generation, f32 score, const JumpReport& clean)>& progress = {});
 
 /// Step 2: DAgger. Round 0 the teacher drives; later rounds the learner's own actor (with a little
 /// noise) drives and the teacher labels every observation. After each round the actor is fitted to

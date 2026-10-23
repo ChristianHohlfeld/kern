@@ -1264,6 +1264,7 @@ void GameWorld::drive_walkers(f32 h) {
         if (pressed & 8) walker_skill(w.actor, "kick_right");
         if (in.robot & 16) walker_skill(w.actor, "roulade");  // held: rolls on (CHAIN_WINDOW)
         if (pressed & 32) w.mouth_open = w.mouth_open > 0.5f ? 0.0f : 1.0f;
+        if (pressed & 256) walker_skill(w.actor, "jump");  // Kern's own move (kern/policies/jump.onnx)
         if (in.robot) w.manual_left = 2.0f;
         w.robot_held = in.robot;
       }

@@ -1,29 +1,28 @@
-# Training: eigene Netze für den Micro Duck
+# Der Lehrer: eigene Netze für den Micro Duck
 
 Kern trainiert Policies für den Micro Duck selbst. Alles läuft in C++ auf Kerns eigener Engine und
-Box3D: Simulation, Lernverfahren (PPO), Export. Es gibt keine Python- oder PyTorch-Abhängigkeit.
-Das Training läuft beim Nutzer: nativ, im Browser auf Desktop und Handy und später direkt im Studio.
+Box3D: Simulation, Lernverfahren, Export. Es gibt keine Python- oder PyTorch-Abhängigkeit. Gelernt
+wird beim Nutzer: nativ auf allen Kernen (auch headless auf einem Server), im Browser auf Desktop
+und Handy und später direkt im Studio.
 
-Die Ente im Training ist dieselbe wie im Studio: dieselbe GameWorld, dieselben Servos (Box3D-Feder,
-Haltemoment, Reibung, Totzeit), dieselben Sensoren und derselbe 50-Hz-Regler. Ein Netz, das hier
-lernt, läuft deshalb unverändert im Studio. Es wird im Format von Pollens Netzen exportiert (61
-Beobachtungen, 14 Aktionen), kann also wie die anderen Netze auch auf den Roboter.
-
-Die Aufgaben sind wie Pollens Trainingsrezepte aufgebaut (microduck_rl, Apache-2.0): eine
-Aufgaben-Belohnung, Aufrecht- und Grundstellungs-Terme, dazu die Sim2Real-Regularisierer. Belohnungen
-werden wie dort als Gewicht × Term × dt summiert.
+Die Ente im Lehrer ist dieselbe wie im Studio: dieselbe GameWorld, dieselben Servos (Gerätemodell,
+`docs/kalibrierung.md`), dieselben Sensoren, derselbe 50-Hz-Regler, dieselbe Physik (16 Substeps).
+Ein Netz, das hier lernt, läuft deshalb unverändert im Studio. Es wird im Format von Pollens Netzen
+exportiert (61 Beobachtungen, 14 Aktionen) und kann wie diese auf den Roboter.
 
 ## Stand
 
 | Schritt | Stand |
 |---|---|
-| 1. Headless-Simulation: Ente ohne GPU, extern gesteuert, Episoden, Sprung-Aufgabe | fertig |
+| 1. Headless-Simulation: Ente ohne GPU, extern gesteuert, Episoden | fertig |
 | 2. MLP mit Backprop und Adam | fertig |
-| 3. PPO (Rezept wie rsl_rl: GAE, Clip, adaptive Lernrate, asymmetrischer Critic) | fertig |
+| 3. PPO (wie rsl_rl: GAE, Clip, adaptive Lernrate, asymmetrischer Critic) | fertig |
 | 4. ONNX-Export im Format von Pollens Netzen | fertig |
-| 5. Variation (Domain Randomization), Training parallel auf allen Kernen | fertig (Abstimmung läuft) |
-| 6. Training im Browser (Web Worker, Desktop und Handy) | fertig |
-| 7. Das Sprung-Netz trainieren und als Fertigkeit einbinden | offen |
+| 5. Variation (Domain Randomization) wie Pollens Rezepte, nativ auf allen Kernen | fertig |
+| 6. Lernen im Browser (Web Worker, Desktop und Handy) | fertig |
+| 7. Der Sprung: Vorbild → Nachahmen → Üben; als Bewegung im Studio | fertig |
+| 8. Determinismus: Bit für Bit auf jeder Plattform und mit jeder Zahl Worker | fertig |
+| 9. Digitaler Zwilling: Gerätemodelle, Kalibrierung, Abgleich (`docs/kalibrierung.md`) | fertig (ohne echte Messdaten) |
 
 ## 1. Die Umgebung (`src/lehrer`)
 
@@ -32,197 +31,208 @@ werden wie dort als Gewicht × Term × dt summiert.
     angefasst.
   - `reset()`, dann im Takt `observation()` / `step(action)`.
   - Ein `step` ist ein Regeltakt: 20 ms Roboterzeit, 4 feste Schritte der Welt.
-- **Externe Steuerung:** `set_walker_external` und `set_walker_action`.
-  - Der Regler nimmt die Aktion des Lehrers statt eines Netzes.
-  - Die Servos bekommen sie wie trainiert: Grundstellung + Aktion, Skalierung 1, kein Tiefpass, mit
-    der Totzeit.
+- **Externe Steuerung:** `set_walker_external` und `set_walker_action`. Der Regler nimmt die Aktion
+  des Lehrers statt eines Netzes. Die Servos bekommen sie wie trainiert: Grundstellung + Aktion,
+  Skalierung 1, kein Tiefpass, mit der Totzeit des Servoprofils.
 - **Beobachtung:** `walker_observation` liefert zwischen zwei Takten genau, was der Regler beim
-  nächsten Takt sieht.
-  - Test `micro_duck_observation_between_ticks_is_what_its_controller_sees`: 100 Takte gehend,
-    Abweichung 0.
-  - Die Befehlsplätze 48–60 schreibt die Aufgabe (einheitliches Layout, wie Pollens Fertigkeiten).
-- **Messwerte für Belohnung und Critic:** `walker_probe` liefert sie in Robotereinheiten (nicht in
-  der 4-fachen Weltgröße):
-  - Rumpf-Lage und -Geschwindigkeit
-  - Sohlen am Boden (Box3D-Kontakte, `World::touching`)
-  - Fußhöhe
-  - Eigenkontakt
-- **Prüfung:** Pollens velstand-Netz hält die Ente über diesen Weg 4 s stehend. Der externe Weg
-  steuert die Servos also genau wie die Netze.
-  - Gleicher Seed, gleiche Episode, Bit für Bit.
-  - Test `train_duck_env_runs_episodes_headless`.
-- **Geschwindigkeit:** 593 Regeltakte/s im Sanitizer-Build auf einem Kern (12-fache Echtzeit). Der
-  optimierte Build ist schneller.
+  nächsten Takt sieht (Test `micro_duck_observation_between_ticks_is_what_its_controller_sees`).
+  Die Befehlsplätze 48–60 schreibt die Aufgabe (einheitliches Layout, wie Pollens Fertigkeiten).
+- **Messwerte für Belohnung und Critic:** `walker_probe`, in Robotereinheiten (nicht in der
+  4-fachen Weltgröße): Rumpf-Lage und -Geschwindigkeit, Sohlen am Boden, Fußhöhe, Eigenkontakt,
+  Bodenkontakt anderer Teile.
+- **Prüfung:** Pollens velstand-Netz hält die Ente über diesen Weg stehend; gleicher Seed, gleiche
+  Episode, Bit für Bit (Test `lehrer_duck_env_runs_episodes_headless`).
 
-### Aufgaben
+## 2. Netze, PPO, Nachahmung (`nn.cpp`, `ppo.cpp`)
 
-- **stand:** stehen bleiben. Das ist der Rauchtest der Pipeline.
-- **jump (Kerns eigene Fertigkeit):** aus dem Stand mit beiden Füßen abheben, möglichst hoch, landen
-  und wieder stehen. Pollen hat kein Sprung-Netz; dies ist das erste eigene.
-  - Start wie bei Pollens Kick: stehend in Grundstellung, Gier zufällig, ±3° Neigung, Sohlenreibung
-    0,7–1,3.
-  - Episode 3 s.
-  - Der Actor sieht nur die 61 Beobachtungen des Roboters.
-  - Der Critic sieht zusätzlich Rumpfhöhe, Geschwindigkeit, Sohlenkontakte und Fußhöhen (8 Werte).
+- **`Mlp`:** ELU zwischen den Schichten, lineare Ausgabe, wie rsl_rls Actor und Critic. Gewichte
+  eingangsweise, Initialisierung wie PyTorchs `nn.Linear`. Test: Gradient gegen finite Differenzen.
+- **`Adam`** mit PyTorchs Standardwerten, Gradient vorher auf Norm 1 begrenzt.
+- **`Normalizer`** wie rsl_rls EmpiricalNormalization; der Export schreibt ihn als Sub/Div ins ONNX.
+- **PPO wie rsl_rl:** Gauß-Actor mit lernbarer Standardabweichung, asymmetrischer Critic, GAE
+  (γ 0,99, λ 0,95), geclippter Surrogate und Wertverlust, Entropie, adaptive Lernrate über die KL.
+  Vor dem Update wird die alte Policy mit den aktuellen Normalisierern neu bewertet (bei einigen
+  Dutzend Umgebungen wandern die Normalisierer sonst merklich).
+- **Nachahmung (`Ppo::imitate`):** Verhaltensklonen des Actors (mittlerer quadratischer Fehler,
+  Adam, Minibatches in fester Reihenfolge).
+- **Kritiker zuerst (`set_actor_frozen`):** Nach der Nachahmung lernt in den ersten 30 Iterationen
+  nur der Critic. Sonst steuern Vorteile eines Critics, der die Erträge noch nicht kennt, einen Actor,
+  der schon gut handelt, und zerstören ihn.
+- **Warmstart:** Der Actor beginnt als Pollens velstand-Netz (Gewichte und eingefrorener
+  Normalisierer). Die Plätze des Sprung-Phasensignals bekommen Gewicht 0.
+
+## 3. Der Sprung
+
+Pollen hat kein Sprung-Netz; dies ist das erste eigene. Die Aufgabe: auf das Kommando aus dem Stand
+mit dem ganzen Körper abheben, landen und wieder stehen.
+
+### Das Phasensignal
+
+Der Sprung ist ein Befehl in den Beobachtungs-Befehlsplätzen, wie Pollens Ground-Pick: cos und sin
+der Phase t / 2 s in den Plätzen 55 und 56 (`kJumpPhaseSlot`), die Pollens Netze nie nutzen. Sonst
+nichts:
+
+- kein Regler, keine Rückkopplung, kein Skript, keine IK, keine Posen-Vorgabe zur Laufzeit,
+- keine Kräfte, Impulse oder Physik-Eingriffe.
+
+Die Bewegung erzeugt allein das Netz über die 14 Servoziele, wie bei jeder anderen Fertigkeit.
+
+### Was als echter Sprung zählt (`JumpMeter`)
+
+- **Flug:** alle Teile der Ente mindestens 60 ms ohne Bodenkontakt.
+- **Abheben:** Der Rumpf steigt in der Luft mindestens 5 mm über die Höhe beim Abheben. Nur die
+  Füße anziehen ist kein Sprung.
+- **Aufrecht:** nie mehr als 30° Neigung.
+- **Landen:** kein Sturz (über 60° oder ein anderes Teil als die Sohlen am Boden), am Ende auf beiden
+  Sohlen stehend.
+
+Die erste, lockerere Messung (Rumpf irgendwann 15 mm über Standhöhe, 60 ms ohne Bodenkontakt) ließ
+eine „Sprung“-Variante durch, bei der die Ente sich aufrichtete und dann die Füße anzog, mit 45°
+Kippen. Das war kein Sprung; seitdem gilt die strenge Messung.
+
+### Warum PPO allein nicht reicht
+
+Die ersten Läufe (PPO, auch mit Lehrplan für den Sturz-Malus, Phasensignal, Warmstart von velstand,
+Referenzhöhe in der Belohnung, verschiedenen Netzgrößen und Lernraten) fanden den Absprung nicht:
+
+- Der Absprung braucht alle Beinservos gleichzeitig am Anschlag. Die Servos sind weich (0,554 N·m/rad,
+  Höchstmoment bei 1,7 rad Abweichung): Das Netz muss Ziele weit hinter den Gelenkgrenzen setzen.
+  Zufälliges Erkunden um eine stehende Policy erzeugt das praktisch nie.
+- Stehen ist sicher und bringt Belohnung; ein missglückter Versuch kostet den Sturz.
+- Mit wenigen Dutzend Enten sind die Minibatches klein und der Gradient verrauscht; die KL-Grenze
+  hält die Lernrate unten.
+
+### Vorbild → Nachahmen → Üben (`vorbild.h`)
+
+1. **Vorbild suchen** (`--vorbild-suchen`): CMA-ES sucht in derselben Physik einen Sprung, den die
+   Ente kann. Gesucht werden die Servoziele des linken Beins (Hüfte, Knie, Knöchel; das rechte
+   spiegelt) zu fünf Zeitpunkten (Hocke, Abdruck, Anziehen, Landen, Abfedern). Vor der Hocke und ab
+   der Hälfte der Phase hält Pollens velstand die Balance.
+   Bewertet wird Steigen in der Luft, Flugzeit, Neigung, Sturz und Stehen, auf dem sauberen und auf
+   variierten Robotern, jede Generation auf anderen. Nichts ist von Hand gesetzt: Die Physik
+   entscheidet, was geht. Das Ergebnis ist eingebaut (`builtin_jump_demo`).
+2. **Nachahmen** (DAgger, 8 Runden à 96 Episoden): In Runde 0 führt das Vorbild, danach das Netz
+   selbst; das Vorbild sagt in jedem Takt, was es getan hätte. Das Netz lernt aus allen Beispielen.
+   Die Episoden einer Runde lassen sich auf Threads oder Web Worker verteilen (`dagger_episodes`),
+   in Episodenfolge zusammengefügt ergibt das dieselbe Runde.
+3. **Üben** (PPO): mit der Sprung-Belohnung, einer Nachahmungs-Belohnung (Nähe zur Aktion des
+   Vorbilds), kleinem Aktionsrauschen (0,1), vorsichtiger Lernrate und der vollen Variation, bis der
+   Sprung robust ist.
+
+Zur Laufzeit gibt es nur das Netz. Das Vorbild existiert nur, während es lernt.
+
+### Belohnung (Übungsphase)
 
 | Term | Gewicht | Was |
 |---|---|---|
-| airborne | 5 × aufrecht | in der Luft: weder Sohlen noch ein anderes Teil berühren den Boden |
-| height | 10 × aufrecht | in der Luft: Rumpf über Standhöhe (0,115 m), je 5 cm 1, höchstens 2 |
-| lift | 4 × aufrecht | Steiggeschwindigkeit des Rumpfs (0–1 m/s) |
-| landed | 4 × aufrecht | nach einem Sprung wieder auf beiden Sohlen |
-| upright | 2 | aufrecht (exp(−g_xy²/0,05), Pollens Rezept) |
-| pose_legs / pose_neck | 1 / 1 | Beine / Hals nahe der Grundstellung (std 0,5 / 0,3) |
-| action_rate | −0,1 → −1,0 | Änderung der Aktion (steigt wie bei Pollen bis Iteration 1500) |
-| body_ang_vel | −0,05 | Drehrate des Rumpfs um x und y |
-| self_collisions | −1 | eigene Teile berühren sich |
-| fall | −20 (einmalig) | über 60° gekippt, Rumpf unter 5 cm oder ein anderes Teil als die Sohlen am Boden: Episode endet |
+| airborne | 20 × aufrecht | im Flugfenster in der Luft und steigend (Rumpf über Abhebehöhe oder Steiggeschwindigkeit > 0) |
+| lift | 20 × aufrecht | Steiggeschwindigkeit des Rumpfs im Absprungfenster (0–1 m/s) |
+| landed | 6 × aufrecht | nach dem Sprung wieder auf beiden Sohlen |
+| extra_hop | −4 | ein zweiter Hüpfer |
+| imitate | 10 | exp(−mittlerer quadratischer Abstand zur Aktion des Vorbilds / 0,3²) |
+| upright / tilt | 2 / −30 | aufrecht (exp(−g_xy²/0,05)); Neigung g_xy² kostet |
+| pose_legs / pose_neck | 1 / 1 | vor und nach dem Sprung in Grundstellung |
+| drift | −2 | horizontale Geschwindigkeit |
+| action_rate | −0,1 → −0,5 | Änderung der Aktion (Lehrplan ab Iteration 200) |
+| body_ang_vel, self_collisions | −0,05, −1 | wie Pollens Rezepte |
+| fall | −2 → −20 (einmalig) | Lehrplan über 300 Iterationen; Sturz oder Bodenkontakt eines anderen Teils beendet die Episode |
 
-Der Critic sieht zusätzlich, ob die Ente in dieser Episode schon gesprungen ist (9. Wert).
+Ohne Vorbild folgt der Rumpf zusätzlich einer Referenzhöhe (nur in der Belohnung).
 
-Was die ersten Läufe zeigten (je einige Hunderttausend Schritte auf 2 Kernen):
+### Ergebnis
 
-- **Erster Lauf:** Die Ente lernte, sich auf den Schwanz zu setzen und die Füße zu heben. Das zählte
-  als „in der Luft“. Seitdem heißt in der Luft: kein Teil berührt den Boden. Andere Teile als die
-  Sohlen auf dem Boden kosten.
-- **Zweiter Lauf:** Die Ente sprang 91 mm hoch, fiel aber jedes Mal (Hechtsprung). Seitdem zählen
-  die Sprungterme nur, soweit sie aufrecht bleibt. Eine Landung auf beiden Sohlen zahlt, und ein
-  Sturz kostet −20 statt −4.
-- **Dritter und vierter Lauf** (Startrauschen 1,0 bzw. 0,4): Die Ente fiel nicht mehr, stützte sich
-  aber auf ein anderes Teil. Seitdem beendet jeder Bodenkontakt außer den Sohlen die Episode wie ein
-  Sturz.
-- **Fünfter Lauf** (Startrauschen 0,4, 800 Iterationen, rund 900.000 Schritte auf 2 Kernen): Die
-  Ente steht in allen 10 Prüf-Episoden stabil, auch gegen Stöße, nur auf den Sohlen. Sie springt
-  aber noch nicht (Rumpf höchstens +3 mm): Stehen ist das sichere Optimum, solange ein Sprung beim
-  Erkunden meist mit −20 endet.
+`kern/policies/jump.onnx` (Lauf mit 32 Enten auf 2 Kernen, Seed 1, Rezept `recipe_for("jump")`):
 
-Nächste Schritte für den Sprung:
+| | sauberer Roboter (40 Episoden) | volle Variation (40 Episoden) |
+|---|---|---|
+| echte Sprünge | 39 von 40 | 21 von 40 |
+| Steigen in der Luft | 11,3 mm | 7,1 mm |
+| Flugzeit | 120 ms | 107 ms |
+| Neigung (größte, Mittel) | 9° | 12° |
+| Stürze | 0 von 40 (0 %) | 2 von 40 (5 %) |
 
-1. **Längere Läufe auf mehr Kernen.** Pollens Netze sehen Hunderte Millionen Schritte; hier waren es
-   unter einer Million.
-2. **Lehrplan (Curriculum):** Der Sturz kostet anfangs wenig und erst später −20. So lohnt sich das
-   Erkunden des Absprungs.
-3. **Ein Phasen-Signal wie Pollens Ground-Pick:** Ein „jetzt springen“-Befehl in den Befehlsplätzen
-   gibt der Policy einen Zeitpunkt. Das Netz bliebe dann mit dem 61er-Layout kompatibel.
+„Volle Variation“ ist Pollens Kick-Rezept am Ende seiner Lehrpläne: Rumpfmasse ±5 %, Schwerpunkt
+von Rumpf und Kopf ±15 / ±10 mm, jeder Servo mit eigener Reibung und Rotorträgheit (±10 %), Totzeit
+15–30 ms, IMU 0–20 ms verspätet, Sensorrauschen, Encoder-Versatz, Sohlenreibung 0,7–1,3, ±3°
+Startneigung. Die Ente fällt dort in 5 % der Fälle; wenn sie nicht als echter Sprung zählt, ist es
+meist ein zu flacher (unter 5 mm Steigen), nicht ein Sturz.
 
-Die Gewichte sind ein erster Entwurf. Sie werden mit dem Training abgestimmt (Schritt 7).
+Im Studio (Test `micro_duck_jumps_for_real_in_the_studio`, die Bewegung „jump“ im Level, Welt
+Bild für Bild): 3 von 3 echte Sprünge, Steigen 8,7 mm, Flug 120 ms, Neigung 9°, danach steht und
+läuft die Ente wieder.
 
-## 2. Netze (`src/lehrer/nn.cpp`)
+Im Studio springt die Ente mit Taste **7**, dem Touch-Knopf **HOP** oder dem Logik-Knoten Robot Move
+(Bewegung „jump“). Das Studio lädt `kern/policies/jump.onnx`; ein auf demselben Gerät im Browser
+gelerntes Netz ersetzt es.
 
-- **`Mlp`:** Schichten mit ELU dazwischen und linearer Ausgabe, wie rsl_rls Actor und Critic
-  (512/256/128).
-  - Gewichte liegen eingangsweise (`w[i * out + o]`). Vorwärts- und Rückwärtsrechnung sind damit
-    zusammenhängende Schleifen, die der Compiler vektorisiert.
-  - Initialisierung wie PyTorchs `nn.Linear`.
-  - Test: Der Gradient stimmt mit finiten Differenzen überein, für Parameter und Eingaben.
-- **`Adam`:** mit PyTorchs Standardwerten; der Gradient wird vorher auf die Gesamtnorm 1 begrenzt
-  (rsl_rl `max_grad_norm`).
-- **`Normalizer`:** wie rsl_rls EmpiricalNormalization: laufender Mittelwert und laufende Varianz,
-  y = (x − Mittel) / (σ + 0,01). Der Export schreibt das als Sub und Div ins ONNX, wie in Pollens
-  Netzen.
-- **Test:** Adam lernt sin(x) (mittlerer quadratischer Fehler < 0,01). Der Normalisierer stimmt mit
-  Mittelwert und Varianz des ganzen Datensatzes überein.
+### Zeit bis zum ersten echten Sprung
 
-## 3. PPO (`src/lehrer/ppo.cpp`)
+Gemessen auf 2 Kernen (x86, nativ):
 
-PPO folgt rsl_rls Implementierung, mit der Pollen seine Netze trainiert:
+| Schritt | Zeit | Entenschritte | Ergebnis |
+|---|---|---|---|
+| Vorbild suchen (einmalig, eingebaut) | 18 min | rund 2 Mio. | Vorbild: 16 von 20 sauber, 0 Stürze |
+| Nachahmen, 8 Runden | 2,3 min | 50 000 | ab Runde 7 echte Sprünge (5 von 5) |
+| Üben, 1500 Iterationen | 33 min | 1,15 Mio. | robust (Tabelle oben) |
 
-- **Actor:** Gauß-Verteilung um die Netzausgabe; die Standardabweichung ist ein lernbarer Parameter
-  je Aktion (`std_type: scalar`, Start 1,0).
-- **Critic:** sieht zusätzlich die privilegierten Werte der Aufgabe (asymmetrisch).
-- **Normalisierer:** je ein laufender Normalisierer für Actor und Critic, aktualisiert nach jedem
-  Schritt mit den neuen Beobachtungen.
-- **Rollout:** 24 Schritte je Umgebung. Bei Zeitablauf wird die Belohnung mit γ·V gestützt
-  (Bootstrapping).
-- **Vorteile:** GAE (γ 0,99, λ 0,95), über den ganzen Rollout normiert.
-- **Update:** 5 Epochen × 4 Minibatches.
-  - Verlust: geclippter Surrogate (0,2) + Wertverlust geclippt (Faktor 1) − 0,01 · Entropie.
-  - Adaptive Lernrate über die KL-Divergenz (Ziel 0,01, Faktor 1,5, Grenzen 1e-5 bis 1e-2).
-  - Gradient je Netz auf Norm 1 begrenzt, dann Adam.
-- **Parallel:** Die Umgebungen laufen über `thread_pool` auf allen Kernen. In WebAssembly läuft das
-  der Reihe nach; dort teilen Web Worker die Arbeit auf (Schritt 6).
-- **Test `train_ppo_learns_to_reach`:** Ein Punkt lernt, zu einem Ziel zu fahren. Die Rückgabe
-  verbessert sich von −5,7 auf −0,8 in 60 Iterationen (9 s im Sanitizer-Build).
+Das eingebaute Vorbild muss niemand neu suchen. Wer den Sprung selbst lernt, braucht also Nachahmen
+(rund 2 min auf 2 Kernen bis zum ersten echten Sprung) und dann Übung für die Robustheit.
 
 ## 4. Export (`src/lehrer/onnx_export.cpp`)
 
-- **Format:** Der trainierte Actor wird als ONNX geschrieben, aufgebaut wie Pollens exportierte
-  Netze:
-  - Eingang `obs` [1, 61], Ausgang `actions` [1, 14], Opset 17.
-  - Sub(Mittelwert), Div(σ + 0,01), dann (Gemm mit transB, Elu)* und Gemm.
-- **Metadaten:** dieselben Schlüssel wie bei Pollen (Gelenknamen, Grundstellung, Layout der
-  Beobachtung, `action_scale`). Dazu kommen `task` und `lehrer`.
-- **Ohne Abhängigkeit:** Der Protobuf-Schreiber ist ein kleines Stück C++.
-- **Prüfung:**
-  - `train_exports_onnx_like_pollens_networks`: Kern liest die Datei (`parse_onnx_policy`), und sie
-    rechnet bis 1e-4 genau dasselbe wie der Actor im Lehrer.
-  - Eine exportierte Datei lädt und rechnet auch mit ONNX Runtime, der Laufzeit des Roboters (lokal
-    geprüft).
+- Eingang `obs` [1, 61], Ausgang `actions` [1, 14], Opset 17: Sub(Mittelwert), Div(σ + 0,01), dann
+  (Gemm, Elu)* und Gemm, wie Pollens exportierte Netze.
+- Metadaten: dieselben Schlüssel wie bei Pollen, dazu `task` und `lehrer`.
+- Test `lehrer_exports_onnx_like_pollens_networks`: Kern liest die Datei und sie rechnet bis 1e-4
+  genau wie der Actor im Lehrer. ONNX Runtime (die Laufzeit des Roboters) lädt sie ebenfalls.
 
-## 5. Variation und natives Training (`tools/kern_lehrer.cpp`)
+## 5. Variation (Domain Randomization)
 
-### Variation je Episode
+Wie Pollens Velocity- und Kick-Rezepte. Der Critic sieht den sauberen Zustand.
 
-Die Werte sind auf Pollens Velocity- und Kick-Rezepte abgestimmt (`Task::Noise`). Der Critic sieht
-den sauberen Zustand.
+- **Start:** Gier zufällig, ±3° Neigung, Sohlenreibung 0,7–1,3.
+- **Bau** (`game::vary_micro_duck`): Rumpfmasse und -trägheit ±5 %, Schwerpunkt von Rumpf und Kopf
+  (Lehrplan 3 → 15 mm bzw. 3 → 10 mm ab Iteration 200 über 600 Iterationen).
+- **Servos** (Gerätemodell, `docs/kalibrierung.md`): jeder Servo zieht seine Werte aus den Streuungen
+  seines Profils (XL330: Reibung und Rotorträgheit ±10 %), der Bus eine Totzeit von 15–30 ms.
+- **Sensoren** (was der Actor sieht): Gyro ±0,03, Schwerkraft ±0,01, Gelenkwinkel ±0,001 und je
+  Episode ein Encoder-Versatz ±0,015, Gelenkgeschwindigkeit ±0,25, IMU 0–1 Takt verspätet (alle 64
+  Takte neu gezogen).
+- **Stöße:** alle 3–6 s ±0,3 m/s, ab Iteration 300.
 
-- **Start:** Gier zufällig, ±3° Neigung, 0–5 mm Fallhöhe.
-- **Sohlenreibung:** Faktor 0,7–1,3.
-- **Was der Actor sieht:**
-  - Gyro ±0,03, Schwerkraft ±0,01
-  - Gelenkwinkel ±0,001 und je Episode ein Encoder-Bias von ±0,015 je Gelenk
-  - Gelenkgeschwindigkeit ±0,25
-- **Stöße:** alle 3–6 s ±0,3 m/s in x und y, auf jedes Teil der Ente (`walker_push`).
-  - Die Stöße setzen wie bei Pollen erst ein, wenn die Fertigkeit entsteht: 0 bis Iteration 500,
-    27 % bis 1000, dann voll.
-- **Action-Rate-Gewicht:** steigt wie bei Pollen von −0,1 auf −1,0 bis Iteration 1500.
-- **Noch nicht nachgebildet:** Schwerpunkt-, Massen- und Armature-Variation, Gelenkreibung,
-  IMU-Verzögerung. Folgt, wenn das Netz damit auf dem Roboter hakt.
+## 6. Lernen nativ und im Browser
 
-### Lauf
+### Nativ (`tools/kern_lehrer.cpp`)
 
 ```
-kern/tools/lehrer.sh                    # baut kern/build/kern_lehrer (nativ, -O3, alle Kerne)
-kern/build/kern_lehrer --task jump --envs 64 --iterations 1500 --out jump.onnx --log jump.csv
-kern/build/kern_lehrer --eval jump.onnx --task jump   # sauberer Roboter: Höhe, Flugzeit, Stürze
+kern/tools/lehrer.sh                      # baut kern/build/kern_lehrer (Linux und macOS, x86 und ARM)
+kern/build/kern_lehrer --task jump --iterations 1500 --out jump.onnx --log jump.csv --checkpoint run.ckpt
+kern/build/kern_lehrer --eval jump.onnx --episodes 40      # sauber und mit voller Variation
+kern/build/kern_lehrer --trace jump.onnx                   # eine Episode Takt für Takt
+kern/build/kern_lehrer --vorbild-suchen demo.json          # ein neues Vorbild (CMA-ES)
 ```
 
-- **Fortschritt:** Jede Iteration schreibt eine Zeile (CSV mit `--log`).
-- **Export:** alle 50 Iterationen eine ONNX-Datei.
+- Alle Kerne (`--threads`), Fortschritt je Iteration, Checkpoints (`--resume`), Schnappschüsse
+  (`--keep-every`). Läuft headless, z. B. auf einem Server.
+- `--profil servo.json` lernt mit einem kalibrierten Servoprofil.
+
+### Browser (`kern/web/lehrer/`, Seite `/lehrer/`)
+
+- `kern/build.sh --lehrer` baut `kern_lehrer.wasm`: Engine, Box3D, Spiel-Laufzeit, `src/lehrer` und
+  die C-Schnittstelle (`lehrer_api.cpp`).
+- **Sammler:** Jeder Web Worker führt seine Enten (globale Indizes) mit der Policy, die er bekommt,
+  und gibt den Rollout zurück. In der Nachahmung rechnet jeder seinen Teil jeder Runde.
+- **Lerner:** ein eigener Worker; Nachahmung, PPO-Update, Bewertung des Sprungs alle 25 Iterationen.
+- **Seite:** Bewegung, Worker (Standard: Kerne − 1), Enten je Worker, Iterationen, Seed; Kennzahlen
+  mit echten Sprüngen, Steigen und Flugzeit; das Netz wird für Kern Studio auf dem Gerät gespeichert
+  (IndexedDB „kern-lehrer“), offene Studio-Tabs übernehmen es sofort.
+- Gleicher Seed und gleich viele Enten ergeben dasselbe Netz wie nativ (Determinismus).
 
 ### Geschwindigkeit
 
-- **Physik:** etwa 750 Regeltakte/s je Kern; das ist der Engpass. Ein Takt sind 4 Weltschritte mit
-  je 16 Box3D-Substeps, wie im Studio.
-- **Lernen:** 512/256/128-Netze mit 17–22 GFLOP/s auf einem Kern.
-- **Ein Detail gegenüber rsl_rl:** Vor dem Update werden Mittelwerte, Log-Wahrscheinlichkeiten und
-  Werte der alten Policy mit den aktuellen Normalisierern neu berechnet. rsl_rl verlässt sich darauf,
-  dass bei 4096 Umgebungen die Normalisierer im Rollout kaum wandern; bei einigen Dutzend
-  Umgebungen verfälscht das sonst KL und Ratio.
-
-## 6. Training im Browser (`kern/web/lehrer/`, Seite `/lehrer/`)
-
-### Aufbau
-
-- **Build:** `kern/build.sh --lehrer` baut den Lehrer als WebAssembly-Modul (`kern_lehrer.wasm`):
-  Engine, Box3D, Spiel-Laufzeit, `src/lehrer` und die C-Schnittstelle (`src/lehrer/lehrer_api.cpp`).
-- **Sammler:** Jeder Web Worker lädt das Modul einmal. Er führt seine eigenen Enten mit der Policy,
-  die er bekommt, und gibt den Rollout als Bytes zurück.
-- **Lerner:** ein eigener Worker. Er sammelt die Rollouts aller Sammler ein, macht das PPO-Update und
-  gibt die nächste Policy aus (`Collector` / `Ppo::learn`).
-- **Seite:**
-  - Einstellungen: Bewegung, Zahl der Worker (Standard: Kerne − 1), Enten je Worker, Iterationen.
-  - Start/Pause, Kennzahlen und Verlauf als Diagramm.
-  - Alle 25 Iterationen ein ONNX-Export zum Herunterladen.
-  - Eine Wake-Lock-Sperre hält Handys wach.
-- **Geschwindigkeit:** WebAssembly schafft etwa 250 Regeltakte/s je Worker; nativ sind es etwa 750
-  je Kern.
-
-### Test
-
-- **CI:** `kern/tests/lehrer_wasm_test.mjs` führt eine PPO-Iteration durch die C-Schnittstelle der
-  Worker aus und prüft den ONNX-Export.
-- **Lokal (Playwright):** 2 Worker, 3 Iterationen; die heruntergeladene Datei lädt in ONNX Runtime.
+- **Nativ, x86, 2 Kerne:** rund 1200 Entenschritte/s beim Üben (Sammeln und Lernen zusammen). Ein
+  Schritt sind 4 Weltschritte mit je 16 Box3D-Substeps, wie im Studio. Der Engpass ist der
+  Gelenk-Löser von Box3D.
 
 ## 7. Determinismus: Bit für Bit, auf jeder Plattform
 
@@ -243,11 +253,11 @@ anders aussieht.
   Implementierungen von musl (MIT, `third_party/musl_math`, umbenannt in `kern_musl_*`) über
   `kern::dm::` (`include/kern/core/dmath.h`). `sqrt`, `fabs`, `floor` sind in IEEE exakt und
   bleiben `std::`. Box3D hat eigene deterministische Winkelfunktionen.
-- **Training unabhängig von der Zahl der Worker:**
+- **Lernen unabhängig von der Zahl der Worker:**
   - Jede Ente bekommt ihren Seed aus (Seed, globaler Index), nicht aus dem Worker.
-  - Der Lerner ordnet die Rollouts kanonisch (Schritt für Schritt, Ente für Ente nach globalem
-    Index), bevor er Normalisierer, GAE und Update rechnet.
-  - Das Update teilt jede Minibatch in feste 8 Teile (`kLearnChunks`) und summiert sie in fester
+  - Der Lerner ordnet die Rollouts kanonisch (Schritt für Schritt, Ente für Ente), bevor er
+    Normalisierer, GAE und Update rechnet.
+  - Updates und Nachahmung teilen jede Minibatch in feste 8 Teile und summieren sie in fester
     Reihenfolge, egal wie viele Threads sie rechnen.
   - Gleicher Seed und gleiche Zahl Enten ergeben also dasselbe Netz, ob auf 1 Kern, 16 Kernen oder
     4 Web Workern.
@@ -257,15 +267,13 @@ anders aussieht.
 - **Fingerabdruck:** `kern_lehrer --fingerprint 400` lässt die Ente 400 Regeltakte gehen und drehen
   (Pollens Netz, Studio-Physik) und gibt je Takt einen Hash über Lage, Geschwindigkeiten und alle
   Gelenke aus. Die Referenz liegt in `tests/determinism_fingerprint.txt`.
-- **CI prüft sie dreimal:**
-  - GCC auf x86 mit Sanitizern (Test `determinism_is_bit_identical_across_builds_and_platforms`),
-  - WebAssembly in Node (`tests/lehrer_wasm_test.mjs`),
-  - Apple clang auf ARM (macOS-Job `determinism`, mit `-mcpu=native`).
-- **Worker:** `train_runs_the_same_on_any_number_of_workers` trainiert mit 1, 2 und 4 Workern
-  (je 8 Enten insgesamt) und vergleicht die Netze Byte für Byte.
-- **Geschwindigkeit:** Ein Trainingsschritt kostet gleich viel wie vorher (gemessen auf 16 Substeps,
-  rund 1100 Regeltakte/s je Kern nativ). musls Funktionen sind so schnell wie die der Plattform, und
-  die Physik wird von den Gelenken bestimmt.
+- **CI prüft sie dreimal:** GCC auf x86 mit Sanitizern (Test
+  `determinism_is_bit_identical_across_builds_and_platforms`), WebAssembly in Node
+  (`tests/lehrer_wasm_test.mjs`), Apple clang auf ARM (macOS-Job `determinism`, `-mcpu=native`).
+- **Worker:** `lehrer_runs_the_same_on_any_number_of_workers` lernt mit 1, 2 und 4 Workern (je 8
+  Enten insgesamt) und vergleicht die Netze Byte für Byte.
+- **Geschwindigkeit:** Ein Lernschritt kostet gleich viel wie vorher; musls Funktionen sind so
+  schnell wie die der Plattform, und die Physik wird von den Gelenken bestimmt.
 
 ### Regel für neuen Code
 
@@ -273,8 +281,11 @@ Alles, was die Simulation speist, nutzt `kern::dm::sin` usw. statt `std::sin`. K
 Gleitkomma-Reihenfolge, die von der Zahl der Threads abhängt (Summen in fester Reihenfolge). Keine
 `-ffast-math`-Optionen.
 
-## Hinweis zum Browser-Lernen
+## 8. Die Läufe bis hierher
 
-Die Rollouts fertigt der Sammler mit festen Normalisierern an; der Lerner aktualisiert sie aus allen
-Beobachtungen vor dem Update (rsl_rl tut es Schritt für Schritt). Mit der Neubewertung der alten
-Policy (Schritt 5) ist das gleichwertig.
+- **PPO allein** (Läufe 1–9): erst Ausnutzen der Belohnung (auf dem Schwanz sitzen, Hechtsprung,
+  sich abstützen; jeweils durch strengere Regeln beseitigt), dann stabiles Stehen ohne Sprung; mit
+  großem Rauschen und ohne Warmstart lernte die Ente zu stehen, nicht zu springen.
+- **Erstes Vorbild:** Die Ente richtete sich auf und zog die Füße an (45° Kippen) – bestand die
+  lockere Messung, ist aber kein Sprung. Daraus entstand die strenge Messung.
+- **Vorbild mit strenger Bewertung, Nachahmen, Üben** (Lauf 15): das Netz in `kern/policies/`.

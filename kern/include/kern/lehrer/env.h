@@ -174,16 +174,30 @@ class DuckEnv : public Env {
 
 namespace kern::lehrer {
 
-/// How a policy jumps (Kern's jump task), on the clean robot in the Studio's physics: per episode the
-/// highest trunk above where it stood, the longest flight (nothing of it on the floor), whether it
-/// fell (or touched the floor with anything but its soles). A jump counts as real when it flew at
-/// least 60 ms, rose at least 15 mm, never fell and stands upright on both soles at the end.
+/// How a policy jumps (Kern's jump task), in the Studio's physics. Per episode: the longest flight
+/// (nothing of the duck on the floor), how far the trunk rose while in the air above where it was
+/// when the feet left (a jump launches the body; lifting the feet is no jump), the trunk's highest
+/// point in the air above its standing height, the most it tilted, whether it fell (or touched the
+/// floor with anything but its soles) and whether it stands upright on both soles at the end.
+/// A jump counts as real when it flew at least 60 ms, rose at least 5 mm in the air, never tilted
+/// more than 30 degrees, never fell and stands at the end.
 struct JumpReport {
   i32 episodes = 0, jumps = 0, falls = 0;
-  f32 height_mm = 0, flight_s = 0;  // means over the episodes
+  f32 height_mm = 0, rise_mm = 0, flight_s = 0, tilt_deg = 0;  // means over the episodes
   f32 best_height_mm = 0, best_flight_s = 0;
   f32 success() const { return episodes ? static_cast<f32>(jumps) / static_cast<f32>(episodes) : 0.0f; }
 };
+/// Watches one episode tick by tick (JumpReport's measures).
+struct JumpMeter {
+  f32 z0 = 0, ground_z = 0, liftoff_z = 0, flight = 0, longest = 0, rise = 0, air_apex = -1, min_up = 1;
+  bool started = false, in_air = false;
+  i32 ticks = 0;
+  void tick(const game::GameWorld::WalkerProbe& p);
+  /// Adds the episode to `rep`; true when it was a real jump.
+  bool finish(bool fell, const game::GameWorld::WalkerProbe& last, JumpReport& rep) const;
+};
+/// Divides the sums of finish() into means.
+void finish_report(JumpReport& rep);
 using ActFn = void (*)(void* user, const f32* observation, f32* action);
 /// `randomized`: the training's full variation (build, servos, sensors, start) instead of the clean robot.
 JumpReport evaluate_jump(ActFn act, void* user, i32 episodes, u64 seed, i32 substeps = 0, bool randomized = false);

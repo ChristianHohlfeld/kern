@@ -139,8 +139,10 @@ CmaesResult cmaes_minimise(const std::vector<f64>& start, f64 sigma, i32 generat
         c[i][j] = (1 - c1 - cmu) * c[i][j] + c1 * (pc[i] * pc[j] + (hsig ? 0.0 : cc * (2 - cc) * c[i][j])) + cmu * rank_mu;
       }
     sigma *= kern::dm::exp((cs / ds) * (psn / chi - 1));
+    res.mean = m;
     if (progress) progress(gen, res, sigma);
   }
+  res.mean = m;
   return res;
 }
 

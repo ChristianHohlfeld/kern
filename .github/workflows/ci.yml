@@ -99,6 +99,8 @@ jobs:
           cp -r site/editor/. _site/editor/
           # The Micro Duck's policy set (Apache-2.0): the editor loads the moves it needs from here.
           mkdir -p _site/editor/microduck && cp kern/third_party/microduck/*.onnx _site/editor/microduck/
+          # Kern's own trained networks (docs/lehrer.md): the jump.
+          mkdir -p _site/editor/policies && cp kern/policies/*.onnx _site/editor/policies/
           cp generated/kern_studio.wasm _site/generated/
           # The Lehrer (docs/lehrer.md): its page, workers and module.
           mkdir -p _site/lehrer _site/kern/web/lehrer

@@ -159,12 +159,13 @@ game::PlayInput Studio::play_input() const {
   in.reload = held("KeyR") || touch_.reload;
   in.crouch = held("KeyC") || held("ControlLeft") || touch_.crouch;
   in.interact = held("KeyF") || touch_.interact;
-  // Robot moves (walker): 1 sit / stand, 2 pick, 3 kick left, 4 kick right, 5 roll (hold), 6 beak.
+  // Robot moves (walker): 1 sit / stand, 2 pick, 3 kick left, 4 kick right, 5 roll (hold), 6 beak, 7 jump.
   for (u32 k = 0; k < 6; ++k) {
     const char code[] = {'D', 'i', 'g', 'i', 't', static_cast<char>('1' + k), 0};
     if (held(code)) in.robot |= 1u << k;
   }
   if (held("KeyV")) in.robot |= 128;  // the wheee ride (Space: the chirp, via jump)
+  if (held("Digit7")) in.robot |= 256;  // Kern's jump (trained by the Lehrer, docs/lehrer.md)
   // Engine touch controls (sticks, look drag, buttons; see game/touch.h).
   const game::PlayInput& t = touch_ctl_in_;
   in.move_x = clamp(in.move_x + t.move_x, -1.0f, 1.0f);

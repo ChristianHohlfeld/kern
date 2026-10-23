@@ -100,8 +100,9 @@ class JumpTask : public Task {
     s.roll = rng.uniform(-3, 3);
     s.pitch = rng.uniform(-3, 3);
     s.foot_friction = rng.uniform(0.7f, 1.3f);
-    flown_ = false;
+    flown_ = was_airborne_ = false;
     have_z0_ = false;
+    ground_z_ = liftoff_z_ = 0;
     if (teacher_) teacher_->reset();
     return s;
   }
@@ -143,14 +144,21 @@ class JumpTask : public Task {
     // In the air: nothing of it touches the floor (a duck on its tail with its feet up is not).
     const bool airborne = !p.foot_contact[0] && !p.foot_contact[1] && !p.body_contact;
     const bool both = p.foot_contact[0] && p.foot_contact[1] && !p.body_contact;
-    if (airborne && dz > 0.01f) flown_ = true;
+    // A jump launches the body: in the air it rises above where it was when the feet left (lifting
+    // the feet alone is no jump, JumpMeter).
+    if (!airborne) ground_z_ = p.position.z;
+    else if (!was_airborne_) liftoff_z_ = ground_z_;
+    was_airborne_ = airborne;
+    const f32 rise = airborne ? p.position.z - liftoff_z_ : 0.0f;
+    if (airborne && rise > 0.003f) flown_ = true;
     const bool takeoff = ph >= 0.22f && ph < 0.33f, flight = ph >= 0.27f && ph < 0.42f;
-    // The move: follow the reference height (an imitation of the jump's trunk motion), be in the
-    // air when the phase says so and push up into it, land on both soles; every term only as far as
-    // the duck stays upright (a dive or a tumble is no jump).
+    // The move: follow the reference height (an imitation of the jump's trunk motion; while
+    // practising after imitation the demonstration is the reference instead), be in the air when
+    // the phase says so and push up into it, land on both soles; every term only as far as the duck
+    // stays upright (a dive or a tumble is no jump).
     const f32 e = dz - reference(ph);
-    r.add("track_height", 4, up * kern::dm::exp(-e * e / (0.02f * 0.02f)));
-    r.add("airborne", 20, flight && airborne ? up : 0.0f);
+    if (!teacher_) r.add("track_height", 4, up * kern::dm::exp(-e * e / (0.02f * 0.02f)));
+    r.add("airborne", 20, flight && airborne && (rise > 0.002f || p.velocity.z > 0) ? up : 0.0f);
     r.add("lift", 20, takeoff ? up * clamp(p.velocity.z, 0.0f, 1.0f) : 0.0f);
     r.add("landed", 6, ph >= 0.42f && flown_ && both ? up : 0.0f);
     r.add("extra_hop", -4, ph >= 0.5f && airborne ? 1.0f : 0.0f);  // one jump, then it stands
@@ -162,6 +170,7 @@ class JumpTask : public Task {
     }
     // Upright, at home before and after, straight up (no drift, no turn).
     r.add("upright", 2, up);
+    r.add("tilt", -30, p.gravity.x * p.gravity.x + p.gravity.y * p.gravity.y);  // a jump goes straight up
     r.add("pose_legs", 1, ph < 0.15f || ph > 0.55f ? pose_match(p.joint, kLegs, 10, 0.5f) : 0.0f);
     r.add("pose_neck", 1, pose_match(p.joint, kNeck, 4, 0.3f));
     r.add("drift", -2, p.velocity.x * p.velocity.x + p.velocity.y * p.velocity.y);
@@ -183,8 +192,8 @@ class JumpTask : public Task {
   f32 imitate_ = 0;
   std::unique_ptr<JumpTeacher> teacher_;
   f32 label_[kActions] = {};
-  f32 z0_ = 0;
-  bool have_z0_ = false, flown_ = false;
+  f32 z0_ = 0, ground_z_ = 0, liftoff_z_ = 0;
+  bool have_z0_ = false, flown_ = false, was_airborne_ = false;
 };
 
 }  // namespace

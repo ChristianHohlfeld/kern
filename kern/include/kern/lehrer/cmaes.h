@@ -13,6 +13,8 @@ namespace kern::lehrer {
 
 struct CmaesResult {
   std::vector<f64> best;     // the best point evaluated
+  std::vector<f64> mean;     // the search distribution's centre at the end (for a noisy cost the
+                             // better answer: the best point may only have been lucky)
   f64 best_cost = 0;
   i32 evaluations = 0, generations = 0;
 };

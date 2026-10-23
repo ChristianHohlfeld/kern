@@ -76,28 +76,24 @@ bool jump_demo_from_json(std::string_view text, JumpDemo& out, std::string* erro
 }
 
 JumpDemo builtin_jump_demo() {
-  // Found by search_jump_demo (CMA-ES, 120 generations) for the XL330 profile: trunk 25 mm up,
-  // 80-100 ms in the air, lands and stands (docs/lehrer.md).
+  // Found by search_jump_demo for the XL330 profile (CMA-ES in three stages, 370 generations; every
+  // generation on other randomised robots): from a deep crouch the duck launches, rises 10.6 mm in
+  // the air, flies 120 ms, tilts ~20 degrees and lands standing (docs/lehrer.md).
   JumpDemo d;
-  d.keys = {-3.220f, -0.587f, -0.123f, 3.912f, -7.415f, 5.358f, -2.770f, 1.375f, -0.182f, 3.402f, 2.321f, -2.513f, 0.557f, -3.713f, -1.859f};
+  d.keys = {0.28130585f, 7.89225912f, 5.23304796f, -0.1508708f, -2.45624352f, -2.70261168f, 0.210983217f, 7.36587429f,
+            7.69860315f, -0.106615424f, -1.84639323f, 4.50442314f, 0.412051469f, 0.726674736f, -2.61469078f};
   d.amplitude = 2.5f;
   return d;
 }
 
 JumpTeacher::JumpTeacher(const JumpDemo& demo) : demo_(demo), velstand_(game::walker_policy("velstand.onnx")) {}
 
-void JumpTeacher::reset() {
-  have_z0_ = flown_ = landed_ = false;
-  z0_ = 0;
-}
+void JumpTeacher::reset() {}
 
 void JumpTeacher::act(const f32* observation, const game::GameWorld::WalkerProbe& p, i32 step, f32* action) {
-  if (!have_z0_) { z0_ = p.position.z; have_z0_ = true; }
-  const bool air = !p.foot_contact[0] && !p.foot_contact[1] && !p.body_contact;
-  if (air && p.position.z - z0_ > 0.003f) flown_ = true;
-  if (flown_ && !air) landed_ = true;
+  (void)p;
   const f32 phase = static_cast<f32>(step) * kControlDt / game::kJumpSeconds;
-  if (phase < kStartVelstand || landed_ || phase >= kEndDemo) {
+  if (phase < kStartVelstand || phase >= kEndDemo) {
     f32 o[kObs];
     std::memcpy(o, observation, sizeof o);
     o[game::kJumpPhaseSlot] = o[game::kJumpPhaseSlot + 1] = 0;  // velstand never saw the jump's phase
@@ -117,28 +113,25 @@ f32 score_jump_demo(const JumpDemo& demo, i32 episodes, u64 seed) {
     if (e > 0) env.task().progress(100000);  // the training's full variation (its curricula's end)
     env.reset();
     teacher.reset();
-    const f32 z0 = env.probe().position.z;
-    f32 air_apex = 0, flight = 0, longest = 0, touch_up = 0;
-    bool fell = false, flown = false, touched = false;
-    i32 t = 0;
-    for (;; ++t) {
+    JumpMeter m;
+    m.tick(env.probe());
+    bool fell = false;
+    for (;;) {
       f32 a[kActions];
       teacher.act(env.observation(), env.probe(), env.steps(), a);
       const Env::Step s = env.step(a);
-      const auto& p = env.probe();
-      const bool air = !p.foot_contact[0] && !p.foot_contact[1] && !p.body_contact;
-      if (air) air_apex = max_of(air_apex, p.position.z - z0);
-      if (air && p.position.z - z0 > 0.003f) flown = true;
-      if (flown && !air && !touched) { touched = true; touch_up = -p.gravity.z; }
-      flight = air ? flight + kControlDt : 0.0f;
-      longest = max_of(longest, flight);
+      m.tick(env.probe());
       if (s.terminal) { fell = true; break; }
       if (s.timeout) break;
     }
-    const auto& p = env.probe();
-    const bool standing = !fell && p.foot_contact[0] && p.foot_contact[1] && !p.body_contact && p.gravity.z < -0.9f;
-    total += min_of(air_apex, 0.03f) * 1000 + min_of(longest, 0.14f) * 250 + (touched ? 25 * max_of(0.0f, touch_up - 0.5f) / 0.5f : 0.0f) +
-             (fell ? -40.0f + 40.0f * static_cast<f32>(t) / 100.0f : 0.0f) + (standing ? 30.0f : 0.0f);
+    JumpReport one;
+    const bool real = m.finish(fell, env.probe(), one);
+    const bool standing = !fell && env.probe().foot_contact[0] && env.probe().foot_contact[1] && !env.probe().body_contact && env.probe().gravity.z < -0.9f;
+    // A real jump: the body launched (rise in the air), time in the air, upright all along, landed
+    // and standing; a fall costs the more the earlier it comes.
+    total += 2000 * min_of(m.rise, 0.02f) + 250 * min_of(m.longest, 0.12f) + 500 * min_of(max_of(m.air_apex, 0.0f), 0.03f) -
+             300 * max_of(0.0f, 0.966f - m.min_up) + (fell ? -40.0f + 40.0f * static_cast<f32>(m.ticks) / 100.0f : 0.0f) + (standing ? 30.0f : 0.0f) +
+             (real ? 20.0f : 0.0f);  // tilting more than 15 degrees costs, a real jump (JumpMeter) pays
   }
   return static_cast<f32>(total / max_of(1, episodes));
 }
@@ -152,36 +145,24 @@ JumpReport evaluate_jump_demo(const JumpDemo& demo, i32 episodes, u64 seed, bool
     if (randomized) env.task().progress(100000);
     env.reset();
     teacher.reset();
-    const f32 z0 = env.probe().position.z;
-    f32 apex = 0, flight = 0, longest = 0;
+    JumpMeter m;
+    m.tick(env.probe());
     bool fell = false;
     for (;;) {
       f32 a[kActions];
       teacher.act(env.observation(), env.probe(), env.steps(), a);
       const Env::Step s = env.step(a);
-      const auto& p = env.probe();
-      apex = max_of(apex, p.position.z - z0);
-      const bool air = !p.foot_contact[0] && !p.foot_contact[1] && !p.body_contact;
-      flight = air ? flight + kControlDt : 0.0f;
-      longest = max_of(longest, flight);
+      m.tick(env.probe());
       if (s.terminal) { fell = true; break; }
       if (s.timeout) break;
     }
-    const auto& p = env.probe();
-    const bool standing = !fell && p.foot_contact[0] && p.foot_contact[1] && !p.body_contact && p.gravity.z < -0.9f;
-    ++rep.episodes;
-    rep.falls += fell ? 1 : 0;
-    rep.height_mm += apex * 1000;
-    rep.flight_s += longest;
-    rep.best_height_mm = max_of(rep.best_height_mm, apex * 1000);
-    rep.best_flight_s = max_of(rep.best_flight_s, longest);
-    if (standing && longest >= 0.06f - 1e-4f && apex >= 0.015f) ++rep.jumps;
+    m.finish(fell, env.probe(), rep);
   }
-  if (rep.episodes) { rep.height_mm /= static_cast<f32>(rep.episodes); rep.flight_s /= static_cast<f32>(rep.episodes); }
+  finish_report(rep);
   return rep;
 }
 
-JumpDemo search_jump_demo(i32 generations, u64 seed, i32 threads, const std::function<void(i32, f32, const JumpReport&)>& progress) {
+JumpDemo search_jump_demo(i32 generations, u64 seed, i32 threads, const JumpDemo* start, const std::function<void(i32, f32, const JumpReport&)>& progress) {
   const ParallelFor run = thread_pool(max_of(1, threads));
   JumpDemo base;
   auto demo_of = [&](const std::vector<f64>& x) {
@@ -192,17 +173,24 @@ JumpDemo search_jump_demo(i32 generations, u64 seed, i32 threads, const std::fun
   // Every generation meets other robots (start, build, servos, sensors): a demonstration that only
   // works for a few would not teach a robust jump. All candidates of a generation meet the same ones.
   u64 batch = 0;
+  std::vector<f64> x0(base.keys.size(), 0.0);
+  if (start) {
+    base.amplitude = start->amplitude;
+    for (std::size_t i = 0; i < base.keys.size(); ++i) x0[i] = start->keys[i];
+  }
   const CmaesResult r = cmaes_minimise(
-      std::vector<f64>(base.keys.size(), 0.0), 0.8, generations, seed,
+      x0, start ? 0.3 : 0.8, generations, seed,
       [&](const std::vector<std::vector<f64>>& xs, std::vector<f64>& costs) {
         const u64 episodes_seed = seed * 7777 + 100 * (batch++);
         run(static_cast<i32>(xs.size()), [&](i32 i) { costs[static_cast<std::size_t>(i)] = -score_jump_demo(demo_of(xs[static_cast<std::size_t>(i)]), 6, episodes_seed); });
       },
       16, 1e-8, [&](i32 gen, const CmaesResult& so_far, f64) {
         if (!progress) return;
-        progress(gen, static_cast<f32>(-so_far.best_cost), evaluate_jump_demo(demo_of(so_far.best), 1, 100));
+        // The centre of the search (the cost is noisy: other robots every generation).
+        const JumpDemo centre = demo_of(so_far.mean);
+        progress(gen, score_jump_demo(centre, 6, 424242), evaluate_jump_demo(centre, 1, 100));
       });
-  return demo_of(r.best);
+  return demo_of(r.mean);
 }
 
 struct JumpImitation::Data {

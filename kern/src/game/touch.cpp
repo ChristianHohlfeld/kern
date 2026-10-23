@@ -175,6 +175,7 @@ void TouchControls::layout() {
       upper.push_back(make_button("robot_roll", "ROLL", 50, dark));
       upper.push_back(make_button("robot_beak", "BEAK", 50, amber));
       upper.push_back(make_button("robot_wheee", "WHEEE", 58, amber));
+      upper.push_back(make_button("robot_jump", "HOP", 50, green));  // Kern's own move (docs/lehrer.md)
       break;
     case ControlMode::character:
       if (jump_) low.push_back(make_button("jump", "JUMP", 64, dark));
@@ -414,7 +415,7 @@ void TouchControls::update(f32 dt, PlayInput& in, f32 vfov_deg) {
   in.fire = view_.fire;
   in.robot = (held("robot_sit") ? 1u : 0u) | (held("robot_pick") ? 2u : 0u) | (held("robot_kick_left") ? 4u : 0u) |
              (held("robot_kick_right") ? 8u : 0u) | (held("robot_roll") ? 16u : 0u) | (held("robot_beak") ? 32u : 0u) |
-             (held("robot_wheee") ? 128u : 0u);
+             (held("robot_wheee") ? 128u : 0u) | (held("robot_jump") ? 256u : 0u);
 }
 
 }  // namespace kern::game

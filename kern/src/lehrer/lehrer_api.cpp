@@ -130,6 +130,8 @@ KERN_EXPORT(kern_lehrer_evaluate) const char* kern_lehrer_evaluate(i32 episodes)
   v.set("jumps", r.jumps);
   v.set("episodes", r.episodes);
   v.set("heightMm", static_cast<f64>(r.height_mm));
+  v.set("riseMm", static_cast<f64>(r.rise_mm));
+  v.set("tiltDeg", static_cast<f64>(r.tilt_deg));
   v.set("flightS", static_cast<f64>(r.flight_s));
   v.set("falls", r.falls);
   g->text = json::stringify(v);
@@ -197,7 +199,8 @@ KERN_EXPORT(kern_lehrer_imitate) const char* kern_lehrer_imitate(const u8* data,
   v.set("error", r.mse);
   v.set("jumps", r.student.jumps);
   v.set("episodes", r.student.episodes);
-  v.set("heightMm", r.student.height_mm);
+  v.set("heightMm", static_cast<f64>(r.student.height_mm));
+  v.set("riseMm", static_cast<f64>(r.student.rise_mm));
   v.set("flightS", r.student.flight_s);
   v.set("falls", r.student.falls);
   g->text = json::stringify(v);

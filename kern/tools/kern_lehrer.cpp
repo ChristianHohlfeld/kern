@@ -34,7 +34,7 @@ namespace {
 struct Options {
   std::string task = "jump", out, eval, log, checkpoint, resume, warm, trace;
   std::string calibrate, holdout, profile, compare, examples, demo, demo_search, demo_check;
-  i32 rounds = 0, round_episodes = 0, keep_every = 0;
+  i32 rounds = 0, round_episodes = 0, keep_every = 0, randomized = 0;
   f32 practice_std = 0, imitate_reward = -1;
   i32 envs = 0, threads = 0, iterations = 600, steps = 0, save_every = 25, episodes = 10;
   i32 substeps = 0, eval_every = 10, stop_after_jump = 0, fingerprint = 0;
@@ -68,30 +68,41 @@ void act_onnx(void* user, const f32* o, f32* a) { static_cast<const game::Walker
 void act_ppo(void* user, const f32* o, f32* a) { static_cast<const Ppo*>(user)->act(o, a); }
 
 void print_report(const char* what, const JumpReport& r) {
-  std::printf("%s: %d of %d episodes a real jump, trunk up %.1f mm (best %.1f), flight %.3f s (best %.3f), fell %d\n", what, r.jumps,
-              r.episodes, r.height_mm, r.best_height_mm, r.flight_s, r.best_flight_s, r.falls);
+  std::printf("%s: %d of %d episodes a real jump, trunk in the air %.1f mm above standing (best %.1f), rose %.1f mm, flight %.3f s (best %.3f), "
+              "tilt %.0f deg, fell %d\n", what, r.jumps, r.episodes, r.height_mm, r.best_height_mm, r.rise_mm, r.flight_s, r.best_flight_s, r.tilt_deg, r.falls);
 }
+
+bool load_demo(const std::string& name, JumpDemo& d);
 
 /// One clean episode of `policy`, tick by tick: the trunk's height, contacts and every reward term.
 int trace(const Options& o) {
   game::WalkerPolicy p;
   std::string err;
-  const std::vector<u8> bytes = read_file(o.trace);
-  if (bytes.empty() || !game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), p, &err)) {
-    std::fprintf(stderr, "cannot read %s: %s\n", o.trace.c_str(), err.c_str());
-    return 1;
+  std::unique_ptr<JumpTeacher> teacher;  // --trace builtin / demo.json: the demonstration itself
+  if (o.trace == "builtin" || (o.trace.size() > 5 && o.trace.substr(o.trace.size() - 5) == ".json")) {
+    JumpDemo d;
+    if (!load_demo(o.trace, d)) return 1;
+    teacher = std::make_unique<JumpTeacher>(d);
+  } else {
+    const std::vector<u8> bytes = read_file(o.trace);
+    if (bytes.empty() || !game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), p, &err)) {
+      std::fprintf(stderr, "cannot read %s: %s\n", o.trace.c_str(), err.c_str());
+      return 1;
+    }
   }
-  DuckEnv env(make_task(o.task), 1000, game::kWalkerSubsteps);
-  env.task().randomize = false;
+  DuckEnv env(make_task(o.task), 1000 + o.seed, game::kWalkerSubsteps);
+  env.task().randomize = o.randomized != 0;
+  if (o.randomized) env.task().progress(100000);
   env.reset();
   const f32 z0 = env.probe().position.z;
   for (;;) {
     f32 a[kActions];
-    p.run(env.observation(), a);
+    if (teacher) teacher->act(env.observation(), env.probe(), env.steps(), a);
+    else p.run(env.observation(), a);
     const Env::Step s = env.step(a);
     const auto& q = env.probe();
-    std::printf("%4d  z %+6.1f mm  feet %d%d body %d  up %.2f |", env.steps(), (q.position.z - z0) * 1000, q.foot_contact[0], q.foot_contact[1], q.body_contact,
-                -q.gravity.z);
+    std::printf("%4d  z %+6.1f mm  feet %d%d body %d  up %.2f  tilt x %+.2f y %+.2f |", env.steps(), (q.position.z - z0) * 1000, q.foot_contact[0], q.foot_contact[1],
+                q.body_contact, -q.gravity.z, q.gravity.x, q.gravity.y);
     for (const auto& [name, v] : env.task().terms)
       if (v != 0) std::printf(" %s %.3f", name, v);
     std::printf("\n");
@@ -221,8 +232,10 @@ int demo_search(const Options& o) {
   const i32 threads = o.threads > 0 ? o.threads : max_of(1, static_cast<i32>(std::thread::hardware_concurrency()));
   const i32 gens = o.iterations > 0 && o.iterations != 600 ? o.iterations : 120;
   std::printf("searching the jump's demonstration: CMA-ES, %d generations, %d threads\n", gens, threads);
-  const JumpDemo d = search_jump_demo(gens, o.seed, threads, [](i32 g, f32 score, const JumpReport& r) {
-    std::printf("gen %4d  score %6.1f | clean: up %.1f mm, flight %.0f ms, %s\n", g, score, r.height_mm, r.flight_s * 1000,
+  JumpDemo start;
+  if (!o.demo.empty() && !load_demo(o.demo, start)) return 1;
+  const JumpDemo d = search_jump_demo(gens, o.seed, threads, o.demo.empty() ? nullptr : &start, [](i32 g, f32 score, const JumpReport& r) {
+    std::printf("gen %4d  score %6.1f | clean: up %.1f mm, rose %.1f mm, flight %.0f ms, tilt %.0f deg, %s\n", g, score, r.height_mm, r.rise_mm, r.flight_s * 1000, r.tilt_deg,
                 r.falls ? "fell" : r.jumps ? "a real jump" : "no real jump");
     std::fflush(stdout);
   });
@@ -314,6 +327,7 @@ int main(int argc, char** argv) {
     else if (a == "--episoden") o.round_episodes = std::atoi(next());
     else if (a == "--uebungs-std") o.practice_std = static_cast<f32>(std::atof(next()));
     else if (a == "--keep-every") o.keep_every = std::atoi(next());
+    else if (a == "--randomized") o.randomized = 1;
     else if (a == "--nachahmungs-lohn") o.imitate_reward = static_cast<f32>(std::atof(next()));
     else {
       std::fprintf(stderr,
@@ -402,7 +416,8 @@ int main(int argc, char** argv) {
     const auto t0 = std::chrono::steady_clock::now();
     const ImitationReport r = imitate_jump(ppo, recipe, o.seed, backend.update_parallel(),
                                            [&](i32 round, const ImitationReport& rr) {
-                                             std::printf("  round %d: %d samples, error %.5f | ", round, rr.samples, rr.mse);
+                                             std::printf("  round %d (%.0f s): %d samples, error %.5f | ", round,
+                                                         std::chrono::duration<f64>(std::chrono::steady_clock::now() - t0).count(), rr.samples, rr.mse);
                                              print_report("the network", rr.student);
                                              std::fflush(stdout);
                                            });
@@ -431,7 +446,7 @@ int main(int argc, char** argv) {
     if (evaluated) rep = evaluate_jump(act_ppo, &ppo, 5, 1000, game::kWalkerSubsteps);
     std::printf("it %5d  %8.0f s  return %7.3f  len %5.1f  value %7.4f  std %.3f  lr %.1e  %5.0f steps/s (collect %.2fs, learn %.2fs)", s.iteration, seconds,
                 s.mean_return, s.mean_length, s.value_loss, s.mean_std, s.learning_rate, sps, s.collect_seconds, s.learn_seconds);
-    if (evaluated) std::printf("  | jumps %d/5 up %.1f mm flight %.2f s falls %d", rep.jumps, rep.height_mm, rep.flight_s, rep.falls);
+    if (evaluated) std::printf("  | jumps %d/5 up %.1f mm rise %.1f mm flight %.2f s tilt %.0f falls %d", rep.jumps, rep.height_mm, rep.rise_mm, rep.flight_s, rep.tilt_deg, rep.falls);
     std::printf("\n");
     if (evaluated && rep.jumps >= 4 && !jumped) {
       jumped = true;
