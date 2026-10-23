@@ -505,6 +505,7 @@ json::Value actor_to_json(const Actor& a) {
       x.set("autonomous", k.autonomous);
       x.set("gait", k.gait);
       x.set("actions", k.actions);
+      if (k.kern_extras) x.set("kernExtras", true);
       if (k.rollers) x.set("rollers", true);
     }
     x.set("maxSpeed", num(k.max_speed));
@@ -769,6 +770,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       kr.string("gait", k.gait);
       kr.string("actions", k.actions);
       if (k.actions != "robot") k.actions = "training";
+      kr.boolean("kernExtras", k.kern_extras);
       if (k.gait != "velstand" && k.gait != "alpha") k.gait = "velstand";
       kr.boolean("rollers", k.rollers);
       kr.number("maxSpeed", k.max_speed, 0, 1000);

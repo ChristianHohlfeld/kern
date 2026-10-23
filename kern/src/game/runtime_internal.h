@@ -70,7 +70,8 @@ struct GameWorld::WalkerBrain {
   // robotd's controller (walker.cpp): which network drives and its windows; real seconds.
   bool rollers = false;            // roller skates: roller.onnx walks, the crouch is the pick
   bool alpha_gait = false;
-  bool robot_actions = false;      // the daemon's action scale and low-pass (ControllerComponent::actions)         // alpha_walking + alpha_stand instead of velstand
+  bool robot_actions = false;
+  bool kern_extras = false;        // ControllerComponent::kern_extras      // the daemon's action scale and low-pass (ControllerComponent::actions)         // alpha_walking + alpha_stand instead of velstand
   enum class Sit : u8 { up, sitting, rising } sit = Sit::up;
   f32 sit_remaining = 0, sit_settle = 0;
   f32 pick_phase = -1;             // ground pick / crouch phase, < 0 when none runs

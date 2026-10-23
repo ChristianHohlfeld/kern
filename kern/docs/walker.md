@@ -255,8 +255,9 @@ Darüber, wie im Original:
 kommen deshalb über `walker_hear` und `walker_pet`. Die Odometrie ist die Rumpfpose; `autod` hält
 seine Odometrie ebenfalls für perfekt.
 
-**Kern-Verhalten, nicht im Original** (Pollens Gehirn hat keinen Ball- oder Sockendetektor; hier
-ist der Detektor das Bild der Kopfkamera, `walker_sees`):
+**Kern-Verhalten, nicht im Original, standardmäßig aus** (Details › Controller › „Kern extras“,
+`kernExtras`; aus läuft nur Pollens Software). Pollens Gehirn hat keinen Ball- oder Sockendetektor;
+hier ist der Detektor das Bild der Kopfkamera, `walker_sees`:
 
 - **BallPlay:** Sieht sie einen Ball, läuft sie hin, bis er dort liegt, wo das Kick-Training ihn
   hinlegt (`microduck_ball_kick_env_cfg.py`: 9 cm vor, 4,2 cm neben dem Kickfuß, ±1,5 cm),
@@ -376,7 +377,7 @@ Die Ablaufsteuerung folgt `robotd/src/control.rs`:
 | Ducken auf Rollen | `roller_crouch.onnx` (0,8) | Phase, Periode 5 s | 2 | X | PICK |
 | Schnabel auf / zu | Mund-Servo | | 6 | | BEAK |
 
-- **Schnabel beim Aufheben (Kern):** Er bleibt beim Absenken zu, öffnet bei φ = 0,16 und beißt bei
+- **Schnabel beim Aufheben (Kern extras):** Er bleibt beim Absenken zu, öffnet bei φ = 0,16 und beißt bei
   φ = 0,24 zu. Auf dem Roboter macht das der Mensch mit dem Trigger.
 - **Action-Scale und Filter:** Der Daemon fährt den echten Roboter mit Scale 0,9 und einem
   Tiefpass auf den Sollwerten (Kopf 0,5, Beine 0,7). Das ist Sim-to-Real-Tuning für die Hardware.
@@ -430,8 +431,8 @@ nur als Referenz für die Werte.
 | Autonomie | autod (12 Zustände) | portiert; ToF über Kerns Raycast, Hören/Streicheln per API |
 | Policy umgangen? | – | nein: kein Pose-Setzen, kein Teleport, keine Zusatzkräfte, kein Blending |
 
-**Kern-eigen (nicht im Original):** Ball spielen und Socken holen (Abschnitt 9), Schnabel-Timing
-beim Ground Pick, Kunststoff- und Schritt-Geräusche, Servo-Geräusch aus der Last.
+**Kern-eigen (nicht im Original, nur mit „Kern extras“):** Ball spielen und Socken holen
+(Abschnitt 9), Schnabel-Timing beim Ground Pick. Immer an, weil reiner Klang: Kunststoff- und Schritt-Geräusche, Servo-Geräusch aus der Last.
 
 **Kopf nach unten:** Nacken negativ und Kopf-Pitch positiv neigen nach unten. Nur Kopf 1,1: Kamera
 56° nach unten, sieht 10–30 cm vor dem Rumpf. Nacken −1,1 und Kopf 1,1: 87°, sieht 6–15 cm, also

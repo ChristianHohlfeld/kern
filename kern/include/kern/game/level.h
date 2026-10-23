@@ -183,6 +183,9 @@ struct ControllerComponent {
   // How network outputs become servo goals: "training" (scale 1, no filter, as the networks were
   // trained) or "robot" (the robot's daemon: scale 0.9, low-pass head 0.5 / legs 0.7).
   std::string actions = "training";
+  // Kern's own additions on top of Pollen's software, off by default (then only Pollen's runtime
+  // and brain run): ball play, sock fetching, the beak opening and biting during a ground pick.
+  bool kern_extras = false;
 };
 
 enum class WeaponKind : u8 { rifle, pistol, shotgun, sniper };

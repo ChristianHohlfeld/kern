@@ -142,6 +142,7 @@ constexpr FieldDef kController[] = {
     {"autonomous", "Autonomous (camera, ToF)", F::boolean, 0, 0, 0, "", nullptr, "Walker"},
     {"gait", "Walking network", F::choice, 0, 0, 0, "", kGaits},
     {"actions", "Actions to servo goals", F::choice, 0, 0, 0, "", kActionProfiles},
+    {"kernExtras", "Kern extras (ball play, sock fetching, beak in the pick)", F::boolean},
     {"engineSound", "Engine loop", F::sound_auto, 0, 0, 0, "", nullptr, "Sound"},
     {"jumpSound", "Jump", F::sound},
     {"boostSound", "Boost", F::sound},

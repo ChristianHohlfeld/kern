@@ -486,7 +486,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
     if (!b.has_foot && b.clock > 1.0) { b.foot_home[0] = a; b.foot_home[1] = l; b.has_foot = true; }
   }
   const bool engaged = b.state == S::act || b.state == S::carry || b.state == S::nap || b.state == S::petted || b.state == S::ground_pick;
-  if (!w.rollers && !engaged) {
+  if (w.kern_extras && !w.rollers && !engaged) {  // Kern's additions only when asked for
     f64 best = 1e300;
     for (const Actor& a : level_.actors) {
       const bool sock = std::find(a.tags.begin(), a.tags.end(), "sock") != a.tags.end();

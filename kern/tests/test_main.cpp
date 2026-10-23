@@ -4470,6 +4470,7 @@ TEST(micro_duck_picks_up_a_sock) {
     game::Level l = game::basic_level();
     for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
     const game::ActorId duck = add_duck(l, {0, 0, 0}, false);
+    l.find(duck)->controller->kern_extras = true;  // Kern additions
     const game::ActorId first = add_sock(l, {x, 0.03f, 0});
     f.world->sync(l);
     CHECK(f.world->start(l, game::SimMode::simulate));
@@ -4617,6 +4618,7 @@ TEST(micro_duck_plays_with_a_ball_on_its_own) {
   game::Level l = game::basic_level();
   for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
   const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+    l.find(duck)->controller->kern_extras = true;  // Kern additions
   game::Actor ball;
   ball.name = "Ball";
   ball.transform.position = {1.2f, 0.3f, 0.14f};
@@ -4687,6 +4689,7 @@ TEST(micro_duck_fetches_a_sock_on_its_own) {
   game::Level l = game::basic_level();
   for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
   const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+    l.find(duck)->controller->kern_extras = true;  // Kern additions
   const game::ActorId first = add_sock(l, {1.2f, 0.25f, 0});
   f.world->sync(l);
   CHECK(f.world->start(l, game::SimMode::simulate));

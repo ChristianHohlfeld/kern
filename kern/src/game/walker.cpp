@@ -519,7 +519,7 @@ std::string GameWorld::walker_skill(ActorId id, std::string_view name) {
     if (!walker_policy(d.file)) return d.file + " is not loaded";
     if (const char* why = move_blocked(*w)) return why;
     w->pick_phase = 0;
-    if (!w->rollers) w->mouth_open = 0;  // shut on the way down; opens at the bottom, then bites
+    if (!w->rollers && w->kern_extras) w->mouth_open = 0;  // Kern: shut on the way down; opens at the bottom, then bites
     return "";
   }
   const i32 index = skill_index(name);  // Controller::start_skill
@@ -603,6 +603,7 @@ void GameWorld::create_walkers() {
     w->rollers = a.controller->rollers;
     w->alpha_gait = a.controller->gait == "alpha";
     w->robot_actions = a.controller->actions == "robot";
+    w->kern_extras = a.controller->kern_extras;
     w->decimation = max_of(1, static_cast<i32>(std::lround(kControlPeriod * slow * hz)));
     w->delay = max_of(0, static_cast<i32>(std::lround(kActuatorDelay * slow * hz)));
     if (std::fabs(static_cast<f32>(w->decimation) / hz - kControlPeriod * slow) > 1e-4f)
@@ -997,8 +998,8 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     const PhaseDef& d = w.rollers ? set.crouch : set.pick;
     const f32 before = w.pick_phase;
     w.pick_phase += kControlPeriod / d.period;
-    if (!w.rollers && before < kPickOpen && w.pick_phase >= kPickOpen) w.mouth_open = 1;  // open at the bottom
-    if (!w.rollers && before < kPickClose && w.pick_phase >= kPickClose) w.mouth_open = 0;  // bite
+    if (w.kern_extras && !w.rollers && before < kPickOpen && w.pick_phase >= kPickOpen) w.mouth_open = 1;  // open at the bottom
+    if (w.kern_extras && !w.rollers && before < kPickClose && w.pick_phase >= kPickClose) w.mouth_open = 0;  // bite
     if (w.pick_phase >= d.end_phase) w.pick_phase = -1;
   }
   if (w.skill >= 0) {
