@@ -43,15 +43,15 @@ constexpr f32 kBiteAhead = 0.0588f, kBiteLeft = 0.0075f;  // m ahead of / left o
 constexpr f32 kBiteTolerance = 0.004f;     // m: closer than this, it bends down
 constexpr f32 kSockForget = 6.0f;          // s: a sock not seen this long is given up
 constexpr f32 kSockCooldown = 40.0f;       // s: a sock dropped or missed four times is left alone
-// Fetching on its own is still being tuned (the approach does not yet stop where the beak bites):
-// off until tests/test_main.cpp micro_duck_fetches_a_sock_on_its_own passes. The pick itself works.
-constexpr bool kFetchSocks = false;
+// Fetching socks on its own (Pollen's brain has a GroundPick state; Kern's numbers):
+// tests/test_main.cpp micro_duck_fetches_a_sock_on_its_own.
+constexpr bool kFetchSocks = true;
 // Playing with a ball (Kern): it walks up until the ball lies where ball_kick_left's training puts it
 // (microduck_ball_kick_env_cfg.py: 9 cm ahead, 4.2 cm to the kicking foot's side, +-1.5 cm) and
 // kicks. Always the left kick: the right one tips the duck over in Kern (docs/walker.md section 12).
-// Off: the approach arrives (ball 9.3 cm ahead, 4.6 cm left) but the kick from there misses in the
-// test, still open; and Pollen's own autonomy (autonomous.rs) is on its way to replace this.
-constexpr bool kPlayBall = false;
+// Pollen's brain has a BallPlay state (approach / line up / kick: docs/ideas/autonomous_behavior.md);
+// its code is not public, these are Kern's numbers. tests/test_main.cpp micro_duck_plays_with_a_ball_on_its_own.
+constexpr bool kPlayBall = true;
 constexpr f32 kKickAhead = 0.09f, kKickLeft = 0.042f, kKickTolerance = 0.008f;  // m
 
 enum class S : u8 { chill, look_around, wander, turn, back_off, zoomies, get_up, fetch, pick, carry };
@@ -323,6 +323,9 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt) {
         b.settle = 0;
       } else {
         b.settle += dt;  // there: let the steps die out, then look again
+        // Head up first: the kick and the pick were trained with the head at home (zero-padded
+        // head command); a head still bent down to watch the ball leaves the kick standing.
+        head[1] = 0;
         if (b.settle > (b.ball ? 3.0f : 1.2f) && s.speed / S_ < 0.01f) {
           if (walker_skill(w.actor, b.ball ? "kick_left" : "pick").empty()) { b.enter(S::pick, 8); b.picked = false; b.tries++; }
           else b.settle = 0;

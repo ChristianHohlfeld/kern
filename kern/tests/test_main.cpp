@@ -4091,6 +4091,14 @@ TEST(micro_duck_runs_every_move_of_its_set) {
           const f32 h = std::atan2(t0.m[1], t0.m[0]);
           std::printf("  ball %.3f ahead, %.3f left (real m)\n", (d.x * std::cos(h) + d.y * std::sin(h)) / 4, (-d.x * std::sin(h) + d.y * std::cos(h)) / 4);
         }
+      for (const game::Actor& a : l.actors)
+        if (a.name == "left_ankle" || a.name == "right_ankle") {
+          Mat4 am;
+          f.world->actor_matrix(a.id, am);
+          const Vec3 e = am.translation() - t0.translation();
+          const f32 h = std::atan2(t0.m[1], t0.m[0]);
+          std::printf("  %s %.3f ahead, %.3f left\n", a.name.c_str(), (e.x * std::cos(h) + e.y * std::sin(h)) / 4, (-e.x * std::sin(h) + e.y * std::cos(h)) / 4);
+        }
     }
     const std::string why = f.world->walker_skill(duck, c.move);
     CHECK(why.empty());
@@ -4334,7 +4342,6 @@ TEST(micro_duck_picks_up_a_sock) {
 }
 
 TEST(micro_duck_plays_with_a_ball_on_its_own) {
-  if (!std::getenv("KERN_DUCK_BALL")) return;  // the behaviour is switched off (walker_brain.cpp kPlayBall)
   // Autonomous: a ball 30 cm (real) away, a little to the side. The duck sees it with its head
   // camera, walks up until the ball lies in front of its left foot and kicks it.
   load_duck_policies();
@@ -4376,8 +4383,25 @@ TEST(micro_duck_plays_with_a_ball_on_its_own) {
     const Vec3 d = bm0.translation() - t0.translation();
     const f32 h = std::atan2(t0.m[1], t0.m[0]);
     if (print) std::printf("  at the kick the ball is %.3f ahead, %.3f left (real m)\n", (d.x * std::cos(h) + d.y * std::sin(h)) / 4, (-d.x * std::sin(h) + d.y * std::cos(h)) / 4);
+    for (const game::Actor& a : l.actors)
+      if (print && (a.name == "left_ankle" || a.name == "right_ankle")) {
+        Mat4 am;
+        f.world->actor_matrix(a.id, am);
+        const Vec3 e = am.translation() - t0.translation();
+        std::printf("  %s %.3f ahead, %.3f left\n", a.name.c_str(), (e.x * std::cos(h) + e.y * std::sin(h)) / 4, (-e.x * std::sin(h) + e.y * std::cos(h)) / 4);
+      }
   }
-  for (int i = 0; i < 300; ++i) f.world->step(1.0f / 100, {});
+  for (int i = 0; i < 300; ++i) {
+    f.world->step(1.0f / 100, {});
+    if (print && i % 10 == 0)
+      for (const game::Actor& a : l.actors)
+        if (a.name == "left_ankle") {
+          Mat4 am, bb;
+          f.world->actor_matrix(a.id, am);
+          f.world->actor_matrix(bid, bb);
+          std::printf("    +%.2f %s ankle %.3f %.3f %.3f ball %.3f %.3f %.3f\n", i / 100.0, f.world->walker_driving(duck).c_str(), am.translation().x, am.translation().y, am.translation().z, bb.translation().x, bb.translation().y, bb.translation().z);
+        }
+  }
   Mat4 bm1;
   f.world->actor_matrix(bid, bm1);
   if (print) std::printf("  ball moved %.3f after the kick\n", length(bm1.translation() - bm0.translation()));
@@ -4387,7 +4411,6 @@ TEST(micro_duck_plays_with_a_ball_on_its_own) {
 }
 
 TEST(micro_duck_fetches_a_sock_on_its_own) {
-  if (!std::getenv("KERN_DUCK_FETCH")) return;  // the behaviour is switched off (walker_brain.cpp kFetchSocks)
   // Autonomous: a sock 30 cm (real) away in front. The duck sees it with its head camera, walks up to
   // it until it lies where the beak bites, picks it up (again when the encoder says it missed),
   // carries it off and puts it down.
