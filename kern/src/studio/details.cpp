@@ -228,6 +228,7 @@ constexpr FieldDef kCity[] = {
 constexpr FieldDef kWorld[] = {
     {"title", "Game title", F::text, 0, 0, 0, "", nullptr, "Game"},
     {"player", "Player (controlled in Play)", F::actor},
+    {"observer", "Observer camera (Play: fly, watch, drag bodies)", F::boolean},
     {"goal", "Win condition", F::choice, 0, 0, 0, "", kGoals},
     {"timeLimit", "Time limit (0 = none)", F::number, 0, 1e6, 1, "s"},
     {"scoreTarget", "Target score", F::number, 0, 1e9, 1},

@@ -75,7 +75,7 @@ struct ViewCamera {
   Vec3 right() const;
 };
 
-enum class Drag : u8 { none, fly, pedestal, pan, orbit, dolly, gizmo, marquee, ortho_pan, grab, look };
+enum class Drag : u8 { none, fly, pedestal, pan, orbit, dolly, gizmo, marquee, ortho_pan, grab, look, look_free };
 
 struct Viewport {
   u32 index = 0;                // 0..3
@@ -472,6 +472,21 @@ class Studio {
   PlayState play_ = PlayState::editing;
   bool paused_ = false;
   bool ejected_ = false;
+  bool observing_ = false;  // Play started with the level's observer camera (world.observer)
+  // Fingers on a free (ejected / simulating) camera: one grabs a body or looks, two pinch and pan.
+  struct FreeTouch {
+    struct Finger { i32 id = -1; f32 x = 0, y = 0, x0 = 0, y0 = 0; f64 t0 = 0; };
+    Finger f[2];
+    i32 count = 0;
+    enum class Mode : u8 { none, look, grab, pinch } mode = Mode::none;
+    bool moved = false;
+    game::ActorId actor = 0;
+    f32 spread = 0;   // pinch: the distance between the fingers
+  } free_touch_;
+  bool free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms);
+  void grab_depth(Viewport& v, f32 factor);
+  /// Running: takes the dynamic body under (x, y) with the mouse joint; false when there is none.
+  bool grab_at(Viewport& v, u32 index, f32 x, f32 y);
   bool mouse_captured_ = false;
   std::unordered_set<std::string> keys_;  // KeyboardEvent.code held
   u32 modifiers_ = 0;

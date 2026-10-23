@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <set>
+#include <tuple>
 #include <vector>
 
 #include "gl_stub.h"
@@ -3095,6 +3096,144 @@ struct StudioFixture {
     return s->command(c);
   }
 };
+
+// The observer camera (world.observer): Play starts watching - a free camera that flies with WASD
+// and looks by dragging - and any body can be taken with the mouse joint, by mouse or by finger.
+TEST(studio_observer_camera_grabs_bodies) {
+  StudioFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  game::Actor player;
+  player.name = "Player";
+  player.transform.position = {-6, 0, 1};
+  player.mesh = game::MeshComponent{};
+  player.mesh->shape = game::Shape::sphere;
+  player.body = game::BodyComponent{};
+  player.controller = game::ControllerComponent{};
+  player.controller->mode = game::ControlMode::rolling;
+  l.add(player);
+  game::Actor crate;
+  crate.name = "Crate";
+  crate.transform.position = {0, 0, 0.5f};
+  crate.mesh = game::MeshComponent{};
+  crate.body = game::BodyComponent{};
+  crate.body->motion = game::Motion::dynamic;
+  const game::ActorId crate_id = l.add(crate).id;
+  l.world.observer = true;
+  // The setting is part of the level file.
+  game::Level back;
+  std::string err;
+  CHECK(game::from_text(game::to_text(l), back, &err) && back.world.observer);
+  CHECK(f.s->load_level(l));
+  studio::ViewCamera& cam = f.s->viewport(0).camera;
+  cam.position = {0, -8, 3};
+  cam.yaw = 90;
+  cam.pitch = -15;
+  CHECK(f.cmd(R"({"cmd":"play","mode":"play"})")["ok"].as_bool());
+  f.frames(10);
+  json::Value st = f.s->state();
+  CHECK(st["play"]["state"].as_string() == "simulating" && st["play"]["observing"].as_bool());
+  const std::string tool = st["tool"].as_string();
+  // WASD flies (no right mouse needed) and does not switch tools.
+  const Vec3 c0 = cam.position;
+  f.s->key("w", "KeyW", true, 0, false);
+  f.frames(30);
+  f.s->key("w", "KeyW", false, 0, false);
+  CHECK(cam.position.y > c0.y + 0.5f);
+  CHECK(f.s->state()["tool"].as_string() == tool);
+  cam.position = c0;
+  f.frames(2);
+  auto screen = [&](game::ActorId id) {
+    json::Value c = json::Value::object();
+    c.set("cmd", "project");
+    c.set("id", id);
+    json::Value r = f.s->command(c);
+    return std::pair<f32, f32>{static_cast<f32>(r["x"].as_number()), static_cast<f32>(r["y"].as_number())};
+  };
+  Mat4 m;
+  // The mouse: press on the crate, drag up - it is lifted by the mouse joint; release drops it.
+  auto [x, y] = screen(crate_id);
+  f.s->pointer(0, 0, x, y, 0, 1, 0, 0);
+  CHECK(f.s->world().grabbing());
+  for (int i = 1; i <= 20; ++i) { f.s->pointer(0, 1, x, y - 6.0f * static_cast<f32>(i), 0, 1, 0, 0); f.frames(2); }
+  f.frames(30);
+  f.s->world().actor_matrix(crate_id, m);
+  CHECK(m.translation().z > 1.0f);
+  // The wheel pushes it away while held.
+  const Vec3 held = m.translation();
+  f.s->pointer(0, 4, x, y - 120, 0, 1, 0, 400);
+  f.frames(30);
+  f.s->world().actor_matrix(crate_id, m);
+  CHECK(distance(m.translation(), cam.position) > distance(held, cam.position) + 0.3f);
+  f.s->pointer(0, 2, x, y - 120, 0, 0, 0, 0);
+  CHECK(!f.s->world().grabbing());
+  f.frames(90);
+  f.s->world().actor_matrix(crate_id, m);
+  CHECK(m.translation().z < 0.8f);  // dropped back down
+  // A finger: the same with touch; a drag on empty space looks around.
+  std::tie(x, y) = screen(crate_id);
+  f64 t = 1000;
+  CHECK(f.s->touch_pointer(0, 7, x, y, t));
+  CHECK(f.s->world().grabbing());
+  for (int i = 1; i <= 20; ++i) { CHECK(f.s->touch_pointer(1, 7, x + 4.0f * static_cast<f32>(i), y - 5.0f * static_cast<f32>(i), t += 16)); f.frames(2); }
+  f.frames(30);
+  f.s->world().actor_matrix(crate_id, m);
+  CHECK(m.translation().z > 1.0f);
+  CHECK(f.s->touch_pointer(2, 7, x + 80, y - 100, t += 16));
+  CHECK(!f.s->world().grabbing());
+  const f32 yaw0 = cam.yaw;
+  CHECK(f.s->touch_pointer(0, 8, 900, 60, t += 500));  // the sky: nothing to take
+  CHECK(!f.s->world().grabbing());
+  for (int i = 1; i <= 10; ++i) f.s->touch_pointer(1, 8, 900 - 10.0f * static_cast<f32>(i), 60, t += 16);
+  f.s->touch_pointer(2, 8, 800, 60, t += 16);
+  CHECK(std::fabs(cam.yaw - yaw0) > 5);
+  // Two fingers spreading fly forward.
+  const Vec3 p0 = cam.position, fwd = cam.forward();
+  f.s->touch_pointer(0, 1, 860, 70, t += 500);
+  f.s->touch_pointer(0, 2, 900, 70, t += 10);
+  for (int i = 1; i <= 10; ++i) { f.s->touch_pointer(1, 1, 860 - 10.0f * static_cast<f32>(i), 70, t += 16); f.s->touch_pointer(1, 2, 900 + 10.0f * static_cast<f32>(i), 70, t += 1); }
+  f.s->touch_pointer(2, 1, 760, 70, t += 16);
+  f.s->touch_pointer(2, 2, 1000, 70, t += 16);
+  CHECK(dot(cam.position - p0, fwd) > 0.5f);
+  // F8 takes over the player, F8 again watches.
+  f.s->key("F8", "F8", true, 0, false);
+  CHECK(f.s->state()["play"]["state"].as_string() == "playing");
+  f.s->key("F8", "F8", false, 0, false);
+  f.s->key("F8", "F8", true, 0, false);
+  CHECK(f.s->state()["play"]["observing"].as_bool());
+  f.cmd(R"({"cmd":"stop"})");
+  CHECK(!f.s->state()["play"]["observing"].as_bool());
+}
+
+TEST(studio_simulate_drags_bodies_without_ctrl) {
+  StudioFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  game::Actor crate;
+  crate.name = "Crate";
+  crate.transform.position = {0, 0, 0.5f};
+  crate.mesh = game::MeshComponent{};
+  crate.body = game::BodyComponent{};
+  crate.body->motion = game::Motion::dynamic;
+  const game::ActorId id = l.add(crate).id;
+  CHECK(f.s->load_level(l));
+  studio::ViewCamera& cam = f.s->viewport(0).camera;
+  cam.position = {0, -8, 3};
+  cam.yaw = 90;
+  cam.pitch = -15;
+  CHECK(f.cmd(R"({"cmd":"play","mode":"simulate"})")["ok"].as_bool());
+  f.frames(5);
+  json::Value c = json::Value::object();
+  c.set("cmd", "project");
+  c.set("id", id);
+  json::Value r = f.s->command(c);
+  const f32 x = static_cast<f32>(r["x"].as_number()), y = static_cast<f32>(r["y"].as_number());
+  f.s->pointer(0, 0, x, y, 0, 1, 0, 0);
+  CHECK(f.s->world().grabbing());
+  f.s->pointer(0, 2, x, y, 0, 0, 0, 0);  // a click: let go, and select it
+  CHECK(!f.s->world().grabbing());
+  CHECK(std::find(f.s->selection().begin(), f.s->selection().end(), id) != f.s->selection().end());
+}
 
 TEST(studio_starts_with_orb_run) {
   StudioFixture f;

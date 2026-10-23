@@ -272,6 +272,7 @@ Level micro_duck_level() {
     l.add(std::move(a));
   }
   l.world.player = base;
+  l.world.observer = true;  // watch it play: a free camera, and pick things up with the mouse / a finger
 
   // Level blueprint (a demo of the Robots nodes, not the robot's own behaviour): chirp once whenever
   // the ball comes into the head camera's picture.

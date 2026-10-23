@@ -87,7 +87,7 @@ Lange Menüs scrollen, und auf Touch sind die Zeilen 40 px hoch.
 | [ / ] | Grid-Raster kleiner / größer |
 | Alt+P / Alt+S | Play / Simulate |
 | Esc / F8 / Shift+F1 | Stopp / Eject bzw. Possess / Maus freigeben |
-| Ctrl + ziehen (Simulate) | Box3D-Körper greifen und werfen |
+| Ziehen auf einem Körper (Simulate, Eject, Beobachten) | ihn mit dem Mouse Joint greifen, ziehen, hochheben und werfen; Mausrad: näher / weiter; ein Klick wählt ihn aus |
 | K (Simulate) | simulierte Posen der Auswahl übernehmen |
 | Rechtsklick | Kontextmenü: Fokus, Umbenennen, Anhängen, mit Gelenk verbinden, Sperren, Actor platzieren |
 
@@ -225,10 +225,36 @@ ungespeicherte Änderungen zeigt nichts an.
 - **Nicht gespeichert, solange Play läuft:** Während Play/Simulate wird nichts geschrieben. Eine fällige
   Kopie folgt nach Stop.
 
+## Beobachten und Anfassen (Observer-Kamera)
+
+Mit **World Settings → Observer camera** startet Play nicht hinter dem Spieler, sondern mit einer
+freien Kamera: Das Spiel läuft, man fliegt herum und schaut zu. Das Beispiel-Level Micro Duck nutzt
+das.
+
+- **Desktop:**
+  - WASD fliegt, Q / E fliegt hoch / runter, Shift fliegt schneller (ohne gehaltene rechte Maustaste).
+  - Ziehen ins Leere schaut sich um; rechte Maustaste und Mausrad wie im Editor.
+- **Handy:**
+  - Ein Finger ins Leere schaut sich um.
+  - Zwei Finger fliegen: auseinander vorwärts, zusammen zurück; gemeinsam verschieben schwenkt.
+- **Anfassen:** Jeden Körper (dynamischer Box3D-Body) greift man mit dem Mouse Joint, mit der Maus
+  wie mit dem Finger, auch in Simulate und nach Eject (Ctrl ist nicht mehr nötig).
+  - Ein Motor-Joint mit Feder (7,5 Hz, kritisch gedämpft) zieht den gegriffenen Punkt zum Zeiger.
+    Der Körper bleibt ganz in der Physik: Er stößt an, kippt, schwingt und fliegt beim Loslassen
+    mit seinem Schwung weiter.
+  - Den Zeiger nach oben ziehen hebt ihn hoch.
+  - Mausrad oder ein zweiter Finger (auseinander / zusammen) holt ihn näher oder schiebt ihn weg.
+  - Ein kurzer Klick oder Tipp wählt den Körper aus.
+- **Spieler übernehmen:** F8 übernimmt den Spieler (z. B. die Ente per Gamepad), F8 noch einmal
+  beobachtet wieder. Im exportierten Spiel gibt es beim Beobachten keinen Pointer-Lock.
+- **Tests:** `studio_observer_camera_grabs_bodies` (Fliegen, Maus und Finger heben die Kiste, Mausrad,
+  Pinch, F8), `studio_simulate_drags_bodies_without_ctrl`, E2E am Handy (der Ball wird mit dem Finger
+  angehoben)
+
 ## Tests
 
 - `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave (nur bei ungespeicherten Änderungen, Löschen nach Speichern und Undo, `restore`), Einstellungen (Standardwerte, nur eigene Entscheidungen, Laden, Zurücksetzen), Packaging, Player-Modus
-- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Einstellungen (Constraints standardmäßig aus, Speichern und Neuladen, Reset im Studio-Dialog), Handy hoch und quer (Play/Simulate/Pause/Stop in jedem Zustand mit einem Tipp erreichbar), Level öffnen auf Android über den Dateidialog, Farbwähler bleibt beim Ziehen offen, Modul-Version und schmales Fenster
+- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Einstellungen (Constraints standardmäßig aus, Speichern und Neuladen, Reset im Studio-Dialog), Handy hoch und quer (Play/Simulate/Pause/Stop in jedem Zustand mit einem Tipp erreichbar), Level öffnen auf Android über den Dateidialog, Farbwähler bleibt beim Ziehen offen, Micro Duck am Handy beobachten und den Ball mit dem Finger anheben, Modul-Version und schmales Fenster
 
 ## Logic: Blueprints, die C++ sind
 

@@ -261,6 +261,7 @@ void Studio::apply_drag(Viewport& v, f32 dx, f32 dy, u32 mods) {
   const f32 inv = prefs_.invert_y ? -1.0f : 1.0f;
   const f32 move = camera_speed() * 0.02f;  // metres per pixel for drags
   switch (v.drag) {
+    case Drag::look_free:
     case Drag::fly:
       c.yaw -= dx * sens;
       c.pitch = clamp(c.pitch - dy * sens * inv, -89.9f, 89.9f);
@@ -339,6 +340,108 @@ void Studio::marquee_select(Viewport& v, u32 mods) {
   report("Selected " + std::to_string(selection_.size()) + " actors");
 }
 
+bool Studio::grab_at(Viewport& v, u32 index, f32 x, f32 y) {
+  Vec3 hit;
+  const ActorId id = pick(index, x, y, &hit);
+  if (!id || !world_->begin_grab(id, hit)) return false;
+  v.pivot = hit;
+  v.press_actor = id;
+  begin_drag(v, Drag::grab);
+  return true;
+}
+
+void Studio::grab_depth(Viewport& v, f32 factor) {
+  const Vec3 eye = camera_of(v).eye;
+  const f32 d = clamp(distance(eye, v.pivot) * factor, 0.3f, 500.0f);
+  Ray r;
+  if (!ray(v, v.x, v.y, r)) return;
+  v.pivot = eye + normalize(v.pivot - eye) * d;
+  world_->move_grab(r.origin + r.direction * d);
+}
+
+// Fingers on a free camera (Simulate, ejected, the observer camera): one finger on a body takes it
+// with the mouse joint and drags it (up the screen lifts it), one finger elsewhere looks around, two
+// fingers pinch (fly forward / back) and pan; a short tap selects. A second finger while holding a
+// body pinches it nearer or farther.
+bool Studio::free_touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
+  Viewport& v = views_[active_view_];
+  if (v.type != ViewType::perspective) return false;
+  FreeTouch& t = free_touch_;
+  using Mode = FreeTouch::Mode;
+  auto slot = [&](i32 pid) -> FreeTouch::Finger* {
+    for (auto& f : t.f) if (f.id == pid) return &f;
+    return nullptr;
+  };
+  auto spread = [&]() { return std::hypot(t.f[0].x - t.f[1].x, t.f[0].y - t.f[1].y); };
+  const f32 sens = 0.3f * prefs_.mouse_sensitivity, inv = prefs_.invert_y ? -1.0f : 1.0f;
+  if (type == 0) {  // down
+    if (t.count >= 2) return true;
+    FreeTouch::Finger& f = t.f[t.f[0].id < 0 ? 0 : 1];
+    f = {id, x, y, x, y, time_ms};
+    ++t.count;
+    if (t.count == 1) {
+      v.x = v.press_x = x;
+      v.y = v.press_y = y;
+      t.moved = false;
+      t.actor = 0;
+      if (play_ == PlayState::simulating && grab_at(v, active_view_, x, y)) { t.mode = Mode::grab; t.actor = v.press_actor; }
+      else t.mode = Mode::look;
+    } else {
+      t.spread = max_of(1.0f, spread());
+      if (t.mode != Mode::grab) t.mode = Mode::pinch;
+    }
+    touch();
+    return true;
+  }
+  FreeTouch::Finger* f = slot(id);
+  if (!f) return true;
+  if (type == 1) {  // move
+    const f32 dx = x - f->x, dy = y - f->y;
+    f->x = x;
+    f->y = y;
+    if (std::hypot(x - f->x0, y - f->y0) > 6) t.moved = true;
+    ViewCamera& c = v.camera;
+    if (t.mode == Mode::grab) {
+      if (t.count == 2) {
+        const f32 s = max_of(1.0f, spread());
+        grab_depth(v, t.spread / s);  // fingers apart: nearer; together: farther
+        t.spread = s;
+      } else if (f == &t.f[0] || t.count == 1) {
+        v.x = x;
+        v.y = y;
+        Ray r;
+        if (ray(v, x, y, r)) world_->move_grab(r.origin + r.direction * distance(camera_of(v).eye, v.pivot));
+      }
+    } else if (t.mode == Mode::look && t.count == 1) {
+      c.yaw -= dx * sens;
+      c.pitch = clamp(c.pitch - dy * sens * inv, -89.9f, 89.9f);
+    } else if (t.mode == Mode::pinch && t.count == 2) {
+      const f32 s = max_of(1.0f, spread());
+      const f32 move = camera_speed() * 0.02f;
+      c.position += c.forward() * ((s - t.spread) * move);  // spread: fly forward
+      const Vec3 up = cross(c.right(), c.forward());
+      c.position += c.right() * (-dx * 0.5f * move) + up * (dy * 0.5f * move);  // both fingers: pan
+      t.spread = s;
+    }
+    touch();
+    return true;
+  }
+  // up / cancel
+  const bool tap = type == 2 && t.count == 1 && !t.moved && time_ms - f->t0 < 350;
+  f->id = -1;
+  t.count = max_of(0, t.count - 1);
+  if (t.mode == Mode::grab && (t.count == 0 || f == &t.f[0])) {
+    end_drag(v);
+    t.mode = t.count ? Mode::look : Mode::none;
+  }
+  if (tap) click(v, x, y, 0);
+  if (t.count == 0) t.mode = Mode::none;
+  else if (t.f[0].id < 0) { t.f[0] = t.f[1]; t.f[1] = {}; }  // the remaining finger leads
+  if (t.mode == Mode::pinch && t.count == 1) t.mode = Mode::look;
+  touch();
+  return true;
+}
+
 bool Studio::touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
   if (type == 0) {
     const bool switched = !input_.touch();
@@ -356,7 +459,7 @@ bool Studio::touch_pointer(u32 type, i32 id, f32 x, f32 y, f64 time_ms) {
       touch();
     }
   }
-  if (play_ != PlayState::playing || ejected_) return false;
+  if (play_ != PlayState::playing || ejected_) return play_ != PlayState::editing && free_touch_pointer(type, id, x, y, time_ms);
   return touch_ctl_.pointer(type, id, x, y, time_ms);
 }
 
@@ -403,13 +506,10 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
         const u32 handle = gizmo_visible(v) ? gizmo_hit(v, x, y) : 0;
         if ((mods & alt) && !(mods & ctrl) && persp && !handle) begin_drag(v, Drag::orbit);
         else if (handle) begin_gizmo(v, handle, mods);
-        else if ((mods & ctrl) && play_ == PlayState::simulating) {
-          Vec3 hit;
-          const ActorId id = pick(index, x, y, &hit);
-          if (id && world_->begin_grab(id, hit)) {
-            v.pivot = hit;
-            begin_drag(v, Drag::grab);
-          }
+        else if (play_ == PlayState::simulating && persp && v.drag != Drag::fly && grab_at(v, index, x, y)) {
+          // Running: a body under the cursor is taken by the mouse joint (a click still selects it).
+        } else if (play_ == PlayState::simulating && observing_ && ejected_ && persp && v.drag != Drag::fly) {
+          begin_drag(v, Drag::look_free);  // watching: dragging the empty view looks around
         } else if (v.drag == Drag::fly && persp) begin_drag(v, Drag::pedestal);
         else {
           // Left button (as in Unreal): a click selects, a drag draws a marquee. Actors move only
@@ -456,7 +556,7 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
       const bool surface = d == Drag::gizmo && gizmo_.surface;
       if (d == Drag::marquee && v.moved && type == up) marquee_select(v, mods);
       end_drag(v);
-      if (click_now && button == 0 && (surface || d == Drag::marquee)) click(v, x, y, mods);
+      if (click_now && button == 0 && (surface || d == Drag::marquee || d == Drag::grab || d == Drag::look_free)) click(v, x, y, mods);
       if (click_now && button == 2 && (d == Drag::fly || d == Drag::ortho_pan) && play_ != PlayState::playing) {
         // Right click: select what is under the cursor and open the context menu.
         const ActorId id = pick(index, x, y);
@@ -486,6 +586,8 @@ json::Value Studio::pointer(u32 index, u32 type, f32 x, f32 y, i32 button, i32 b
         const Vec3 shift = before.origin - after.origin;
         c.ortho_center += shift - dir * dot(shift, dir);
         v.grid_key = 0;
+      } else if (v.drag == Drag::grab) {
+        grab_depth(v, std::exp(wheel_delta * 0.0015f));  // the wheel pushes the held body away (down) / brings it nearer (up)
       } else if (v.drag == Drag::fly) {
         prefs_.camera_speed = clamp(prefs_.camera_speed + (wheel_delta < 0 ? 1 : -1), 1, 8);
         report("Camera speed " + std::to_string(prefs_.camera_speed));
@@ -534,7 +636,9 @@ void Studio::focus_selection(i32 index) {
 
 void Studio::update_cameras(f32 dt) {
   for (Viewport& v : views_) {
-    if (v.type != ViewType::perspective || v.drag != Drag::fly) continue;
+    // Flying: the right mouse held - or always in the active viewport while watching (observer camera).
+    const bool watching = observing_ && ejected_ && v.index == active_view_ && v.drag != Drag::grab;
+    if (v.type != ViewType::perspective || (v.drag != Drag::fly && !watching)) continue;
     auto held = [&](const char* code) { return keys_.count(code) > 0; };
     Vec3 move;
     const Vec3 f = v.camera.forward(), r = v.camera.right();
