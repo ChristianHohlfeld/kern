@@ -386,10 +386,21 @@ void GameAudio::update(GameWorld& world, const Camera& cam, f32 dt) {
       const f32 speed = clamp(hud.speed / top, 0.0f, 1.2f);
       const f32 throttle = std::fabs(world.last_input().move_y) + (world.last_input().boost && c.boost ? 0.5f : 0.0f);
       const bool live = hud.status == GameStatus::playing;
-      const f32 target = live ? clamp(0.32f + speed * 0.45f + throttle * 0.18f, 0.0f, 0.95f) : 0.12f;
-      engine_volume_ = damp(engine_volume_, target, 6, dt);
-      mixer_.set_volume(engine_, engine_volume_, 0.05f);
-      mixer_.set_pitch(engine_, clamp(0.72f + speed * 0.95f + throttle * 0.08f, 0.5f, 2.2f));
+      f32 strain = 0, drive = 0, turning = 0;
+      if (c.mode == ControlMode::walker && world.walker_servo_load(player, strain, drive, turning)) {
+        // A robot's servos: the gears whine with what they do - higher with the motors' speed,
+        // louder with the work (torque x speed), a faint strained hum while they hold a load.
+        // Quiet: under the footsteps and the voice.
+        const f32 target = live ? clamp(0.015f + drive * 0.035f + strain * 0.06f, 0.0f, 0.3f) : 0.0f;
+        engine_volume_ = damp(engine_volume_, target, 14, dt);
+        mixer_.set_volume(engine_, engine_volume_, 0.03f);
+        mixer_.set_pitch(engine_, clamp(0.7f + turning * 0.025f + strain * 0.25f, 0.6f, 1.9f));
+      } else {
+        const f32 target = live ? clamp(0.32f + speed * 0.45f + throttle * 0.18f, 0.0f, 0.95f) : 0.12f;
+        engine_volume_ = damp(engine_volume_, target, 6, dt);
+        mixer_.set_volume(engine_, engine_volume_, 0.05f);
+        mixer_.set_pitch(engine_, clamp(0.72f + speed * 0.95f + throttle * 0.08f, 0.5f, 2.2f));
+      }
       Mat4 m;
       if (world.actor_matrix(player, m)) mixer_.set_position(engine_, m.translation(), {});
     }

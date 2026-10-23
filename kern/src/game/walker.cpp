@@ -769,6 +769,16 @@ bool GameWorld::walker_sees(ActorId id, ActorId target, bool& visible, f32& bear
   return true;
 }
 
+bool GameWorld::walker_servo_load(ActorId id, f32& strain, f32& drive, f32& speed) const {
+  const WalkerBrain* w = walker_brain(id);
+  strain = drive = speed = 0;
+  if (!w) return false;
+  strain = w->servo_strain;
+  drive = w->servo_drive;
+  speed = w->servo_speed;
+  return true;
+}
+
 bool GameWorld::walker_holding(ActorId id) const {
   // The mouth servo's own encoder: told to shut, it stops short of its pads - something is in the beak.
   const WalkerBrain* w = walker_brain(id);
@@ -1051,6 +1061,20 @@ void GameWorld::drive_walkers(f32 h) {
         obs[34 + j] = w.action[j];
       }
       std::memcpy(w.joint_speed, speed, sizeof speed);
+      // What the servos work against, for their sound: each one's torque (the servo law Box3D
+      // solves: stiffness x error up to the stall torque, minus damping x speed) as a share of its
+      // stall torque, and that times its speed - the mechanical power it puts out.
+      w.servo_strain = w.servo_drive = w.servo_speed = 0;
+      for (i32 j = 0; j < kJoints; ++j) {
+        const SimJoint& sj = *w.joint[j];
+        const f32 tmax = max_of(1e-6f, sj.servo_torque);
+        const f32 err = sj.servo_target - physics_.joint_angle(sj.joint);
+        const f32 tau = clamp(sj.servo_stiffness * err, -tmax, tmax) - sj.servo_damping * physics_.joint_speed(sj.joint);
+        const f32 share = min_of(1.5f, std::fabs(tau) / tmax);
+        w.servo_strain += share / kJoints;
+        w.servo_drive += share * std::fabs(speed[j]);
+        w.servo_speed += std::fabs(speed[j]);
+      }
       for (int i = 0; i < 3; ++i) obs[48 + i] = w.command[i];
       for (int i = 0; i < 4; ++i) obs[51 + i] = head_cmd[i];
       // body command (x, y, z, roll, pitch, yaw) stays 0: the stand pose

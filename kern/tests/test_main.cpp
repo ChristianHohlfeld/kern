@@ -4114,6 +4114,40 @@ TEST(micro_duck_runs_every_move_of_its_set) {
   }
 }
 
+TEST(micro_duck_servo_load_drives_its_sound) {
+  // The servo sound follows what the servos do: standing they hold (some strain, little work),
+  // walking they work (torque x speed several times higher).
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0});
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::play));
+  auto average = [&](const game::PlayInput& in, f32 seconds, f32& strain, f32& drive) {
+    strain = drive = 0;
+    int n = 0;
+    for (f32 t = 0; t < seconds; t += 1.0f / 60, ++n) {
+      f.world->step(1.0f / 60, in);
+      f32 s = 0, d = 0, v = 0;
+      CHECK(f.world->walker_servo_load(duck, s, d, v));
+      strain += s;
+      drive += d;
+    }
+    strain /= static_cast<f32>(n);
+    drive /= static_cast<f32>(n);
+  };
+  f32 hold_strain, hold_drive, walk_strain, walk_drive;
+  average({}, 1, hold_strain, hold_drive);  // settle
+  average({}, 3, hold_strain, hold_drive);
+  game::PlayInput fwd;
+  fwd.move_y = 1;
+  average(fwd, 4, walk_strain, walk_drive);
+  if (print) std::printf("standing: strain %.3f drive %.3f | walking: strain %.3f drive %.3f\n", hold_strain, hold_drive, walk_strain, walk_drive);
+  CHECK(hold_strain > 0.01f && hold_strain < 0.6f);
+  CHECK(walk_drive > 3 * hold_drive + 0.05f);
+}
+
 TEST(micro_duck_steps_and_taps_sound) {
   // Its soles step (a soft, small footstep) and its plastic taps when shells touch - quietly, a few
   // per second, not a chatter.

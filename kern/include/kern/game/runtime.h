@@ -358,6 +358,10 @@ class GameWorld {
   /// Whether walker `id` holds something in its beak: told to shut, the mouth servo's encoder reads
   /// it open by more than 2 degrees.
   bool walker_holding(ActorId id) const;
+  /// How hard walker `id`'s servos work (each control tick): strain = mean torque as a share of the
+  /// stall torque (0 idle .. 1 stalled), drive = sum of share x speed (rad/s real, the mechanical
+  /// work), speed = sum of joint speeds (rad/s real). Its servo sound follows these.
+  bool walker_servo_load(ActorId id, f32& strain, f32& drive, f32& speed) const;
   /// The network driving the robot now: "walk", "stand", "sit", "rise", "ground_pick", a skill.
   std::string walker_driving(ActorId id) const;
   /// The last call its voice made ("greet", "chirp", "wheee", ...), "" before the first.

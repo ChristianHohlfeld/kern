@@ -1918,8 +1918,11 @@ void GameWorld::handle_events() {
       if (!a || !a->body || ss == shape_sound_.end()) continue;
       const f32 threshold = max_of(kMinImpactThreshold, a->body->impact_threshold);
       if (h.approach_speed < threshold) continue;
+      // One sound per touch: a sole rocks heel to toe and settles in a few small bounces, which
+      // Box3D reports as separate hits - a step is heard once (0.5 s), a knock 0.09 s apart.
+      const bool step = ss->second.find("step") != std::string::npos;
       f32& last = last_impact_[id];
-      if (last > 0 && sim_time_ - last < 0.09f) continue;
+      if (last > 0 && sim_time_ - last < (step ? 0.5f : 0.09f)) continue;
       last = sim_time_ + 1e-6f;
       const f32 strength = clamp((h.approach_speed - threshold) / (threshold * 5) + 0.2f, 0.2f, 1.0f);
       std::string sound = ss->second;

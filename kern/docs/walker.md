@@ -394,10 +394,17 @@ apirrone/microduck_sounds portiert. Es gibt keine Samples und kein Netz.
   nicht. Im Beispiel-Level ruft sie beim Ball nur, weil das der Level-Blueprint ausdrücklich so
   vorführt.
 - **Servos:** Der Roboter und sein Training modellieren keine Servogeräusche, es gibt also keine
-  Referenz. Kern spielt deshalb nur leise den eingebauten Servo-Loop des Controllers.
+  Referenz. Kern leitet den Servo-Loop aus der Physik ab (`walker_servo_load`, jeden Regeltakt):
+  - Drehmoment jedes Servos nach dem Servo-Gesetz, das Box3D löst (Steifigkeit × Fehler bis zum
+    Haltemoment, minus Dämpfung × Drehzahl), als Anteil am Haltemoment: die Last, gegen die er arbeitet.
+  - Lautstärke folgt der Arbeit (Last × Drehzahl) und leise der Haltelast, die Tonhöhe der Drehzahl
+    der Motoren und etwas der Last. Gemessen: stehend Last 0,02 und Arbeit 0, gehend Last 0,06 und
+    Arbeit 1,2 (Test `micro_duck_servo_load_drives_its_sound`). Leise, unter Schritten und Stimme.
 - **Berührungen:** Die Gehäuse und Servo-Housings klingen bei jeder Berührung nach Kunststoff
   (`builtin:plastic`), mit dem Boden wie miteinander. Die Sohlen klingen als leiser, kleiner
-  Schritt (`builtin:plastic_step`, als Impact Sound ihrer Collider).
+  Schritt (`builtin:plastic_step`, als Impact Sound ihrer Collider): dumpf und leise, ein Schritt
+  pro Fuß höchstens alle 0,5 s (Simulationszeit), weil eine Sohle von der Ferse zur Spitze abrollt
+  und dabei mehrere Treffer meldet - das waren die hörbaren Doppelschritte.
   - Schon ab 0,12 m/s Annäherung gibt es einen Ton (`kDuckImpactThreshold`), weil die Ente klein
     und leicht ist.
   - Beim Gehen sind es etwa zwei bis drei Schritte pro Sekunde. Ein Tappen kommt erst, wenn sie

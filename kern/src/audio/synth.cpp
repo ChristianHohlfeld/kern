@@ -803,7 +803,8 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
     out = struck(rate, {{1180, 0.020f, 0.55f}, {2710, 0.013f, 0.38f}, {4230, 0.008f, 0.26f}, {6950, 0.004f, 0.14f}}, 0.5f, 1.4f, 7000, 0.12f, 0.34f, 71);
   } else if (name == "plastic_step") {
     // A small sole set down: a soft, dull tap - low partials, a muffled contact, quiet.
-    out = struck(rate, {{330, 0.026f, 0.5f}, {870, 0.011f, 0.32f}, {2050, 0.005f, 0.12f}}, 0.45f, 6, 1600, 0.1f, 0.26f, 73);
+    // Softer and duller than a knock: the TPU-padded sole on the floor is mostly a thud.
+    out = struck(rate, {{170, 0.030f, 0.6f}, {410, 0.014f, 0.25f}, {980, 0.005f, 0.06f}}, 0.35f, 9, 650, 0.12f, 0.13f, 73);
   } else if (name == "step") {
     SynthPatch n = patch(Wave::noise, 2400, 0.001f, 0.004f, 0.055f, 0.45f);
     n.lowpass = 900;
