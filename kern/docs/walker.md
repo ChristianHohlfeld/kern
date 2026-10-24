@@ -378,19 +378,17 @@ läuft per Logic und dreht weg, sobald der ToF etwas näher als 1,6 m sieht.
 
 ## 11. Aussehen und Kollision
 
-- **Meshes:** Jedes Glied zeigt Pollens STL-Teile (`third_party/microduck/micro_duck_meshes.inc`,
-  CC BY-NC-SA 4.0). Sie sind vereinfacht, pro Glied zusammengeführt, in die Home-Pose gestellt und
-  tragen die MJCF-Materialfarben als Vertexfarben. Für die Vereinfachung gilt:
-  - Verfahren: Vertex-Clustering mit Quadrik-Repräsentanten.
-  - Bei den gedruckten Schalen bleibt die Zelle unter 1 mm. Sonst verschmelzen Innen- und
-    Außenwand, und es entstehen Löcher.
-  - Das Ergebnis: rund 85 000 Dreiecke.
+- **Meshes:** Kerns eigene Gestaltung (`tools/kern_duck.py` → `src/game/duck_meshes.inc`):
+  abgerundete Quader, Streben und Scheiben pro Glied, in der Home-Pose, mit Vertexfarben. Pollens
+  STL-Modelle (CC BY-NC-SA 4.0) sind nicht enthalten; übernommen sind nur Messdaten.
 - **Mund:** Der Unterschnabel (Kiefer und weiches Polster) ist ein eigenes Glied am Mund-Servo.
   - Bereich wie im Daemon: −5° (gegen das Polster gedrückt) bis 30°.
   - Die Drehachse geht durch die Augen des Kiefer-Meshes.
   - Masse und Trägheit stammen aus den Meshes (PLA 1,24, TPU 1,21 g/cm³) und sind vom Kopf
     abgezogen.
-- **Kollision wie in MuJoCo:** Jedes kollidierende Mesh ist seine konvexe Hülle.
+- **Kollision wie in MuJoCo:** jedes kollidierende Teil eine konvexe Hülle. Kern hat sie als
+  Messdaten (`tools/kern_duck_envelopes.json` → `src/game/duck_colliders.inc`): grobe Hüllen aus
+  11 bis 40 Punkten, wie weit die Teile des echten Roboters reichen.
   - Sohlen: Reibung 1.
   - XL330-Gehäuse: reibungsfrei, wie im Training.
   - Schnabelpolster: Reibung 1. Sie greifen.

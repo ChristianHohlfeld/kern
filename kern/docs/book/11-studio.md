@@ -34,9 +34,9 @@ There are three ways to open Studio:
 
 The project's home page (https://christianhohlfeld.github.io/kern/) links to Studio, the Lehrer, the
 two example games and two levels you can play directly (`kern/web/studio/play.html?level=orbRun` and
-`?level=physicsLab`). Its footer names the owner ("© 2026 Christian Heinrich Hohlfeld · Alle Rechte
-vorbehalten", all rights reserved) and links the license (`LICENSE.txt`), the third-party components
-(`LICENSES.txt`), the Studio docs and the engine docs.
+`?level=physicsLab`). Its footer names the owner ("© 2026 Christian Heinrich Hohlfeld") and links the licence
+(`LICENSING.txt`, Apache 2.0), the third-party components (`LICENSES.txt`), the source code, the Studio
+docs, the engine docs, the imprint and the privacy policy.
 
 **What happens at startup:**
 

@@ -56,14 +56,15 @@ Die Physik selbst (Box3D, Kontakte, Gelenke) beschreibt [Kapitel 6](06-physik.md
 ### Import aus dem MJCF
 
 Pollen trainiert auf `robot_allcollisions_backlash.xml` (15 Bodies, 14 Gelenke). Das Werkzeug
-`tools/micro_duck_import.py` liest diese Datei, die STL-Meshes und `velstand.onnx` und erzeugt
-daraus `src/game/micro_duck_model.inc`, `src/game/micro_duck_velstand.inc` und
-`third_party/microduck/micro_duck_meshes.inc`:
+`tools/micro_duck_import.py` liest diese Datei und `velstand.onnx` und erzeugt daraus
+`src/game/micro_duck_model.inc` und `src/game/micro_duck_velstand.inc`. Aus Pollens STL-Dateien
+liest es nur Maße (tiefster Punkt, Masseverteilung des Schnabels); das Aussehen zeichnet danach
+`tools/kern_duck.py`, die Kollider schreibt es aus den gemessenen Hüllen:
 
 ```
 python3 -I tools/micro_duck_import.py kern/third_party/microduck/robot_allcollisions_backlash.xml \
-    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game \
-    kern/third_party/microduck/micro_duck_meshes.inc
+    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game
+python3 -I tools/kern_duck.py
 ```
 
 Der Import prüft Gelenknamen und -reihenfolge, die Home-Pose gegen `default_joint_pos`, die
@@ -128,7 +129,7 @@ Ente mit Armatur näher am Training und zappelt deutlich weniger (Abschnitt 13.1
 
 ### Kollision
 
-Jedes kollidierende Mesh ist wie in MuJoCo seine konvexe Hülle:
+Was kollidiert, ist wie in MuJoCo jeweils eine konvexe Hülle – in Kern als Messdaten: grobe Hüllen aus 11 bis 40 Punkten, die angeben, wie weit die Teile des echten Roboters reichen (`tools/kern_duck_envelopes.json` → `src/game/duck_colliders.inc`). Eine Gestaltung ist darin nicht zu erkennen; sie sorgen dafür, dass die Ente die Welt genau so berührt wie im Training:
 
 | Teil | Reibung | Oberfläche |
 |---|---|---|
@@ -183,10 +184,13 @@ Robotereinheiten (echte Meter, echte Sekunden), sofern nicht anders gesagt.
 
 ### Aussehen
 
-Jedes Glied zeigt Pollens STL-Teile (`micro_duck_meshes.inc`, CC BY-NC-SA 4.0), vereinfacht durch
-Vertex-Clustering mit Quadrik-Repräsentanten (Zelle unter 1 mm bei den gedruckten Schalen),
-pro Glied zusammengeführt, in die Home-Pose gestellt und mit den MJCF-Materialfarben als
-Vertexfarben, zusammen rund 85 000 Dreiecke.
+Die Ente in Kern ist eine eigene Gestaltung (`tools/kern_duck.py` → `src/game/duck_meshes.inc`): ein
+weißer Rumpf mit blauem Kern-Abzeichen, ein Kopf mit orangem Schnabel, Augen, Kamera und
+Abstandssensor, dunkle Servoblöcke an den Gelenken, helle Streben dazwischen und orange Füße. Alles
+ist aus abgerundeten Quadern (Superellipsoiden), Streben und Scheiben gebaut, in der Home-Pose und
+mit Vertexfarben. Pollens 3D-Modelle (CC BY-NC-SA 4.0, nicht kommerziell) sind nicht enthalten;
+übernommen sind nur Messdaten (die Gliedrahmen und die groben Kollisionshüllen), damit Sohlen,
+Servos und Schnabel dort sitzen, wo sie beim echten Roboter sitzen.
 
 ### Rollschuhe
 

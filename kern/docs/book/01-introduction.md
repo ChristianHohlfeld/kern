@@ -315,7 +315,7 @@ generated files.
 ```
 /                                repository root
   README.md                      overview, quick start, CI and Pages
-  LICENSE                        Kern's license: proprietary, all rights reserved
+  LICENSE                        Kern's licence: Apache License 2.0 (with LICENSING.md, NOTICE, TRADEMARKS.md)
   .github/workflows/ci.yml       CI: native tests, determinism (macOS), build, e2e, deploy
   tools/
     build_studio.sh              Kern Studio as a single HTML file -> generated/studio.html

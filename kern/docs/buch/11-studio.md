@@ -34,9 +34,9 @@ Es gibt drei Wege, Studio zu öffnen:
 
 Die Startseite des Projekts (https://christianhohlfeld.github.io/kern/) verlinkt Studio, den Lehrer, die
 beiden Beispielspiele und zwei Levels zum direkten Spielen (`kern/web/studio/play.html?level=orbRun` bzw.
-`?level=physicsLab`). Ihre Fußzeile nennt den Rechteinhaber („© 2026 Christian Heinrich Hohlfeld · Alle
-Rechte vorbehalten“) und verlinkt die Lizenz (`LICENSE.txt`), die Bestandteile Dritter (`LICENSES.txt`),
-die Studio-Doku und die Engine-Doku.
+`?level=physicsLab`). Ihre Fußzeile nennt den Rechteinhaber („© 2026 Christian Heinrich Hohlfeld“) und verlinkt die Lizenz
+(`LICENSING.txt`, Apache 2.0), die Bestandteile Dritter (`LICENSES.txt`), den Quellcode, die Studio-Doku,
+die Engine-Doku, das Impressum und die Datenschutzerklärung.
 
 **Was beim Start passiert:**
 

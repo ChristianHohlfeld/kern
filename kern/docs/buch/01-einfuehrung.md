@@ -315,7 +315,7 @@ erzeugte Dateien.
 ```
 /                                Repository-Wurzel
   README.md                      Überblick, Schnellstart, CI und Pages
-  LICENSE                        Lizenz von Kern: proprietär, alle Rechte vorbehalten
+  LICENSE                        Lizenz von Kern: Apache License 2.0 (dazu LICENSING.md, NOTICE, TRADEMARKS.md)
   .github/workflows/ci.yml       CI: native Tests, Determinismus (macOS), Build, e2e, Deploy
   tools/
     build_studio.sh              Kern Studio als eine HTML-Datei -> generated/studio.html

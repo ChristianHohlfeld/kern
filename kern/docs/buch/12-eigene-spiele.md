@@ -766,13 +766,14 @@ Ein exportiertes Studio-Spiel braucht das alles nicht: Es ist eine Datei, die au
 
 ## 12.6 Veröffentlichen
 
-> **Rechte:** Kern ist proprietär (`LICENSE` im Wurzelverzeichnis, alle Rechte vorbehalten). Ohne
-> gesonderte Vereinbarung erlaubt die Lizenz nur, die öffentlich bereitgestellte Seite im Browser zum
-> persönlichen, nicht kommerziellen Ausprobieren zu benutzen (Nummer 3). Mit Studio exportierte Spiele
-> und mit dem Lehrer trainierte Netze darüber hinaus zu verwenden oder weiterzugeben, braucht die
-> schriftliche Zustimmung des Rechteinhabers (Nummer 4 d, 5). Bestandteile Dritter behalten ihre eigenen
-> Lizenzen (`kern/LICENSES.md`); die Meshes der Micro Duck stehen unter CC BY-NC-SA 4.0, also nicht
-> kommerziell. Die folgenden Abschnitte beschreiben das Technische.
+> **Rechte:** Kern ist Open Source unter der Apache License 2.0 (`LICENSE`, `LICENSING.md`). Eigene
+> Spiele und Netze dürfen verwendet, weitergegeben und verkauft werden, auch geschlossen. Ein
+> exportiertes Spiel enthält die Engine; wer es weitergibt, legt die Lizenz und `NOTICE` bei (im
+> exportierten HTML genügt ein Hinweis mit Link) und erhält die Urheberrechtsvermerke. Die Namen
+> „Kern" und „Kern Studio" und das Logo gehören nicht zur Lizenz: „Made with Kern" ist erlaubt, ein
+> eigenes Produkt „Kern" zu nennen nicht (`TRADEMARKS.md`). Bestandteile Dritter behalten ihre
+> eigenen Lizenzen (`kern/LICENSES.md`, [Anhang D](D-lizenzen.md)). Die folgenden Abschnitte
+> beschreiben das Technische.
 
 ### Studio-Spiele
 
