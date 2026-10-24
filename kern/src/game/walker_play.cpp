@@ -39,7 +39,10 @@ constexpr f32 kNearForgetS = 30;     // ... unless it was close (below the camer
 constexpr f32 kBallRestS = 15, kSockRestS = 40;  // habituation after a kick / after putting a sock down
 constexpr f32 kPutDownM = 0.25f;                // carried at least this far, letting go is putting it down
 constexpr f32 kStillCapS = 4;                   // standing still / walking: reported up to this long
-constexpr f32 kDeadBand = 0.2f;                 // of the walking command's range (0.06 m/s, 0.04 m/s, 0.2 rad/s)
+// Of the walking command's range. Forward: below 0.35 (0.105 m/s) Pollen's gait does not step at all
+// (kern_lehrer --halt-messen: told 0.10 m/s it stands, 0.12 m/s it walks), so "a little forward" is
+// standing still - and counts as standing still. Sideways and turning: 0.2 (0.04 m/s, 0.2 rad/s).
+constexpr f32 kDeadBand = 0.2f, kForwardDeadBand = 0.35f;
 // The action's ranges (the pad's: robotd_params::drive; the head's training ranges).
 constexpr f32 kVx = 0.3f, kVy = 0.2f, kWz = 1.0f, kYaw = 1.1f, kPitch = 1.1f, kNeck = 1.1f;
 
@@ -225,15 +228,17 @@ void GameWorld::play_walker(WalkerBrain& w, f32 dt) {
   sense_play(w, dt);
   // The walking command has a dead band like a gamepad's stick: below it the gait would not step
   // anyway, and "stand still" stays standing still when a network answers 0.1 instead of 0.
-  auto walk = [](f32 v) { v = clamp(v, -1.0f, 1.0f); return std::fabs(v) < kDeadBand ? 0.0f : v; };
-  const bool walking = walk(p.action[0]) != 0 || walk(p.action[1]) != 0 || walk(p.action[2]) != 0;
+  auto band = [](f32 v, f32 b) { v = clamp(v, -1.0f, 1.0f); return std::fabs(v) < b ? 0.0f : v; };
+  auto walk = [&](f32 v) { return band(v, kDeadBand); };
+  auto forward = [&](f32 v) { return band(v, kForwardDeadBand); };
+  const bool walking = forward(p.action[0]) != 0 || walk(p.action[1]) != 0 || walk(p.action[2]) != 0;
   p.still = p.engaged && !walking && !move_running ? p.still + dt : 0.0f;
-  const f32 dir = walk(p.action[0]) > 0 ? 1.0f : walk(p.action[0]) < 0 ? -1.0f : 0.0f;  // forward, back, neither
+  const f32 dir = forward(p.action[0]) > 0 ? 1.0f : forward(p.action[0]) < 0 ? -1.0f : 0.0f;  // forward, back, neither
   p.walking = p.engaged && !move_running && dir != 0 && (p.walking == 0 || (p.walking > 0) == (dir > 0)) ? p.walking + dir * dt : 0.0f;
   if (!p.engaged) return;
   // Engaged: the network's walking command, head and beak replace the roaming brain's.
   const f32* a = p.action;
-  w.auto_cmd[0] = walk(a[0]) * kVx;
+  w.auto_cmd[0] = forward(a[0]) * kVx;
   w.auto_cmd[1] = walk(a[1]) * kVy;
   w.auto_cmd[2] = walk(a[2]) * kWz;
   w.auto_head[0] = -max_of(0.0f, clamp(a[8], -1.0f, 1.0f)) * kNeck;  // bows the neck (0 .. -1.1)

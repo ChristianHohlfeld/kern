@@ -26,7 +26,7 @@ constexpr f32 kBallCoastM = -0.005f;  // to the ball it walks right up to the sp
 // Where the sock should lie for the bite the Lehrer measures itself (bite_spot); how far off it may be
 // (the beak is wide: sideways more).
 constexpr f32 kSockTolerance = 0.008f, kSockSideTolerance = 0.012f;
-constexpr f32 kCoastM = 0.007f;  // told to stop from 0.12 m/s, it still goes a little (--schritt-probe, and where the picks happened)
+constexpr f32 kCoastM = 0.0075f;  // told to stop from 0.15 m/s, it still goes a little (kern_lehrer --halt-messen)
 constexpr f32 kSettleS = 1.5f;  // told to stop, it has come to rest after this long
 constexpr f32 kBackOffM = 0.1f;  // closer than this and crooked: back off and come in again
 constexpr f32 kPickOpen = kPlayBeakOpen, kPickClose = kPlayBeakClose;  // the beak opens on the way down, bites at the bottom
@@ -451,9 +451,8 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
   if (holding) {  // off with it, slowly (the beak's grip is light), head up; carried far enough, spit it out
     if (o[19] >= kCarryM) out[5] = 1;
     else {
-      out[0] = 0.12f / 0.3f;
+      out[0] = o[22] < 0.5f ? 1.0f : 0.5f;  // a firm first step (from a stand a slow one wobbles), then slowly
       out[4] = -0.1f;
-      out[3] = 0.35f * kern::dm::sin(2.0f * o[20]);  // proud, it looks about as it goes
     }
     return;
   }
@@ -513,7 +512,7 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
   } else {
     if (ahead < -tol) return back_off();  // too far in
     if (ahead > (go_sock ? kCoastM : kBallCoastM)) {  // on its way: slowly (it coasts the rest when told to stop)
-      f32 vx = ahead > 0.06f ? 0.15f : 0.12f;
+      f32 vx = 0.15f;  // the slowest it steps at, clear of the dead band (0.105 m/s)
       if (o[22] < 0.5f) vx = 0.3f;  // from a stand the gait needs a firm push
       out[0] = vx / 0.3f;
       out[2] = std::fabs(steer) < 0.04f ? 0.0f : steer;
