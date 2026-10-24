@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 
 #include "kern/core/dmath.h"
 #include "kern/game/servo.h"
@@ -22,9 +23,9 @@ constexpr i32 kMaxDecisions = static_cast<i32>(60 / kDecisionDt);  // 60 s of th
 // Where the moves want the object (the demonstration's aim; the network learns its own).
 constexpr f32 kKickAhead = 0.09f, kKickLeft = 0.042f, kKickTolerance = 0.02f, kKickBall = 0.035f;  // microduck_ball_kick_env_cfg.py (BALL_POS_NOISE_XY +-1.5 cm; a little more is fine)
 constexpr f32 kBallCoastM = -0.005f;  // to the ball it walks right up to the spot (it stops a little short)
-// The sock's centre where the beak gets it and keeps it most often (kern_lehrer --biss-fenster, TPU on cotton 0.8);
-// left 0: between the soles (their inner edges at +-2.15 cm). The beak is wide: sideways it may be off more.
-constexpr f32 kBiteAhead = 0.065f, kBiteLeft = 0.0f, kSockTolerance = 0.008f, kSockSideTolerance = 0.012f;
+// Where the sock should lie for the bite the Lehrer measures itself (bite_spot); how far off it may be
+// (the beak is wide: sideways more).
+constexpr f32 kSockTolerance = 0.008f, kSockSideTolerance = 0.012f;
 constexpr f32 kCoastM = 0.007f;  // told to stop from 0.12 m/s, it still goes a little (--schritt-probe, and where the picks happened)
 constexpr f32 kSettleS = 1.5f;  // told to stop, it has come to rest after this long
 constexpr f32 kBackOffM = 0.1f;  // closer than this and crooked: back off and come in again
@@ -232,62 +233,95 @@ void PlayEnv::place_sock_next(f32 ahead, f32 left) {
   impl_->forced_at[1] = left;
 }
 
-void measure_bite(f32 open, f32 close) {
+BiteSpot measure_bite(f32 open, f32 close, bool print, const ParallelFor& parallel) {
   // Where the beak gets a sock: the duck walks a little (the stance after walking, not the spawn's),
   // stands, the sock (lying as a heap) is put down in front of it, and the pick runs with the beak
   // open over [open, close) of its phase. A grid of places; per place: did it come up, and is it
   // still in the beak after 3 s of carrying it off?
-  std::printf("sock centre (ahead, left, real m): held at the end of the pick / still held after carrying 3 s\n");
-  for (f32 left = -0.02f; left <= 0.03f + 1e-4f; left += 0.005f)
-    for (f32 ahead = 0.045f; ahead <= 0.08f + 1e-4f; ahead += 0.004f) {
-      PlayEnv env(1, false);
-      env.place_sock_next(-1.0f, 1.0f);  // out of the way while it walks
-      env.reset();
-      PlayEnv::Impl& m = *env.impl_;
-      f32 a[kPlayActions] = {0, 0, 0, 0, 0, -1, -1, -1, 0};
-      a[0] = 1;
-      for (i32 i = 0; i < 25; ++i) env.step(a);
-      a[0] = 0.4f;
-      for (i32 i = 0; i < 25; ++i) env.step(a);
-      a[0] = 0;
-      for (i32 i = 0; i < 40; ++i) env.step(a);
-      game::GameWorld::WalkerProbe wp;
-      m.world->walker_probe(m.duck, wp);
-      const Vec3 f = wp.rotation.rotate({1, 0, 0});
-      const f32 h = kern::dm::atan2(f.y, f.x), c = kern::dm::cos(h), sn = kern::dm::sin(h);
-      Mat4 m0;
-      m.world->actor_matrix(m.sock_parts[0], m0);
-      const Vec3 centre = m.centre(m.sock, m.sock_parts) * kS;
-      const Vec3 at = Vec3{wp.position.x + c * ahead - sn * left, wp.position.y + sn * ahead + c * left, 0} * kS;
-      for (game::ActorId id : m.sock_parts) {  // the heap as it lies, its centre at `at`
-        Mat4 mp;
-        m.world->actor_matrix(id, mp);
-        m.world->teleport(id, Vec3{at.x + mp.translation().x - centre.x, at.y + mp.translation().y - centre.y, mp.translation().z});
-        m.world->set_actor_velocity(id, {});
-      }
-      for (i32 i = 0; i < 25; ++i) env.step(a);  // stand a second
-      for (i32 i = 0; i < 200; ++i) {
-        const f32* o = env.observation();
-        a[7] = i == 0 ? 1.0f : -1.0f;
-        a[5] = o[13] > 0.5f && o[15] >= open && o[15] < close ? 1.0f : -1.0f;
-        env.step(a);
-        if (i > 20 && env.observation()[13] < 0.5f) break;
-      }
-      const bool held = env.observation()[10] > 0.5f;
-      bool kept = false;
-      if (held) {
-        a[5] = a[7] = -1;
-        a[4] = -0.1f;
-        i32 k = 0;
-        for (; k < 75 && env.observation()[10] > 0.5f; ++k) {
-          a[0] = k < 12 ? 1.0f : 0.5f;
-          env.step(a);
-        }
-        kept = k == 75;
-      }
-      std::printf("%+.3f %+.3f  %d %d\n", ahead, left, held, kept);
-      std::fflush(stdout);
+  constexpr i32 kLeft = 11, kAhead = 9;
+  std::vector<i32> held(kLeft * kAhead), kept(kLeft * kAhead);
+  auto at_left = [](i32 i) { return -0.02f + 0.005f * static_cast<f32>(i); };
+  auto at_ahead = [](i32 j) { return 0.045f + 0.004f * static_cast<f32>(j); };
+  const ParallelFor run = parallel ? parallel : ParallelFor([](i32 n, const std::function<void(i32)>& fn) { for (i32 i = 0; i < n; ++i) fn(i); });
+  run(kLeft * kAhead, [&](i32 cell) {
+    const f32 left = at_left(cell / kAhead), ahead = at_ahead(cell % kAhead);
+    PlayEnv env(1, false);
+    env.place_sock_next(-1.0f, 1.0f);  // out of the way while it walks
+    env.reset();
+    PlayEnv::Impl& m = *env.impl_;
+    f32 a[kPlayActions] = {0, 0, 0, 0, 0, -1, -1, -1, 0};
+    a[0] = 1;
+    for (i32 i = 0; i < 25; ++i) env.step(a);
+    a[0] = 0.4f;
+    for (i32 i = 0; i < 25; ++i) env.step(a);
+    a[0] = 0;
+    for (i32 i = 0; i < 40; ++i) env.step(a);
+    game::GameWorld::WalkerProbe wp;
+    m.world->walker_probe(m.duck, wp);
+    const Vec3 f = wp.rotation.rotate({1, 0, 0});
+    const f32 h = kern::dm::atan2(f.y, f.x), c = kern::dm::cos(h), sn = kern::dm::sin(h);
+    const Vec3 centre = m.centre(m.sock, m.sock_parts) * kS;
+    const Vec3 at = Vec3{wp.position.x + c * ahead - sn * left, wp.position.y + sn * ahead + c * left, 0} * kS;
+    for (game::ActorId id : m.sock_parts) {  // the heap as it lies, its centre at `at`
+      Mat4 mp;
+      m.world->actor_matrix(id, mp);
+      m.world->teleport(id, Vec3{at.x + mp.translation().x - centre.x, at.y + mp.translation().y - centre.y, mp.translation().z});
+      m.world->set_actor_velocity(id, {});
     }
+    for (i32 i = 0; i < 25; ++i) env.step(a);  // stand a second
+    for (i32 i = 0; i < 200; ++i) {
+      const f32* o = env.observation();
+      a[7] = i == 0 ? 1.0f : -1.0f;
+      a[5] = o[13] > 0.5f && o[15] >= open && o[15] < close ? 1.0f : -1.0f;
+      env.step(a);
+      if (i > 20 && env.observation()[13] < 0.5f) break;
+    }
+    const bool got = env.observation()[10] > 0.5f;
+    bool still = false;
+    if (got) {
+      a[5] = a[7] = -1;
+      a[4] = -0.1f;
+      i32 k = 0;
+      for (; k < 75 && env.observation()[10] > 0.5f; ++k) {
+        a[0] = k < 12 ? 1.0f : 0.5f;
+        env.step(a);
+      }
+      still = k == 75;
+    }
+    held[static_cast<std::size_t>(cell)] = got;
+    kept[static_cast<std::size_t>(cell)] = still;
+  });
+  // The best place: kept, with the most kept places around it (the walk-up is never exact).
+  BiteSpot best;
+  i32 best_score = -1;
+  for (i32 cell = 0; cell < kLeft * kAhead; ++cell) {
+    if (!kept[static_cast<std::size_t>(cell)]) continue;
+    const i32 li = cell / kAhead, aj = cell % kAhead;
+    i32 score = 0;
+    for (i32 dl = -2; dl <= 2; ++dl)
+      for (i32 da = -1; da <= 1; ++da) {
+        const i32 l2 = li + dl, a2 = aj + da;
+        if (l2 >= 0 && l2 < kLeft && a2 >= 0 && a2 < kAhead) score += kept[static_cast<std::size_t>(l2 * kAhead + a2)];
+      }
+    if (score > best_score) { best_score = score; best = {at_ahead(aj), at_left(li), score}; }
+  }
+  if (print) {
+    std::printf("sock centre (ahead, left, real m): held at the end of the pick / still held after carrying 3 s\n");
+    for (i32 cell = 0; cell < kLeft * kAhead; ++cell)
+      std::printf("%+.3f %+.3f  %d %d\n", at_ahead(cell % kAhead), at_left(cell / kAhead), held[static_cast<std::size_t>(cell)], kept[static_cast<std::size_t>(cell)]);
+    std::printf("best: %+.3f ahead, %+.3f left (%d kept around it)\n", best.ahead, best.left, best.kept);
+  }
+  return best;
+}
+
+BiteSpot bite_spot(const ParallelFor& parallel) {
+  static std::once_flag once;
+  static BiteSpot spot;
+  std::call_once(once, [&] {
+    spot = measure_bite(kPlayBeakOpen, kPlayBeakClose, false, parallel);
+    if (spot.kept == 0) spot = {0.065f, 0.0f, 0};  // nothing held anywhere: in front of the beak
+  });
+  return spot;
 }
 
 void measure_stop() {
@@ -434,8 +468,9 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
     return;
   }
   const f32 tx = go_sock ? o[5] : o[1], ty = go_sock ? o[6] : o[2];  // where it is (heading frame)
-  f32 want_ahead = go_sock ? kBiteAhead : kKickAhead + (m.ball_radius - kKickBall);
-  f32 want_left = go_sock ? kBiteLeft : kKickLeft;
+  const BiteSpot bite = bite_spot();
+  f32 want_ahead = go_sock ? bite.ahead : kKickAhead + (m.ball_radius - kKickBall);
+  f32 want_left = go_sock ? bite.left : kKickLeft;
   if (go_ball) {  // the kick is trained from the home stance: measure from the foot
     want_ahead += o[8] - m.foot_home[0];
     want_left += o[9] - m.foot_home[1];
@@ -518,6 +553,7 @@ std::unique_ptr<Ppo> make_play_learner(u64 seed) {
 }
 
 PlayReport evaluate_play(PlayActFn act, void* user, i32 episodes, u64 seed, bool randomized, const ParallelFor& parallel) {
+  bite_spot(parallel);  // measured before the episodes need it
   const ParallelFor run = parallel ? parallel : ParallelFor([](i32 n, const std::function<void(i32)>& fn) { for (i32 i = 0; i < n; ++i) fn(i); });
   std::vector<PlayEnv::Outcome> outs(static_cast<std::size_t>(episodes));
   run(episodes, [&](i32 e) {
@@ -555,6 +591,7 @@ PlayReport evaluate_play(PlayActFn act, void* user, i32 episodes, u64 seed, bool
 PlayImitationReport imitate_play(Ppo& learner, i32 rounds, i32 episodes, u64 seed, const ParallelFor& parallel,
                                  const std::function<void(i32, const PlayImitationReport&)>& progress) {
   const ParallelFor run = parallel ? parallel : ParallelFor([](i32 n, const std::function<void(i32)>& fn) { for (i32 i = 0; i < n; ++i) fn(i); });
+  bite_spot(parallel);  // measured before the episodes need it
   std::vector<f32> all_obs, all_act;
   PlayImitationReport rep;
   for (i32 round = 0; round < rounds; ++round) {

@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 namespace kern::game {
@@ -52,8 +53,10 @@ BuiltinMesh decode(const DuckMeshDef& d) {
 }  // namespace
 
 const BuiltinMesh* builtin_mesh(std::string_view name) {
-  // The engine runs on one thread; the cache lives for the program.
+  // The cache lives for the program. The Lehrer builds worlds on several threads at once: one at a time here.
+  static std::mutex lock;
   static std::unordered_map<std::string, std::unique_ptr<BuiltinMesh>> cache;
+  const std::lock_guard<std::mutex> guard(lock);
   const std::string key(name);
   if (auto it = cache.find(key); it != cache.end()) return it->second.get();
   for (const DuckMeshDef& d : kDuckMeshes)

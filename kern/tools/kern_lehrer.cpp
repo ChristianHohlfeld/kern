@@ -41,7 +41,7 @@ struct Options {
   i32 play = 0;
   std::string policies;
   i32 rounds = 0, round_episodes = 0, keep_every = 0, randomized = 0;
-  std::string play_net;
+  std::string play_net, play_practice;
   f32 practice_std = 0, imitate_reward = -1;
   i32 envs = 0, threads = 0, iterations = 600, steps = 0, save_every = 25, episodes = 10;
   i32 substeps = 0, eval_every = 10, stop_after_jump = 0, fingerprint = 0;
@@ -341,6 +341,9 @@ int play_train(const Options& o) {
   const std::string out = o.out.empty() || o.out == "jump.onnx" ? "play.onnx" : o.out;
   std::printf("the play network: imitating the demonstration, %d rounds of %d episodes, %d threads\n", rounds, episodes, threads);
   const auto t0 = std::chrono::steady_clock::now();
+  const BiteSpot bite = bite_spot(pool);
+  std::printf("  the bite, measured in this physics: the sock %.1f cm ahead, %+.1f cm left (%d places around it held)\n", bite.ahead * 100, bite.left * 100, bite.kept);
+  std::fflush(stdout);
   imitate_play(*learner, rounds, episodes, o.seed, pool, [&](i32 round, const PlayImitationReport& r) {
     std::printf("  round %d (%.0f s): %d samples, error %.5f | ", round, std::chrono::duration<f64>(std::chrono::steady_clock::now() - t0).count(), r.samples, r.mse);
     print_play("the network (clean robot)", r.student);
@@ -348,6 +351,64 @@ int play_train(const Options& o) {
     if (!o.checkpoint.empty()) write_file(o.checkpoint, learner->save());
     std::fflush(stdout);
   });
+  std::printf("wrote %s\n", out.c_str());
+  return 0;
+}
+
+/// --spielen-ueben play.onnx: the imitated network practises on its own (PPO): rewarded only for what
+/// works - toward the target, the sock up and still in the beak, carried off, put down; the ball
+/// kicked away; a fall costs. Where it bites, how it stands, it finds where it really works.
+int play_practice(const Options& o) {
+  const i32 threads = o.threads > 0 ? o.threads : max_of(1, static_cast<i32>(std::thread::hardware_concurrency()));
+  const i32 envs = o.envs > 0 ? o.envs : 16 * threads, per_worker = max_of(1, envs / threads);
+  const i32 iterations = o.iterations > 0 && o.iterations != 600 ? o.iterations : 300;
+  const std::string out = o.out.empty() || o.out == "jump.onnx" ? "play_geuebt.onnx" : o.out;
+  const std::string stem = out.size() > 5 && out.substr(out.size() - 5) == ".onnx" ? out.substr(0, out.size() - 5) : out;
+  game::WalkerPolicy start;
+  std::string err;
+  const std::vector<u8> bytes = read_file(o.play_practice);
+  if (bytes.empty() || !game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), start, &err)) {
+    std::fprintf(stderr, "cannot read %s: %s\n", o.play_practice.c_str(), err.c_str());
+    return 1;
+  }
+  std::unique_ptr<Ppo> learner = make_play_learner(o.seed);
+  if (!learner->warm_start(start.dims, start.weights, start.biases, start.mean, start.div, {})) {
+    std::fprintf(stderr, "%s does not fit the play network\n", o.play_practice.c_str());
+    return 1;
+  }
+  Ppo& ppo = *learner;
+  ppo.set_stddev(o.practice_std > 0 ? o.practice_std : 0.1f);
+  ThreadBackend backend(threads, per_worker, o.seed, [](i32 first, i32 count, u64 seed) {
+    std::vector<std::unique_ptr<Env>> v;
+    for (i32 i = 0; i < count; ++i) {
+      auto e = std::make_unique<PlayEnv>(seed * 1000003ull + static_cast<u64>(first + i), (first + i) % 2 == 1);  // half clean, half varied
+      e->reset();
+      v.push_back(std::move(e));
+    }
+    return v;
+  });
+  const BiteSpot bite = bite_spot(backend.update_parallel());
+  (void)bite;
+  constexpr i32 kCriticWarmup = 20;  // the critic learns the returns before the actor moves
+  std::printf("practising %s: %d envs on %d threads, %d iterations\n", o.play_practice.c_str(), per_worker * threads, threads, iterations);
+  const auto t0 = std::chrono::steady_clock::now();
+  for (i32 it = 1; it <= iterations; ++it) {
+    ppo.set_actor_frozen(it <= kCriticWarmup);
+    const IterationStats s = train_iteration(ppo, backend);
+    std::printf("it %4d %6.0f s  return %7.3f  len %6.1f  value %7.4f  std %.3f\n", it, std::chrono::duration<f64>(std::chrono::steady_clock::now() - t0).count(),
+                s.mean_return, s.mean_length, s.value_loss, s.mean_std);
+    if (it % 20 == 0 || it == iterations) {
+      game::WalkerPolicy p;
+      const std::vector<u8> onnx = export_onnx(ppo.actor(), ppo.actor_normalizer(), play_metadata());
+      game::parse_onnx_policy(Span<const u8>(onnx.data(), onnx.size()), p, &err);
+      print_play("  the network (clean robot)", evaluate_play(act_onnx, &p, 16, 99991, false, backend.update_parallel()));
+      char name[32];
+      std::snprintf(name, sizeof name, "_it%04d.onnx", it);
+      write_file(stem + name, onnx);
+      write_file(out, onnx);
+    }
+    std::fflush(stdout);
+  }
   std::printf("wrote %s\n", out.c_str());
   return 0;
 }
@@ -487,6 +548,7 @@ int main(int argc, char** argv) {
     else if (a == "--keep-every") o.keep_every = std::atoi(next());
     else if (a == "--randomized") o.randomized = 1;
     else if (a == "--spielen-pruefen") o.play_eval = next();
+    else if (a == "--spielen-ueben") o.play_practice = next();
     else if (a == "--spielen") o.play = 1;
     else if (a == "--policies") o.policies = next();
     else if (a == "--spielen-spur") o.play = 2;
@@ -514,6 +576,7 @@ int main(int argc, char** argv) {
                    "       training with --vorbild builtin|demo.json [--nachahmen 5] [--episoden 64] [--uebungs-std 0.2]: imitate first, then practise\n"
                    "       kern_lehrer --spielen [--nachahmen 12] [--episoden 32] [--out play.onnx]   the play network (ball, sock): imitation\n"
                    "       kern_lehrer --spielen-pruefen vorbild|play.onnx [--episodes 24]   how the demonstration or a network plays\n"
+                   "       kern_lehrer --spielen-ueben play.onnx [--iterations 300] [--envs 32] [--out play_geuebt.onnx]   then practise (PPO, the rewards only)\n"
                    "       kern_lehrer --spielen-spur [--seed N] [--randomized] [--netz play.onnx]   one play episode, decision by decision\n"
                    "       kern_lehrer --biss-fenster | --halt-messen   where the beak gets a sock / how far the duck goes after stop\n");
       return 2;
@@ -534,8 +597,9 @@ int main(int argc, char** argv) {
   if (!o.demo_search.empty()) return demo_search(o);
   if (!o.demo_check.empty()) return demo_check(o);
   if (!o.play_eval.empty()) return play_check(o);
+  if (!o.play_practice.empty()) return play_practice(o);
   if (o.play == 2) return play_trace(o);
-  if (o.play == 3) { measure_bite(kPlayBeakOpen, kPlayBeakClose); return 0; }
+  if (o.play == 3) { measure_bite(kPlayBeakOpen, kPlayBeakClose, true, thread_pool(max_of(1, static_cast<i32>(std::thread::hardware_concurrency())))); return 0; }
   if (o.play == 4) { measure_stop(); return 0; }
   if (o.play == 6) return demo_trace(o);
   if (o.play) return play_train(o);

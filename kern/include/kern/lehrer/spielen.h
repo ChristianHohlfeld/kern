@@ -27,6 +27,10 @@ constexpr f32 kPlayBeakOpen = 0.04f, kPlayBeakClose = 0.30f;
 /// One duck on a floor with a ball, a sock or both (random places, sizes, its heading), driven
 /// through the play layer. An episode ends when the ball was kicked away or a sock was carried off
 /// and put down (success), when the duck falls, or after 60 s.
+/// Where the sock should lie for the beak's bite (measure_bite): ahead / left of the duck, real metres;
+/// kept: how many measured places around it held the sock.
+struct BiteSpot { f32 ahead = 0, left = 0; i32 kept = 0; };
+
 class PlayEnv : public Env {
  public:
   PlayEnv(u64 seed, bool randomize);
@@ -60,7 +64,7 @@ class PlayEnv : public Env {
   void place_sock_next(f32 ahead, f32 left);
 
  private:
-  friend void measure_bite(f32, f32);
+  friend BiteSpot measure_bite(f32, f32, bool, const ParallelFor&);
   friend void measure_stop();
   void observe();
   struct Impl;
@@ -99,7 +103,11 @@ struct PlayImitationReport {
 /// Where the beak gets a sock (kern_lehrer --biss-fenster): a grid of sock places in front of a
 /// duck that has walked and stands, the pick run with the beak open over [open, close) of its phase;
 /// per place whether the sock came up and whether it stayed in the beak while carried off.
-void measure_bite(f32 open, f32 close);
+/// Prints the grid and the place it finds best; returns it.
+BiteSpot measure_bite(f32 open, f32 close, bool print = true, const ParallelFor& parallel = {});
+/// The place the demonstration aims the sock at: measured once per process (measure_bite with the
+/// beak window the network is shown), in the physics as it is now - no number written down.
+BiteSpot bite_spot(const ParallelFor& parallel = {});
 /// How far the duck still goes when it is told to stop from a slow walk (kern_lehrer --halt-messen).
 void measure_stop();
 
