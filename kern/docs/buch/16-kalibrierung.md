@@ -322,3 +322,7 @@ Sie sind Kandidaten für eine Messung am echten Material.
   Detektor; seine Bereiche sind Annahmen des Trainings.
 - **Skalierung:** Die 4-fache Ente ist der echte Roboter in anderen Einheiten; alle Profile und Logs
   sind in echten Einheiten, die Umrechnung geschieht nur an der Box3D-Grenze.
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

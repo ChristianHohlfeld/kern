@@ -582,3 +582,7 @@ Box3Ds Gelenk-Löser bestimmt.
   `fov` vertikal in Radiant.
 - Simulation braucht `kern::dm::` statt `std::` für transzendente Funktionen, `-ffp-contract=off`
   und feste Summationsreihenfolgen – sonst ist sie nicht mehr Bit für Bit gleich.
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

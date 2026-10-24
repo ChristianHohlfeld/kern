@@ -434,3 +434,7 @@ Drei Anhänge liefern das Grundlagenwissen, das die Kapitel voraussetzen:
 Codebeispiele in diesem Buch stammen aus dem Repository oder entsprechen exakt dessen API. Pfade
 sind relativ zum Ordner `kern/` angegeben, sofern sie nicht mit `tools/`, `site/` oder `generated/`
 der Repository-Wurzel beginnen oder ausdrücklich anders gekennzeichnet sind.
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

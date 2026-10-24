@@ -577,3 +577,7 @@ auf die Anordnung der veröffentlichten Seite (`/lehrer/`) ausgelegt.
 | Browser-Test hängt bei `openStudio` | Seite nicht ausgeliefert oder Modul fehlt; der Test wartet bis 90 s auf `KernStudio.frames() > 5` | Server in der Repository-Wurzel starten, `generated/` bauen |
 | Playwright-Import schlägt fehl | Paket nicht gefunden | `npm install playwright` (CI: 1.56.0) und `NODE_PATH` setzen, wie in der CI |
 | Lehrer-Seite lokal ohne Modul | Pfade auf die veröffentlichte Anordnung ausgelegt | Seite wie in [2.10](#job-build-ubuntu-latest-30-min) zusammenstellen |
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

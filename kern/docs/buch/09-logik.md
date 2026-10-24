@@ -139,7 +139,8 @@ Eine Knotenfunktion sieht die Welt über `Context`:
 | `state()`, `slot(k)` | Zustand der Knoteninstanz; `slot(0..3)` liegt im gemeinsamen Speicher mit generiertem Code |
 | `wait(seconds, entry)` | latent: nach `seconds` mit `entry` fortsetzen, liefert `kSuspend` |
 | `cancel_waits()` | eigene Wartezeiten verwerfen (Retriggerable Delay) |
-| `then(out)` | nach Ende der aktuellen Kette an diesem Ausgang weitermachen (Sequence, Schleifen) |
+| `then(out)` | nach Ende der aktuellen Kette an diesem Ausgang weitermachen (Sequence) |
+| `loop_back(entry)` | nach Ende der aktuellen Kette diesen Knoten mit `entry` erneut betreten (Schleifen) |
 | `self()`, `host()`, `runtime()`, `instance()` | Kontext |
 
 `Library::core()` enthält die eingebauten Knoten; `logic::library()` ist core plus das, was das Spiel
@@ -224,12 +225,13 @@ Kette aus. Instanzen, die währenddessen dazukommen (gespawnte Actors), werden m
 
 Der Interpreter (`Runtime::run_from`) arbeitet mit einem Stapel aus (Knoten, Eingang):
 
-1. Knoten ausführen; was er per `then` vormerkt, kommt auf den Stapel (zuletzt vorgemerkt zuerst).
+1. Knoten ausführen; was er per `then` oder `loop_back` vormerkt, kommt auf den Stapel – in umgekehrter
+   Reihenfolge, sodass das zuerst Vorgemerkte zuerst läuft.
 2. Liefert er einen gültigen Exec-Ausgang, geht es am verbundenen Knoten weiter; sonst endet dieser
    Zweig, und der nächste Stapeleintrag läuft.
 
 So arbeiten Sequence (Ausgang 0 sofort, die übrigen vorgemerkt) und Schleifen (Körper ausführen,
-danach den Knoten selbst mit `kResume` erneut betreten).
+danach den Knoten selbst per `loop_back` mit `kResume` erneut betreten).
 
 Daten werden **gezogen**: Ein Eingang, der mit einem Pure-Knoten verbunden ist, führt dessen `run`
 bei jedem Lesen aus (Tiefe höchstens 48). Ein Eingang an einem Aktionsknoten liest dessen zuletzt
@@ -363,7 +365,7 @@ Der **Host** der Welt (`GameWorld::LogicHost`):
 
 | Methode | Umsetzung |
 |---|---|
-| `time()` | `sim_time_` – die Simulationszeit in Schritten, nicht die Wanduhr |
+| `time()` | `sim_time_` – die Simulationszeit in Sekunden, aus dem Schrittzähler berechnet, nicht die Wanduhr |
 | `print(text, screen)` | „Logic: …“ in die Meldungen, mit `screen` auch als HUD-Meldung |
 | `error(text)` | „Logic error: …“ in die Meldungen (Studio zeigt sie im Output Log) |
 | `random()` | Xorshift32, Startwert aus der Zahl der Actors – deterministisch |
@@ -375,8 +377,8 @@ Tür gehört zur Tür), und immer auch an den Level-Graphen. Events ohne betroff
 (Spielende) gehen an alle. Der Logik-Tick läuft am Ende jedes festen Schritts nach den
 Physik-Events ([Kapitel 8](08-spiel-laufzeit.md), Abschnitt 8.9).
 
-Hat ein Level Logik, schaltet die GameWorld **Sensor- und Hit-Events an allen beweglichen Formen**
-ein – sonst gäbe es keine Überlappungen und Treffer für die Graphen.
+Hat ein Level Logik, schaltet die GameWorld **Sensor-Events an allen beweglichen und Hit-Events an
+allen dynamischen Formen** ein – sonst gäbe es keine Überlappungen und Treffer für die Graphen.
 
 **Replikation.** Was Logik an der Welt ändert, wird mitgeschrieben: `set_property` (Pfad und Wert),
 `spawn_copy` (Vorlage, ID, Pose) und das Versetzen statischer Körper (`teleport` schreibt
@@ -469,8 +471,8 @@ dem Bearbeiten muss neu exportiert werden.
 ### Der Ablauf im Browser
 
 1. `Runtime::add` prüft den Graphen. Ist für seinen Hash nativer Code registriert, gewinnt der.
-2. Sonst ruft er `host.jit_compile(compile_wasm(instance), id)`. Die GameWorld leitet das an
-   `platform_jit_compile` weiter, das in WebAssembly die Host-Funktion `kern_env.logic_jit` aufruft
+2. Sonst ruft er `host.jit_compile(compile_wasm(instance), id)`. Die Standard-Implementierung von
+   `Host::jit_compile`, die auch der Host der GameWorld nutzt, leitet das an `platform_jit_compile` weiter, das in WebAssembly die Host-Funktion `kern_env.logic_jit` aufruft
    (`src/logic/logic_api.cpp`). Nativ gibt es keinen Compiler: Der Graph bleibt im Interpreter
    (oder läuft als exportiertes C++).
 3. `web/kern.mjs` übersetzt das Modul asynchron (`WebAssembly.compile`, `instantiate` mit den
@@ -607,3 +609,7 @@ Every 0,25 s ─▶ Branch( Robot Camera Sees(Ball).visible AND NOT Ball Seen )
 Die boolesche Variable „Ball Seen“ sorgt dafür, dass die Ente nur einmal zwitschert, wenn der Ball
 ins Bild kommt – nicht alle 0,25 s, solange er sichtbar ist. Ein Kommentarrahmen im Graphen sagt
 ausdrücklich, dass das eine Demo der Roboter-Knoten ist und nichts, was der Roboter von selbst tut.
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

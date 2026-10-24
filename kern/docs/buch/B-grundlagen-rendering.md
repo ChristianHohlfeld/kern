@@ -898,3 +898,7 @@ flowchart LR
 
 Wie man diese Bausteine in einem eigenen Spiel einsetzt – Materialien, Licht, Kamera, Meshes und
 Instanzen –, zeigen [Kapitel 4](04-grafik.md) und [Kapitel 5](05-szene-und-geometrie.md).
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

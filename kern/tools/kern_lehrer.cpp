@@ -460,7 +460,7 @@ int demo_trace(const Options& o) {
   w.sync(l);
   if (!w.start(l, game::SimMode::play)) return 1;
   const game::ActorId duck = l.world.player;
-  const i32 secs = o.seed > 0 ? static_cast<i32>(o.seed) : 120;
+  const i32 secs = o.seed > 1 ? static_cast<i32>(o.seed) : 120;  // --seed: how many seconds
   for (i32 i = 0; i < 60 * secs; ++i) {
     game::PlayInput in;
     if (std::getenv("KERN_JUMP_AT") && i / 60 == std::atoi(std::getenv("KERN_JUMP_AT")) && i % 60 < 3) in.robot = 256;  // key 7
@@ -470,9 +470,11 @@ int demo_trace(const Options& o) {
     w.actor_matrix(duck, m);
     f32 ob[game::GameWorld::kPlayObs] = {};
     w.walker_play_observation(duck, ob);
-    std::printf("t %3d pos %+.2f %+.2f %-10s %-12s ball %d (%+.2f %+.2f) sock %d (%+.2f %+.2f) hold %d still %.1f walk %+.1f\n", i / 60,
+    f32 a[game::GameWorld::kPlayActions] = {};
+    if (const auto net = game::walker_policy("play.onnx")) net->run(ob, a);
+    std::printf("t %3d pos %+.2f %+.2f %-10s %-12s ball %d (%+.2f %+.2f) sock %d (%+.2f %+.2f) hold %d still %.1f walk %+.1f | net fwd %+.2f turn %+.2f kick %+.2f pick %+.2f\n", i / 60,
                 m.translation().x, m.translation().y, w.walker_state(duck).c_str(), w.walker_driving(duck).c_str(), static_cast<int>(ob[0]), ob[1], ob[2],
-                static_cast<int>(ob[4]), ob[5], ob[6], static_cast<int>(ob[10]), ob[21], ob[22]);
+                static_cast<int>(ob[4]), ob[5], ob[6], static_cast<int>(ob[10]), ob[21], ob[22], a[0], a[2], a[6], a[7]);
   }
   return 0;
 }

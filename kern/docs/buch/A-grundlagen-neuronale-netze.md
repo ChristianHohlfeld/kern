@@ -1243,3 +1243,7 @@ Die Leitlinie dahinter steht am Ende von `vorbild.h`: „At run time there is on
 demonstration exists only while it learns.“ Alles in diesem Anhang – Vorbild, Kritiker, Streuung,
 Variation – ist Gerüst, das beim Lernen hilft und danach abgebaut wird. Was bleibt, ist eine
 Normalisierung und eine Handvoll Matrixmultiplikationen mit ELU dazwischen.
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

@@ -809,3 +809,7 @@ Gleitkomma dann identisch rundet (`physics_scale_is_a_unit_system`, `docs/physic
 Wie man in Kern Körper, Formen, Gelenke und Motoren anlegt und welche Werte sich bewährt haben, zeigt
 [Kapitel 6](06-physik.md); wie die Servoprofile an Messungen kalibriert werden,
 [Kapitel 16](16-kalibrierung.md).
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

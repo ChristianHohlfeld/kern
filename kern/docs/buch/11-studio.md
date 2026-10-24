@@ -1350,3 +1350,7 @@ stammen zum großen Teil aus diesem Test.
 
 Wie man die Bausteine selbst nutzt, zeigt [Kapitel 12](12-eigene-spiele.md); alle Befehle und Funktionen
 sammelt [Kapitel 17](17-referenz.md).
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

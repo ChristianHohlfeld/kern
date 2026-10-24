@@ -101,8 +101,8 @@ Fragmentation and Reassembly“; reliable.io) liegt über einem unzuverlässigen
 Eine `Connection` (`connection.h`, yojimbo-Stil) besitzt einen Endpoint und mehrere Kanäle:
 
 - **reliable ordered:** Jede Nachricht kommt genau einmal und in Reihenfolge an. Nicht bestätigte
-  Nachrichten werden neu gesendet (nach `resend_time`, mindestens 0,1 s, bzw. RTT × 1,25, wenn
-  bekannt), bis das Paket, das sie trug, bestätigt ist. Nachrichten über `block_threshold` reisen
+  Nachrichten werden neu gesendet (nach dem größeren Wert von `resend_time` und RTT × 1,25), bis das
+  Paket, das sie trug, bestätigt ist. Nachrichten über `block_threshold` reisen
   als fragmentierte **Blöcke**, einer nach dem anderen, jedes Fragment bis zur Bestätigung.
 - **unreliable unordered:** einmal im nächsten Paket gesendet – für Zustand, Eingaben und Ereignisse,
   die verspätet wertlos sind.
@@ -190,7 +190,7 @@ class Transport {
 - **`HostTransport`**: Warteschlangen, die der einbettende Host (die Browser-Seite) füllt und leert
   – `push_incoming(from, data)` für Ankommendes, `take_outgoing(to, data)` für zu Sendendes.
   Die Seite kümmert sich um BroadcastChannel oder Relay (10.10).
-- **`Simulator`**: Jeder Transport kann durch ihn laufen. `SimulatorSettings`: `latency_ms`
+- **`Simulator`**: `LoopbackNetwork` und `HostTransport` haben je einen eingebauten. `SimulatorSettings`: `latency_ms`
   (einfach), `jitter_ms` (± gleichverteilt), `loss_percent`, `duplicate_percent`. Mit festem Seed
   sind schlechte Netze **reproduzierbar** – in Tests und im Editor wählbar.
 
@@ -358,7 +358,8 @@ Viewport**, verbunden über ein In-Process-Netz (`LoopbackNetwork`).
 - `update_net` taktet Server und Clients. Solange Clients noch beitreten, läuft der Austausch in vier
   Teilschritten pro Frame, damit der Handshake nicht auf gerenderte Frames wartet.
 - **Network Emulation** (Play-Menü): Perfect, LAN (5 ms), Average (50 ms, 1 % Verlust), Bad (150 ms,
-  5 %), Terrible (300 ms, 20 %) – der `Simulator` des Hubs (und des Host-Transports).
+  5 %), Terrible (300 ms, 20 %), dazu jeweils Jitter (1, 10, 40, 100 ms) – der `Simulator` des Hubs
+  (und des Host-Transports).
 - Die Statuszeile zeigt Rolle, Status, Spieler, RTT, Verlust, Bandbreite und je lokalem Client
   Status, RTT, Puffer und HUD (`status().net`).
 
@@ -477,3 +478,7 @@ Clients senden derzeit nichts Zuverlässiges; der Server leert den Kanal nur.
 | `net_game_soldier_replication` | Soldaten, Schüsse, Treffer über das Netz |
 | `net_game_replicates_logic_changes` | Logik-Änderungen (Spawns, Eigenschaften) erreichen Clients |
 | `studio_multiplayer_play` | Number of Players im Studio |
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

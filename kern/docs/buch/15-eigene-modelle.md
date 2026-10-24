@@ -569,3 +569,7 @@ Aus `docs/lehrer.md`:
 - **Andere Physik als das Studio.** Weniger Sub-Steps, ein anderer Boden, ein anderes Servoprofil:
   Das Netz lernt dann eine andere Welt. Der Lehrer nutzt deshalb dieselbe `GameWorld` und dieselben
   Einstellungen wie das Studio.
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

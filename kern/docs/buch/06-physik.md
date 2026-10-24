@@ -976,3 +976,7 @@ angepasst werden, in [Kapitel 16](16-kalibrierung.md).
 | `game_world_physics_lab` | Pendel, Drehteller, Lift, Rover, Brücke, Bruch, Debug-Linien, Griff |
 | `game_character_mover` | der Character Mover |
 | `determinism_is_bit_identical_across_builds_and_platforms` | Fingerabdruck über 400 Regeltakte |
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

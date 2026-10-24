@@ -356,7 +356,7 @@ if (uGrade == 1) rgb = gradeColor(rgb);
 rgb = linearToSrgb(clamp(rgb, 0.0, 1.0));
 ```
 
-`acesFilmic` ist die Anpassung von three.js (r16x) an die ACES-RRT/ODT-Kurve, einschließlich des Faktors `uExposure / 0.6`. `gradeColor` ist Kerns Produktions-Grading auf dem bereits tonemappten Bild: Sättigung ×1,14, eine weiche S-Kurve (22 %), wärmere Lichter und kühlere Schatten. Es lässt sich mit `RendererOptions::grade = false` abschalten.
+`acesFilmic` ist die Anpassung von three.js (r16x) an die ACES-RRT/ODT-Kurve, einschließlich des Faktors `uExposure / 0.6`. `gradeColor` ist Kerns Produktions-Grading auf dem bereits tonemappten Bild: Sättigung ×1,14, eine weiche S-Kurve (22 %), wärmere Lichter und kühlere Schatten. Im Szenenshader schaltet `RendererOptions::grade = false` es ab; im Bloom-Composite entscheidet `BloomOptions::grade` (die C-ABI setzt beide gleich, `kern_renderer_init`).
 
 ### Nebel
 
@@ -431,7 +431,7 @@ Erweiterungen sollten ihre Uniforms über den übergebenen `UniformCache` setzen
 
 **1. GPU-Zeit einsammeln.** Wenn `EXT_disjoint_timer_query_webgl2` vorhanden ist, umschließt eine `TIME_ELAPSED`-Query den Frame. Die Ergebnisse kommen asynchron einige Frames später; höchstens 4 Queries sind gleichzeitig unterwegs, und Query-Objekte werden wiederverwendet. Ist das Ergebnis durch `GPU_DISJOINT` ungültig, wird es verworfen. `RenderStats::gpu_ms` ist −1, solange keine Messung vorliegt.
 
-**2. Sonnenschatten.** Falls aktiviert, wird die Schattenkarte nur neu gezeichnet, wenn sich ihr Schlüssel geändert hat (4.8.1); sonst meldet `stats.shadow_reused`.
+**2. Sonnenschatten.** Falls aktiviert, wird die Schattenkarte nur neu gezeichnet, wenn sich ihr Schlüssel geändert hat (4.8.1); sonst setzt der Renderer `stats.shadow_reused`.
 
 **3. Ziel binden.** Ohne Viewport-Rechteck (`has_viewport == false`) bindet `BloomPass::begin()` das Szenen-Target, sofern Bloom eingeschaltet (`BloomOptions::enabled`) und unterstützt ist; sonst zeichnet der Renderer direkt in den Standard-Framebuffer. Mit Rechteck wird mit Scissor direkt in den Standard-Framebuffer gezeichnet – ohne Bloom und ohne Ambient Occlusion. Danach Viewport setzen, Farbe und Tiefe löschen.
 
@@ -791,3 +791,7 @@ ShaderExtension* extensions_[1] = {&windows_};
 Beim Hochladen der Gebäude-Chunks gibt Orb Run den Zusatzstrom in Slot 0 weiter (`mesh.as_input(0)`); Straßen und Bodenplatten bekommen `kMaxExtensionAttributes` als Slot, also keinen Strom – dort ist `vWall.x` 0, und der Hook tut nichts.
 
 Die Spiel-Laufzeit hat eine Klasse `kern::game::NightWindows` mit identischem GLSL (deklariert in `include/kern/game/runtime.h`, implementiert in `src/game/runtime.cpp`), die Kern Studio und exportierte Spiele immer registrieren. Die Komponente „Procedural City“ entscheidet mit `night_windows`, ob ihre Gebäude den Strom bekommen ([Kapitel 5](05-szene-und-geometrie.md)).
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

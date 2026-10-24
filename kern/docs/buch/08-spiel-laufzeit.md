@@ -995,3 +995,7 @@ Tests: `game_world_orb_run_play`, `game_world_physics_lab`, `game_shooting_range
 | `game_gameplay_blocks` | Spielbausteine |
 | `audio_level_fields_round_trip`, `audio_collider_impact_sounds`, `audio_game_world_cues` | Sound-Felder, Aufprall-Sounds, Cues |
 | `physics_materials_of_meshes_and_the_ground` | Physik-Material von Meshes und Boden |
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

@@ -124,7 +124,7 @@ Das ist eine dünne Scheibe auf der Gelenkachse und damit ein gültiger starrer 
 axialer Tensor wäre keiner, und Box3D gewinnt damit Energie. Der Unterschied zu MuJoCo: Der echte
 Rotor dreht mit 288:1 relativ zum Gehäuse, Kerns Scheibe dreht mit dem Glied. Dreht sich das
 Elternglied um dieselbe Achse, ist die Trägheit dadurch etwas zu groß. Gemessen läuft und dreht die
-Ente mit Armatur näher am Training und zappelt deutlich weniger (Abschnitt 13.12).
+Ente mit Armatur näher am Training und zappelt deutlich weniger (Abschnitt 13.14).
 
 ### Kollision
 
@@ -523,7 +523,8 @@ Verfügbar ist sie, wenn
   fetching, beak in the pick)“),
 - die Ente keine Rollschuhe trägt und einen Mund-Servo hat,
 - `play.onnx` geladen ist (oder der Lehrer sie extern steuert),
-- **Autonomous** an ist: Die Kommandos der Spielschicht laufen über den Kanal der Autonomie.
+- **Autonomous** an ist: Laufbefehl, Kopf und Schnabel der Spielschicht laufen über den Kanal der
+  Autonomie und wirken nur dann.
 
 **Eingeschaltet** („engaged“) ist sie, solange sie ein Objekt kennt, etwas im Schnabel hat oder eine
 selbst gestartete Bewegung läuft, und niemand von Hand oder per Logik fährt:
@@ -616,7 +617,7 @@ Takten exakt.
 | 5 | `beak_open` | > 0: Schnabel auf |
 | 6 | `kick_left` | > 0,5: Pollens linken Kick starten |
 | 7 | `ground_pick` | > 0,5: Pollens Aufheben starten |
-| 8 | `neck_bow` | Nacken beugen: max(0, Wert) · 1,1 rad nach unten |
+| 8 | `neck_bow` | Nacken beugen: max(0, Wert), begrenzt auf 1, · 1,1 rad nach unten |
 
 - Alle Werte werden zuerst auf ±1,5 begrenzt, nicht-endliche auf 0.
 - Die drei Laufbefehle haben eine **Totzone wie ein Gamepad-Stick**: unter 20 % des Bereichs
@@ -798,3 +799,7 @@ und steht wieder auf. Kein Gelenk überschreitet seine Grenze um mehr als 0,004 
   Servo-Geräusch aus der Last.
 
 Die vollständige Abweichungstabelle zu Pollens Runtime steht in `docs/walker.md`, Abschnitt 13.
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

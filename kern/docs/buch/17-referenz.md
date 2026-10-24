@@ -392,7 +392,7 @@ aus und endet mit Rückgabe 2.
 | `--task jump\|stand` | `jump` | Aufgabe (Training, `--trace`) |
 | `--threads N` | Hardware-Threads | Rechen-Threads |
 | `--envs N` | 16 × Threads | Enten insgesamt; wird auf ein Vielfaches der Threads abgerundet (mindestens 1 je Thread). Das Ergebnis hängt von der Zahl der Enten ab, nicht von der Zahl der Threads |
-| `--seed N` | 1 | Seed. Bei `--trace` und `--spielen-spur` Episodenseed (intern 1000 + N); bei `--demo-spur` die **Dauer in Sekunden** (Standard 120) |
+| `--seed N` | 1 | Seed. Bei `--trace` und `--spielen-spur` Episodenseed (intern 1000 + N); bei `--demo-spur` die **Dauer in Sekunden**; ohne `--seed` also 1 s, die im Code vorgesehenen 120 s nur mit `--seed 0` |
 | `--iterations N` | 600 | Training: letzte Iteration. Bei `--kalibrieren` Generationen (Standard 80), `--vorbild-suchen` Generationen (Standard 120), `--spielen-ueben` Iterationen (Standard 300) – jeweils, wenn nicht abweichend von 600 angegeben |
 | `--episodes N` | 10 | Episoden für `--eval`, `--vorbild-pruefen`, `--spielen-pruefen` |
 | `--out FILE` | `<task>.onnx` | Ausgabe. `--kalibrieren`: `<profil>_calibrated.json`; `--spielen`: `play.onnx`; `--spielen-ueben`: `play_geuebt.onnx` |
@@ -414,11 +414,7 @@ aus und endet mit Rückgabe 2.
 | `--adaptive-lr 0\|1` | 1 | 1 | Lernrate aus der KL-Divergenz anpassen |
 | `--kl X` | 0,01 | 0,01 | Ziel-KL der adaptiven Lernrate |
 | `--substeps N` | 16 | 16 | Box3D-Substeps (`game::kWalkerSubsteps`) |
-| `--warm-start NAME` | `velstand` | `none` | Actor startet als Pollens `velstand`-Netz; jeder andere Wert ergibt keinen Warmstart (siehe Hinweis) |
-
-Hinweis: Die Kurzhilfe nennt `--warm-start velstand|none|file.onnx`. `make_learner`
-(`src/lehrer/recipe.cpp`) kennt aber nur `"velstand"`; ein Dateiname wird im aktuellen Stand nicht
-geladen und wirkt wie `none`.
+| `--warm-start NAME` | `velstand` | `none` | `velstand`: Der Actor startet als Pollens `velstand`-Netz; jeder andere Wert ergibt keinen Warmstart (`make_learner` in `src/lehrer/recipe.cpp`) |
 
 **Vorbild und Nachahmung im Training**
 
@@ -680,3 +676,7 @@ Einzelheiten in [Kapitel 16](16-kalibrierung.md) und `docs/kalibrierung.md`.
 | **Walker** | Controller-Art für gelenkige Roboter, die eine Policy fährt |
 | **wasi-sdk** | LLVM-Toolchain für WebAssembly mit wasi-libc und libc++; Kern nutzt Release 25 |
 | **Welding** | verlustfreies Indexieren einer Dreieckssuppe |
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

@@ -475,7 +475,7 @@ steht in [Kapitel 5](05-szene-und-geometrie.md).
 einem 40-m-Gitter; `City::collide` schiebt den Kreis des Autos (Radius 1,7 m) aus allen Polygonen der
 Nachbarzellen heraus und spiegelt die Geschwindigkeit an der Wand. Der Stadtrand ist eine feste Grenze.
 
-**Fahrphysik** (`drive`). Gas beschleunigt mit 24 m/s² vorwärts bzw. 30 m/s² rückwärts, Boost mit
+**Fahrphysik** (`drive`). Gas beschleunigt mit 24 m/s² vorwärts, Rückwärtsgas (Taste S: 0,7 × 30) mit 21 m/s², Boost mit
 zusätzlich 42 m/s²; die Höchstgeschwindigkeit ist 36 m/s, mit Boost 60 m/s. Seitliche Geschwindigkeit
 klingt mit `exp(-7.5 dt)` ab: Das Auto rutscht kurz und fängt sich. Lenken wirkt erst mit Tempo („Grip"
 steigt bis 9 m/s auf voll) und kehrt sich beim Rückwärtsfahren um. Boost leert sich mit 0,45 pro Sekunde
@@ -483,7 +483,7 @@ und lädt mit 0,12 nach. Damit das Auto beim Boost nicht durch Wände tunnelt, b
 Teilschritten von höchstens 0,6 m und prüft jeden davon.
 
 **Verkehr** (`update_traffic`). 22 Autos fahren auf den Straßenmittellinien in Spuren 2,8 m neben der
-Mitte, mit 9 bis 15 m/s. Steht der Spieler weniger als 10 m vor einem Auto in seiner Spur, bremst es.
+Mitte, mit 9 bis 15 m/s. Steht der Spieler weniger als 10 m vor einem Auto in seiner Spur, hält es an.
 Am Stadtrand tauchen die Autos auf der anderen Seite wieder auf. Alle Autos sind ein instanziertes Mesh
 mit einer Farbe pro Instanz.
 
@@ -811,3 +811,7 @@ kommen ebenfalls auf die Seite. Die veröffentlichte Fassung steht unter https:/
 | Ton | erster Klick oder Tipp startet ihn (Browser-Regel) | eigene Sache des Spiels |
 | Dateien vollständig | eine HTML-Datei (plus Netzordner bei der Ente) | HTML, `.wasm`, `kern.mjs`, `app.mjs` |
 | Auslieferung | beliebig, auch `file://` | Webserver bzw. GitHub Pages |
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

@@ -439,3 +439,7 @@ Gespeichert sind sie kompakt:
 `builtin_mesh(name)` dekodiert beim ersten Zugriff und behält das Ergebnis für die Laufzeit des Programms. Ein Mutex schützt den Cache, weil der Lehrer Welten auf mehreren Threads gleichzeitig baut ([Kapitel 14](14-lehrer.md)). `shape_mesh` skaliert ein eingebautes Mesh pro Achse mit `size` (Normalen mit dem Kehrwert) und dreht bei negativer Gesamtskalierung den Umlaufsinn um. Ein unbekannter Name ergibt einen 10-cm-Würfel, damit der Fehler im Level sichtbar ist und behoben werden kann.
 
 Wie die Ente aus diesen Teilen zusammengesetzt wird, beschreibt [Kapitel 13](13-micro-duck.md).
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

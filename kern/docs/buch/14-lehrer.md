@@ -951,3 +951,7 @@ auf dem Gerät selbst die Entenschritte/s.
 | `lehrer_exports_onnx_like_pollens_networks` | Export |
 | `micro_duck_jumps_with_a_network_trained_in_kern`, `micro_duck_jumps_for_real_in_the_studio` | Sprung |
 | `lehrer_calibrates_a_servo_from_bench_logs`, `lehrer_replays_robot_logs_against_the_simulation` | Kalibrierung ([Kapitel 16](16-kalibrierung.md)) |
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)

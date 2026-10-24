@@ -525,3 +525,7 @@ Importierte Sounds liegen als Data-URL im Level. `pollSounds(audio)` fragt die E
 - **Kein Ton ohne Geste.** Im Browser ist bis zur ersten Interaktion nichts zu hören. Das ist eine Regel des Browsers, kein Fehler.
 
 Der Mixer selbst ist von der Spiel-Laufzeit unabhängig. Wer in einer eigenen `kern::App` ([Kapitel 12](12-eigene-spiele.md)) Klang möchte, kann `audio::Mixer` und `audio::render_builtin` direkt verwenden. Für die Browser-Ausgabe muss die App dann allerdings selbst eine Render-Funktion exportieren und eine Ausgabe wie `KernAudio` anbinden; `web/app.mjs` enthält keine Audio-Anbindung.
+
+---
+
+© 2026 Christian Heinrich Hohlfeld · Alle Rechte vorbehalten · [Impressum und Rechte](00-impressum.md)
