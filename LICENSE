@@ -1,0 +1,104 @@
+Kern – Lizenz / License
+=======================
+
+Copyright (c) 2026 Christian Heinrich Hohlfeld. Alle Rechte vorbehalten. All rights reserved.
+
+Rechteinhaber / Owner: Christian Heinrich Hohlfeld, Gerhart-Hauptmann-Weg 5, 78464 Konstanz,
+Deutschland / Germany. ORCID: https://orcid.org/0009-0003-6634-9045
+
+Deutsch (maßgebliche Fassung)
+-----------------------------
+
+1. Gegenstand. Diese Lizenz gilt für alles in diesem Repository und auf den daraus
+   veröffentlichten Seiten, soweit nicht unter Nummer 6 anders bestimmt: die Engine Kern,
+   Kern Studio, den Lehrer, die Spiele und Beispiele, die Werkzeuge, die trainierten Netze
+   (insbesondere kern/policies/), die Level, Grafiken, Klänge, die Dokumentation und das
+   Buch (kern/docs/) sowie alle daraus gebauten Dateien (WebAssembly, JavaScript, HTML)
+   – zusammen „die Software".
+
+2. Rechteinhaber. Sämtliche Urheber-, Nutzungs- und sonstigen Schutzrechte an der Software
+   liegen bei Christian Heinrich Hohlfeld („Rechteinhaber"). Es werden keine Rechte
+   eingeräumt, außer den in Nummer 3 ausdrücklich genannten.
+
+3. Erlaubt ohne gesonderte Vereinbarung ist allein: die öffentlich bereitgestellte Webseite
+   im Browser aufzurufen und die Software dort zum persönlichen, nicht kommerziellen
+   Ausprobieren zu benutzen.
+
+4. Nicht erlaubt ist ohne vorherige schriftliche Zustimmung des Rechteinhabers insbesondere:
+   a) die Software oder Teile davon zu kopieren, zu vervielfältigen, zu verbreiten, öffentlich
+      zugänglich zu machen, zu vermieten, zu verkaufen oder unterzulizenzieren;
+   b) sie zu bearbeiten, zu übersetzen, abgeleitete Werke zu erstellen oder Teile in andere
+      Software zu übernehmen;
+   c) sie kommerziell oder im Rahmen einer beruflichen oder gewerblichen Tätigkeit zu nutzen,
+      einschließlich Hosting, Software-as-a-Service, Einbettung in Produkte, Robotik,
+      Simulation, Training und Betrieb von KI-Modellen, Lehre und Beratung;
+   d) mit Studio exportierte Spiele oder mit dem Lehrer trainierte Netze außerhalb der
+      Nutzung nach Nummer 3 zu verwenden oder weiterzugeben;
+   e) die Software, ihre Dokumentation oder ihre Ausgaben zum Training, Feinabstimmen oder
+      Bewerten von Modellen des maschinellen Lernens zu verwenden (Text- und Data-Mining;
+      der Rechteinhaber behält sich diese Nutzung nach § 44b Abs. 3 UrhG ausdrücklich vor);
+   f) die Software zu dekompilieren, zu disassemblieren oder anderweitig zurückzuentwickeln,
+      soweit dies nicht nach §§ 69d, 69e UrhG zwingend erlaubt ist;
+   g) Urheberrechtsvermerke, diese Lizenz oder Kennzeichnungen zu entfernen oder zu ändern.
+
+5. Lizenzen für weitergehende Nutzungen, auch kommerzielle, vergibt der Rechteinhaber auf
+   Anfrage gesondert und schriftlich.
+
+6. Bestandteile Dritter. Die in kern/LICENSES.md aufgeführten Bestandteile Dritter (unter
+   anderem Box3D, Earcut, musl-Mathematik, Micro-Duck-Modell, -Policies und -Meshes von
+   Pollen Robotics) unterliegen ausschließlich ihren eigenen Lizenzen (MIT, ISC, Apache 2.0,
+   für die Micro-Duck-Meshes CC BY-NC-SA 4.0, also nicht kommerziell).
+   Diese Lizenz schränkt die Rechte an diesen Bestandteilen nicht ein.
+
+7. Gewährleistung und Haftung. Die Software wird unentgeltlich zum Ausprobieren
+   bereitgestellt. Der Rechteinhaber haftet nur für Vorsatz und grobe Fahrlässigkeit sowie
+   nach dem Produkthaftungsgesetz und bei Verletzung von Leben, Körper oder Gesundheit.
+
+8. Es gilt deutsches Recht. Ist eine Bestimmung unwirksam, bleibt der Rest wirksam.
+
+English (convenience translation; the German version prevails)
+---------------------------------------------------------------
+
+1. Scope. This license covers everything in this repository and on the pages published from
+   it, except as set out in section 6: the Kern engine, Kern Studio, the Lehrer, the games and
+   examples, the tools, the trained networks (in particular kern/policies/), levels, graphics,
+   sounds, the documentation and the book (kern/docs/), and all files built from them
+   (WebAssembly, JavaScript, HTML) – together "the Software".
+
+2. Owner. All copyright, usage and other rights in the Software belong to Christian Heinrich
+   Hohlfeld ("the Owner"). No rights are granted except those expressly named in section 3.
+
+3. Permitted without a separate agreement is only: opening the publicly provided website in a
+   browser and using the Software there for personal, non-commercial trying out.
+
+4. Without the Owner's prior written consent it is in particular not permitted:
+   a) to copy, reproduce, distribute, make publicly available, rent, sell or sublicense the
+      Software or parts of it;
+   b) to modify or translate it, create derivative works or incorporate parts into other
+      software;
+   c) to use it commercially or in any professional or business activity, including hosting,
+      software as a service, embedding in products, robotics, simulation, training and running
+      AI models, teaching and consulting;
+   d) to use or pass on games exported with Studio or networks trained with the Lehrer beyond
+      the use permitted in section 3;
+   e) to use the Software, its documentation or its outputs to train, fine-tune or evaluate
+      machine-learning models (text and data mining; the Owner expressly reserves this use
+      under § 44b(3) of the German Copyright Act);
+   f) to decompile, disassemble or otherwise reverse engineer the Software, except where
+      mandatory law (§§ 69d, 69e UrhG) permits it;
+   g) to remove or alter copyright notices, this license or markings.
+
+5. Licenses for further uses, including commercial ones, are granted by the Owner separately
+   and in writing on request.
+
+6. Third-party components. The third-party components listed in kern/LICENSES.md (among them
+   Box3D, Earcut, musl math, and the Micro Duck model, policies and meshes by Pollen Robotics)
+   are governed solely by their own licenses (MIT, ISC, Apache 2.0; the Micro Duck meshes
+   CC BY-NC-SA 4.0, i.e. non-commercial). This license does not
+   restrict the rights in those components.
+
+7. Warranty and liability. The Software is provided free of charge for trying out. The Owner
+   is liable only for intent and gross negligence, under the German Product Liability Act, and
+   for injury to life, body or health.
+
+8. German law applies. If a provision is invalid, the rest remains in effect.

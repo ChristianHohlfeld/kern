@@ -1,5 +1,8 @@
 # Third-party code in Kern
 
+Kern itself is proprietary: see `LICENSE` at the repository root (all rights reserved). The
+components below are not covered by it; each stays under its own license.
+
 ## Earcut (C++ port in `kern/src/geo/earcut.cpp`)
 
 Port of Mapbox Earcut v3.0.2 (https://github.com/mapbox/earcut).
@@ -51,6 +54,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## musl math (`kern/third_party/musl_math`)
+
+The deterministic libm functions (sin, cos, exp, log, pow, atan2, ...) are taken from musl
+(https://musl.libc.org), Copyright © 2005-2020 Rich Felker, et al., MIT License; the full text and
+the per-file notices are in `kern/third_party/musl_math/COPYRIGHT`.
 
 ## Micro Duck idle look-around (port in `kern/src/game/walker_brain.cpp`)
 

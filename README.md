@@ -8,7 +8,8 @@ Kern ist eine 3D-Engine in **C++20**, die mit wasi-sdk nach **WebAssembly** komp
 |---|---|
 | Engine, Renderer, Geometrie, App-Laufzeit | [`kern/README.md`](kern/README.md) |
 | Kern Studio, Steuerung, Komponenten, Sound, `.klevel`-Format, Protokoll | [`kern/docs/studio.md`](kern/docs/studio.md) |
-| Lizenzen der Fremdbibliotheken (Earcut, Box3D) | [`kern/LICENSES.md`](kern/LICENSES.md) |
+| Lizenz von Kern (proprietär, alle Rechte vorbehalten) | [`LICENSE`](LICENSE) |
+| Lizenzen der Bestandteile Dritter | [`kern/LICENSES.md`](kern/LICENSES.md) |
 
 ## Schnellstart
 
@@ -38,3 +39,7 @@ Kern ist in [SpawnCity](https://spawncity.de) entstanden, das über Kern rendert
 ## CI und Pages
 
 `.github/workflows/ci.yml` baut alle Module, führt die nativen Tests und den Browser-Test aus und hängt `studio.html` sowie die Screenshots als Artefakt an. `.github/workflows/pages.yml` baut bei jedem Push auf `main` Studio und Beispiele und veröffentlicht sie mit der Startseite `site/index.html` auf GitHub Pages.
+
+## Lizenz
+
+© 2026 Christian Heinrich Hohlfeld (ORCID [0009-0003-6634-9045](https://orcid.org/0009-0003-6634-9045)). Alle Rechte vorbehalten. Kern ist proprietär; Nutzung, Weitergabe und Bearbeitung nur mit schriftlicher Zustimmung, siehe [`LICENSE`](LICENSE). Bestandteile Dritter behalten ihre eigenen Lizenzen ([`kern/LICENSES.md`](kern/LICENSES.md)).
