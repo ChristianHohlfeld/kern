@@ -1,4 +1,4 @@
-# Chapter 4 – Graphics
+# 4 Graphics
 
 This chapter describes Kern's renderer in full: how the C++ code in the WebAssembly module reaches WebGL2, how meshes and materials are structured, what the single standard shader computes, in which order a frame is produced and how the additional passes (sun shadows, sky, GTAO, bloom) work in detail. It ends with a complete example of a custom shader extension from the game Orb Run.
 
@@ -356,7 +356,7 @@ if (uGrade == 1) rgb = gradeColor(rgb);
 rgb = linearToSrgb(clamp(rgb, 0.0, 1.0));
 ```
 
-`acesFilmic` is three.js's (r16x) fit to the ACES RRT/ODT curve, including the factor `uExposure / 0.6`. `gradeColor` is Kern's production grading applied to the already tonemapped image: saturation ×1.14, a soft S-curve (22 %), warmer highlights and cooler shadows. In the scene shader, `RendererOptions::grade = false` turns it off; in the bloom composite, `BloomOptions::grade` decides (the C ABI sets both to the same value, `kern_renderer_init`).
+`acesFilmic` is three.js's (r16x; MIT, see Appendix D) fit to the ACES RRT/ODT curve, including the factor `uExposure / 0.6`. `gradeColor` is Kern's production grading applied to the already tonemapped image: saturation ×1.14, a soft S-curve (22 %), warmer highlights and cooler shadows. In the scene shader, `RendererOptions::grade = false` turns it off; in the bloom composite, `BloomOptions::grade` decides (the C ABI sets both to the same value, `kern_renderer_init`).
 
 ### Fog
 
@@ -587,7 +587,7 @@ o = vec4(clamp(scene + present(h2 + b) - present(h), 0.0, 1.0), 1.0);
 
 ### 4.8.4 Ambient Occlusion (GTAO)
 
-Kern implements Ground-Truth Ambient Occlusion after Jimenez, Wu, Pesce and Jarabo (2016) in the form of Intel's XeGTAO (`src/gfx/gtao.cpp`). What is special lies less in the technique than in how it is embedded: **there is no depth prepass and no additional geometry pass.**
+Kern implements Ground-Truth Ambient Occlusion after Jimenez, Wu, Pesce and Jarabo (2016) in the form of Intel's XeGTAO (`src/gfx/gtao.cpp`; MIT, see Appendix D). What is special lies less in the technique than in how it is embedded: **there is no depth prepass and no additional geometry pass.**
 
 **The idea in three steps:**
 

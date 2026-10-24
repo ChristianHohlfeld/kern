@@ -1,4 +1,4 @@
-# Anhang B: Grundlagen – Echtzeit-Rendering
+# Anhang B – Grundlagen: Echtzeit-Rendering
 
 Dieser Anhang erklärt, wie aus Dreiecken im Speicher ein Bild auf dem Bildschirm wird – schnell genug
 für 60 Bilder pro Sekunde im Browser. Er beginnt bei Koordinaten und Matrizen, geht über die

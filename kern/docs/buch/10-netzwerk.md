@@ -340,7 +340,7 @@ Spiel gehört. Studios Play-in-Editor nutzt das offene Level, exportierte Spiele
 
 ## 10.8 Mehrspieler im Studio
 
-![Mehrspieler-Play im Studio: Listen-Server und drei lokale Clients in vier Viewports](bilder/studio-multiplayer.png)
+![Mehrspieler-Play im Studio: Listen-Server und ein lokaler Client, dazu zwei orthografische Ansichten](bilder/studio-multiplayer.png)
 
 ### Number of Players
 

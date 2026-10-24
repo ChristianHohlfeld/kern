@@ -1,4 +1,4 @@
-# Chapter 1 – Introduction
+# 1 Introduction
 
 Kern is a 3D engine written in **C++20**. It is compiled to **WebAssembly** with **wasi-sdk** and
 draws in the browser through **WebGL2**. The same WebAssembly module also runs the physics

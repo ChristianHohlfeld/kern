@@ -1,4 +1,4 @@
-# Chapter 5 – Scene and Geometry
+# 5 Scene and Geometry
 
 This chapter covers two building blocks that sit around the renderer:
 

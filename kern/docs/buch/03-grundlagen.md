@@ -1,4 +1,4 @@
-# Kapitel 3 – Grundlagen
+# 3 Grundlagen
 
 Jede Schicht von Kern steht auf vier Headern:
 

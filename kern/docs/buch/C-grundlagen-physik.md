@@ -1,4 +1,4 @@
-# Anhang C: Grundlagen – Physiksimulation
+# Anhang C – Grundlagen: Physiksimulation
 
 Dieser Anhang erklärt, wie eine Starrkörpersimulation funktioniert: was ein Körper „ist“, wie man
 ihn in der Zeit vorwärts rechnet, wie Kollisionen gefunden und aufgelöst werden, was Reibung und
@@ -183,7 +183,7 @@ Box3D teilt jeden festen Schritt intern in **Sub-Steps** (`World::step(dt, subst
 Schritte machen Gelenkketten steifer: Bei der Hüfte der Ente wuchs laut `docs/physics.md` die
 Gelenklücke bei 4 Sub-Steps unter Last auf 5 cm, bei 16 bleibt sie unter 1 mm.
 
-Für den Micro Duck: 100 Hz Schritt, 16 Sub-Steps, also ein Sub-Step von
+Für die Micro Duck: 100 Hz Schritt, 16 Sub-Steps, also ein Sub-Step von
 $h = 1/1600\,\text{s} = 0{,}625$ ms.
 
 ---

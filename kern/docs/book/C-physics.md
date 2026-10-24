@@ -1,4 +1,4 @@
-# Appendix C: Foundations – Physics Simulation
+# Appendix C – Foundations: Physics Simulation
 
 This appendix explains how a rigid-body simulation works: what a body "is", how it is advanced in
 time, how collisions are detected and resolved, what friction and elasticity mean, how joints and

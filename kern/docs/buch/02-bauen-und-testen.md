@@ -1,4 +1,4 @@
-# Kapitel 2 – Bauen und Testen
+# 2 Bauen und Testen
 
 Dieses Kapitel beschreibt alle Wege, Kern zu übersetzen und zu prüfen: die Toolchain, das
 Build-Skript `kern/build.sh` mit seinen Modi, den Studio-Build, den nativen Lehrer, die nativen

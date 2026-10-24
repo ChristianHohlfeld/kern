@@ -11,8 +11,13 @@ unübersetzt wiedergegeben. Die Liste mit Herkunft und Änderungen steht im Repo
 | Box3D | Erin Catto | MIT |
 | Earcut (C++-Portierung) | Mapbox | ISC |
 | musl-Mathematikfunktionen | Rich Felker und andere | MIT |
-| Micro-Duck-Robotermodell (MJCF), Policies, Pick-up-Erkennung, portierte Software | Pollen Robotics | Apache License 2.0 |
+| Micro-Duck-Robotermodell (MJCF), Policies, Pick-up-Erkennung, portierte Software (Leerlauf-Umschauen, autonomes Verhalten, Stimme) | Pollen Robotics | Apache License 2.0 |
+| `policies/jump.onnx` (Warmstart von Pollens `velstand.onnx`) | Christian Heinrich Hohlfeld; Pollen Robotics | Apache License 2.0 |
+| Intel XeGTAO (Verfahren und Voreinstellungen, `gtao.cpp`) | Intel Corporation | MIT |
+| three.js (ACES-Fit, Nebel, `standard_shader.cpp`) | three.js-Autoren | MIT |
 | Micro-Duck-3D-Modelle in Kern Studio (in diesem Buch nicht enthalten) | Pollen Robotics | CC BY-NC-SA 4.0 |
+
+Die CC-Lizenz im Wortlaut: <https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode>.
 
 Das Buch selbst steht nicht unter diesen Lizenzen (siehe [Impressum](00-impressum.md)).
 
@@ -87,7 +92,63 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## D.4 Apache License 2.0 (Kern; Pollen Robotics)
+Einzelne Mathematikfunktionen tragen eigene, freizügige Vermerke (u. a. Sun Microsystems, David Schultz,
+Steven G. Kargl, Bruce D. Evans, Stephen L. Moshier, Arm Limited); Wortlaut in
+`kern/third_party/musl_math/COPYRIGHT`.
+
+## D.4 Intel XeGTAO (MIT)
+
+```
+MIT License
+
+Copyright (C) 2016-2021, Intel Corporation 
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## D.5 three.js (MIT)
+
+```
+The MIT License
+
+Copyright © 2010-2026 three.js authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+## D.6 Apache License 2.0 (Kern; Pollen Robotics)
 
 ```
                                  Apache License

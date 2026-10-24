@@ -1,4 +1,4 @@
-# Kapitel 5 – Szene und Geometrie
+# 5 Szene und Geometrie
 
 Dieses Kapitel behandelt zwei Bausteine, die rund um den Renderer liegen:
 

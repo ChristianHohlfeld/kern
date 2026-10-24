@@ -1,4 +1,4 @@
-# Kapitel 17 – Referenz
+# 17 Referenz
 
 Dieses Kapitel ist zum Nachschlagen. Es listet die C-ABI des WebAssembly-Moduls (Importe und
 Exporte, gruppiert), die Kommandozeile von `kern_lehrer`, die Dateiformate und ein Glossar.

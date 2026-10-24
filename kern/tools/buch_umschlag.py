@@ -98,7 +98,7 @@ body {{ width: {TW}in; height: {TH}in; position: relative; overflow: hidden;
 .back .title span {{ font-weight: normal; color: #9cc4ff }}
 .back .blurb {{ position: absolute; left: 0.75in; right: 0.65in; top: 1.75in; font-size: 11pt; line-height: 1.5; color: #dbe5f4 }}
 .back .blurb b {{ color: #fff }}
-.back .shots {{ position: absolute; left: 0.75in; right: 0.65in; top: 5.85in; display: flex; gap: 0.18in }}
+.back .shots {{ position: absolute; left: 0.75in; right: 0.65in; top: 6.3in; display: flex; gap: 0.18in }}
 .back .shots img {{ width: 50%; border-radius: 6px; box-shadow: 0 0 0 1px #3d8bff }}
 .back .rights {{ position: absolute; left: 0.75in; bottom: 0.55in; width: 3.6in; font-size: 7.5pt; line-height: 1.4; color: #8ea3c4 }}
 .back .barcode {{ position: absolute; right: 0.55in; bottom: 0.45in; width: 2in; height: 1.2in; background: #fff }}
@@ -107,7 +107,7 @@ body {{ width: {TW}in; height: {TH}in; position: relative; overflow: hidden;
   <div class="logo">{logo}</div>
   <div class="title">Kern <span>– {t["book"]}</span></div>
   <div class="blurb">{t["blurb"]}</div>
-  <div class="shots"><img src="{data('studio-selected.png')}"><img src="{data('duck-play.png')}"></div>
+  <div class="shots"><img src="{data('studio-selected.png')}"><img src="{data('studio-physics-lab.png')}"></div>
   <div class="rights">© 2026 Christian Heinrich Hohlfeld · ORCID 0009-0003-6634-9045<br>
   {"Alle Rechte am Buch vorbehalten. Die Software Kern ist Open Source (Apache 2.0). Kein Produkt von Pollen Robotics oder Hugging Face und nicht von ihnen geprüft." if de else "Book: all rights reserved. The Kern software is open source (Apache 2.0). Not a product of Pollen Robotics or Hugging Face, nor reviewed by them."}</div>
   <div class="barcode"></div>

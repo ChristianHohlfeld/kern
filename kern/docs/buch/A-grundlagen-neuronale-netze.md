@@ -1,6 +1,6 @@
-# Anhang A: Grundlagen – neuronale Netze, Nachahmung und Reinforcement Learning
+# Anhang A – Grundlagen: neuronale Netze, Nachahmung und Reinforcement Learning
 
-Dieser Anhang erklärt das Handwerkszeug, mit dem Kerns Lehrer Netze für den Micro Duck trainiert.
+Dieser Anhang erklärt das Handwerkszeug, mit dem Kerns Lehrer Netze für die Micro Duck trainiert.
 Er setzt nur Schulmathematik voraus: Ableitungen, Summen, ein wenig Wahrscheinlichkeit. Jeder
 Begriff wird erst allgemein eingeführt und dann an der Stelle in Kern gezeigt, an der er umgesetzt
 ist. Die Fachkapitel [Kapitel 14](14-lehrer.md) (der Lehrer) und [Kapitel 15](15-eigene-modelle.md)
@@ -505,7 +505,7 @@ In Robotik heißt Überanpassung meist: Das Netz hat sich auf **genau diese Simu
 auf diese Masse, diese Reibung, dieses Servo. In der echten Welt ist alles ein wenig anders. Das
 Gegenmittel ist Variation (Domain Randomization, A.12). Kern prüft deshalb jedes Netz zweimal: auf
 dem **sauberen** Roboter und unter **voller Variation** (`kern_lehrer --eval`, `JumpReport`,
-`PlayReport`). Auch die Auswahl „Runde 10 von 12“ beim Spielnetz (`docs/lehrer.md`, Abschnitt 8)
+`PlayReport`). Auch die Auswahl der Runde beim Spielnetz (`docs/lehrer.md`, Abschnitt 8)
 ist frühes Aufhören nach einer Bewertung.
 
 ---

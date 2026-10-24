@@ -1,4 +1,4 @@
-# Chapter 7 – Audio
+# 7 Audio
 
 Kern has its own sound engine in C++. It runs in the same WebAssembly module as the renderer and the physics, mixes every voice itself, sample by sample, and hands the browser nothing but finished stereo PCM. Web Audio serves only as the speaker output and as the decoder for imported files.
 

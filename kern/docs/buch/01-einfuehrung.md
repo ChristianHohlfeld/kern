@@ -1,4 +1,4 @@
-# Kapitel 1 – Einführung
+# 1 Einführung
 
 Kern ist eine 3D-Engine in **C++20**. Sie wird mit **wasi-sdk** nach **WebAssembly** übersetzt und
 zeichnet im Browser über **WebGL2**. Im selben WebAssembly-Modul laufen die Physik (**Box3D**), eine

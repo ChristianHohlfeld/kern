@@ -1,4 +1,4 @@
-# Chapter 17 – Reference
+# 17 Reference
 
 This chapter is for looking things up. It lists the C ABI of the WebAssembly module (imports and
 exports, grouped), the command line of `kern_lehrer`, the file formats and a glossary.
@@ -491,8 +491,8 @@ kern/build/kern_lehrer --task jump --iterations 3000 --out jump.onnx --log jump.
 kern/build/kern_lehrer --eval jump.onnx --episodes 40
 kern/build/kern_lehrer --trace jump.onnx
 kern/build/kern_lehrer --vorbild-suchen demo.json
-kern/build/kern_lehrer --kalibrieren steps.csv,chirp.csv --pruefen rechteck.csv --out xl330_unit3.json
-kern/build/kern_lehrer --abgleich roboter.csv --profil xl330_unit3.json
+kern/build/kern_lehrer --kalibrieren steps.csv,chirp.csv --pruefen square.csv --out xl330_unit3.json
+kern/build/kern_lehrer --abgleich robot.csv --profil xl330_unit3.json
 kern/build/kern_lehrer --task jump --profil xl330_unit3.json --out jump.onnx
 kern/build/kern_lehrer --fingerprint 400 | diff - kern/tests/determinism_fingerprint.txt
 ```

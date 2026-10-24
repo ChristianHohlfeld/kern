@@ -16,6 +16,13 @@ Box3D stays untouched throughout; it computes rigid bodies, joints and contacts
 than hard-code** – quantities that follow from the model and the physics are measured by the Lehrer
 itself rather than written into the code as numbers.
 
+> **Safety.** Servos under load can swing fast and hard: clamp the test bench firmly, secure the arm
+> and weight, keep hands and cables out of the swing, limit current and keep an emergency stop at
+> hand. Never exceed the servo manufacturer's specified voltage. Charge lithium batteries only with a
+> suitable charger and under supervision. Test new networks with the robot held or suspended first.
+> Networks trained in Kern have not been tested on real hardware. All at your own risk (see the
+> [imprint](00-imprint.md)).
+
 | Part | Where | What |
 |---|---|---|
 | Servo device model | `include/kern/game/servo.h`, `src/game/servo.cpp` | law of the position servo, profile as JSON |
@@ -98,7 +105,7 @@ From `docs/kalibrierung.md`:
    arm on an edge), compute the inertia about its own centre of mass from the shape (small compared
    with m·r² for small weights). Angle 0 = arm hanging straight down.
 2. **Operate the servo as in the robot:** same firmware settings (position mode, P/I/D gains,
-   profile), same voltage (7.4 V), Return Delay Time 0, same bus rate.
+   profile), same voltage (7.4 V, if the manufacturer allows this voltage for the servo), Return Delay Time 0, same bus rate.
 3. **Signals** for each load, with position polling at at least 100 Hz: steps between several angles
    (small and large, e.g. ±0.2 and ±0.9 rad), a chirp from 0.5 → 4 Hz with 0.5 rad amplitude, a
    square wave of ±0.3 rad.
@@ -148,11 +155,11 @@ angles.
 ### Fitting and checking
 
 ```
-kern_lehrer --kalibrieren steps.csv,chirp.csv --pruefen rechteck.csv --out xl330_unit3.json
+kern_lehrer --kalibrieren steps.csv,chirp.csv --pruefen square.csv --out xl330_unit3.json
 kern_lehrer --kalibrieren steps.csv,chirp.csv --profil start.json --iterations 120 --threads 4
 ```
 
-(`--pruefen` means "check"; `rechteck.csv` is a square-wave log.)
+(`--pruefen` means "check"; `square.csv` is a square-wave log.)
 
 `calibrate_servo(start, fit, holdout, generations, seed, threads)`:
 
@@ -203,14 +210,15 @@ They show the format and are suitable for running through the tool chain once.
 
 ## 16.3 Matching: the whole robot
 
-On every control tick (50 Hz), the robot records what its network saw (61 values) and what it sent
-(14 actions). At the start it stands still in the default pose.
+This assumes a log with what the network saw (61 values) and what it sent (14 actions) on every
+control tick (50 Hz), starting still in the default pose. Whether and how the robot's software writes
+such a log is not covered in this book.
 
 **Format** (`parse_robot_log`): a header line, then 75 numbers per tick – 61 observations, 14
 actions. `robot_log_csv` writes the header `obs0,…,obs60,act0,…,act13`.
 
 ```
-kern_lehrer --abgleich roboter.csv --profil xl330_unit3.json
+kern_lehrer --abgleich robot.csv --profil xl330_unit3.json
 ```
 
 `compare_robot_log(log, servo)`:
@@ -223,7 +231,7 @@ kern_lehrer --abgleich roboter.csv --profil xl330_unit3.json
 - Output: RMS per group and the RMS angle error for each of the 14 joints individually:
 
 ```
-roboter.csv against the simulation (xl330), <n> ticks (<s> s):
+robot.csv against the simulation (xl330), <n> ticks (<s> s):
   gyro … rad/s  gravity …  joints … rad  joint speeds … rad/s (rms)
     left_hip_yaw     … rad
     ...

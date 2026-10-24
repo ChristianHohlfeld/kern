@@ -391,7 +391,7 @@ who join later ([Chapter 10](10-networking.md)).
   code and calls the engine's C++ node functions directly (wasm-to-wasm calls, no script engine in
   between).
 - `generate_cpp(instance, name)` writes the same program as C++ source. Compiled into a game
-  (`kern/build.sh --studio out.wasm datei.cpp`), it replaces the interpreter for this graph.
+  (`kern/build.sh --studio out.wasm file.cpp`), it replaces the interpreter for this graph.
 
 ### What is generated inline
 

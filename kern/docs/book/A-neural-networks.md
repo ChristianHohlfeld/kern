@@ -1,4 +1,4 @@
-# Appendix A: Foundations – Neural Networks, Imitation and Reinforcement Learning
+# Appendix A – Foundations: Neural Networks, Imitation and Reinforcement Learning
 
 This appendix explains the toolkit with which Kern's Lehrer ("teacher", Kern's training module)
 trains networks for the Micro Duck. It assumes only school mathematics: derivatives, sums, a little
@@ -496,8 +496,8 @@ In robotics, overfitting usually means: the network has adapted itself to **exac
 simulation** – to this mass, this friction, this servo. In the real world everything is a little
 different. The remedy is variation (domain randomisation, A.12). Kern therefore evaluates every
 network twice: on the **clean** robot and under **full variation** (`kern_lehrer --eval`,
-`JumpReport`, `PlayReport`). The selection of "round 10 of 12" for the play network
-(`docs/lehrer.md`, Section 8) is likewise early stopping after an evaluation.
+`JumpReport`, `PlayReport`). The choice of round for the play network
+(`docs/lehrer.md`, Section 8; Section 14.8) is likewise early stopping after an evaluation.
 
 ---
 

@@ -1,4 +1,4 @@
-# Chapter 3 – Foundations
+# 3 Foundations
 
 Every layer of Kern rests on four headers:
 

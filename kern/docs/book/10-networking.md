@@ -340,7 +340,7 @@ part of the game. Studio's Play-in-Editor uses the open level, exported games th
 
 ## 10.8 Multiplayer in Studio
 
-![Multiplayer Play in Studio: listen server and three local clients in four viewports](../buch/bilder/studio-multiplayer.png)
+![Multiplayer Play in Studio: a listen server and one local client, with two orthographic views](../buch/bilder/studio-multiplayer.png)
 
 ### Number of Players
 

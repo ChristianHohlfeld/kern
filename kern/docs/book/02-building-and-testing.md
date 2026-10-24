@@ -1,4 +1,4 @@
-# Chapter 2 – Building and Testing
+# 2 Building and Testing
 
 This chapter describes every way to compile and check Kern: the toolchain, the build script
 `kern/build.sh` and its modes, the Studio build, the native Lehrer, the native unit tests with

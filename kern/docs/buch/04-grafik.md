@@ -1,4 +1,4 @@
-# Kapitel 4 – Grafik
+# 4 Grafik
 
 Dieses Kapitel beschreibt den Renderer von Kern vollständig: wie der C++-Code im WebAssembly-Modul WebGL2 erreicht, wie Meshes und Materialien aufgebaut sind, was der eine Standard-Shader rechnet, in welcher Reihenfolge ein Frame entsteht und wie die Zusatzpasses (Sonnenschatten, Himmel, GTAO, Bloom) im Detail arbeiten. Am Ende steht ein vollständiges Beispiel einer eigenen Shader-Erweiterung aus dem Spiel Orb Run.
 

@@ -9,7 +9,8 @@ WebAssembly).
 The duck in the Lehrer is the same as in the Studio: the same `GameWorld`, the same servos, sensors
 and 50 Hz controller, the same physics with 16 sub-steps ([Chapter 13](13-micro-duck.md)). A network
 that learns here therefore runs unchanged in the Studio. It is exported in the format of Pollen's
-networks and, like them, can go onto the robot.
+networks. Networks trained in Kern have not been tested on real hardware; running one on a robot is at
+your own risk (Chapter 16).
 
 Kern's own networks were created with the Lehrer: `policies/jump.onnx` (the jump) and
 `policies/play.onnx` (the play layer). This chapter explains how it is built and how it computes,

@@ -1,4 +1,4 @@
-# Appendix B: Foundations – Real-Time Rendering
+# Appendix B – Foundations: Real-Time Rendering
 
 This appendix explains how triangles in memory become an image on the screen – fast enough for 60
 frames per second in the browser. It starts with coordinates and matrices, proceeds through the
@@ -519,7 +519,7 @@ in the mid-range, compresses the highlights softly and never saturates hard:
     0    1    2    3    4
 ```
 
-**In Kern** it is the ACES filmic curve in the three.js version (`acesFilmic` in `kGlslToneMap`):
+**In Kern** it is the ACES filmic curve in the three.js version (MIT, see Appendix D) (`acesFilmic` in `kGlslToneMap`):
 
 1. Exposure: `c *= uExposure / 0.6`.
 2. A matrix into the curve's working colour space (`inM`).
@@ -658,7 +658,7 @@ $$\hat a(h, \gamma) = \tfrac14\left(\cos\gamma + 2h\sin\gamma - \cos(2h - \gamma
 
 ### B.8.3 In Kern
 
-`AmbientOcclusionPass` (`passes.h`, `gtao.cpp`) follows Intel's XeGTAO:
+`AmbientOcclusionPass` (`passes.h`, `gtao.cpp`) follows Intel's XeGTAO (MIT, see Appendix D):
 
 - The normal is reconstructed **from depth** (per axis, the neighbour with the smaller depth jump);
   there is no normal buffer.
