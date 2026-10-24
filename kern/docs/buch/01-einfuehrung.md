@@ -330,7 +330,8 @@ erzeugte Dateien.
     README.md                    Engine-Überblick
     LICENSES.md                  Lizenzen der Fremdbibliotheken
     build.sh                     WebAssembly-Build (--app, --physics, --game, --studio, --lehrer)
-    include/kern/                öffentliche Header (kern/kern.h bindet die Kern-Header ein)
+    include/kern/                öffentliche Header (kern/kern.h bindet App, Grundlagen, Geometrie,
+                                 Renderer, Mathematik und Szene ein)
       core/                      base.h, json.h, dmath.h
       math/                      math.h
       gfx/                       gl.h, program.h, shader.h, mesh.h, passes.h, renderer.h, particles.h
