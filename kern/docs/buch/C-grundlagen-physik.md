@@ -142,8 +142,9 @@ Zwei Feinheiten aus dem Code:
 - Den **Kreiselterm** löst Box3D implizit mit einem Newton-Schritt (`B3_GYROSCOPIC_ITERATIONS = 1`):
   „This improves the simulation of long skinny bodies.“ Explizit gerechnet würde er Energie
   hineinpumpen.
-- Geschwindigkeiten sind gedeckelt: linear auf `maximum_linear_speed` (Kern: 400 m/s), die Drehung
-  pro Sub-Schritt auf $\pi/4$ (`B3_MAX_ROTATION`).
+- Geschwindigkeiten sind gedeckelt: linear auf `maximum_linear_speed` (Kern: 400 m/s), die
+  Winkelgeschwindigkeit auf $\pi/4$ pro festem Zeitschritt (`B3_MAX_ROTATION * inv_dt`, mit $dt$
+  dem ganzen Schritt, nicht dem Sub-Schritt).
 
 Kerns eigene Dämpfungsregel folgt daraus: „Die eingebaute Dämpfung nutzen (implizit). Selbst
 gebautes $F = -c\,v$ mit großem $c$ ist explizit und wird an leichten Bodies instabil“
@@ -376,7 +377,9 @@ float pair_friction(float fa, uint64_t ma, float fb, uint64_t mb) {
 | TPU (weiche Schnabelpolster) auf Baumwolle | 0,8 | Elastomere auf Textil 0,6–1,0 |
 | Baumwolle auf Holz-/Laminatboden | 0,4 | Stoff auf Holz 0,3–0,5 |
 
-Alle anderen Paare fallen auf $\sqrt{\mu_A\mu_B}$ zurück. Wozu? Der Micro Duck hebt eine Socke mit
+(Der Kommentar im Kopf von `physics.h` ist an dieser Stelle ungenau: Laut Tabelle greift TPU auf
+Baumwolle mit 0,8 *stärker* als Baumwolle auf sich selbst mit 0,5. Gemeint ist, dass sich der
+Paarwert nicht aus den Einzelwerten ergibt.) Alle anderen Paare fallen auf $\sqrt{\mu_A\mu_B}$ zurück. Wozu? Der Micro Duck hebt eine Socke mit
 dem Schnabel auf (`spielen.cpp`): Ob der Biss hält, hängt genau an diesen Paaren – Polster auf Socke
 muss greifen, Socke auf Boden muss rutschen. Ein einziger Reibwert pro Form kann das nicht
 gleichzeitig darstellen.
@@ -526,13 +529,17 @@ $$\Delta\lambda = -m_\text{eff}\left(\text{massScale}\cdot v_n + \text{bias}\rig
 $h\omega = 0{,}1178$, $2\zeta + h\omega = 20{,}118$, also
 biasRate $= 9{,}37\,\text{s}^{-1}$, massScale $= 0{,}703$, impulseScale $= 0{,}297$. Eine
 Durchdringung von 1 mm wird mit $0{,}703 \cdot 9{,}37 \cdot 0{,}001 \approx 6{,}6$ mm/s
-herausgeschoben – sanft statt ruckartig.
+herausgeschoben – sanft statt ruckartig. Das gilt für Kontakte zwischen zwei bewegten Körpern.
+Kontakte mit statischen Körpern – also auch Füße auf dem Boden – rechnet Box3D mit doppelter
+Frequenz und halber Dämpfung (`staticSoftness` in `box3d:src/physics_world.c`: 60 Hz, $\zeta = 5$);
+dort ist biasRate $= 36{,}8\,\text{s}^{-1}$, massScale $= 0{,}707$, und 1 mm wird mit etwa 26 mm/s
+abgebaut.
 
 Der Ablauf eines festen Schritts, den Box3D **Soft Step** nennt (`box3d:src/solver.c`):
 
 ```mermaid
 flowchart TD
-  P["Constraints vorbereiten (Jacobi, effektive Massen)"] --> L{"Sub-Step i < n?"}
+  P["Constraints vorbereiten (Jacobi, effektive Massen)"] --> L{"noch ein Sub-Step?"}
   L -->|ja| IV["Geschwindigkeiten integrieren (Schwerkraft, Kräfte, Dämpfung)"]
   IV --> WS["Warmstart"]
   WS --> SO["Lösen mit Bias (Fehler abbauen)"]
@@ -558,7 +565,8 @@ begrenzt deshalb (laut `docs/physics.md`, Abschnitt 3, und im Code):
 
 Beim Micro Duck (1600 Sub-Steps/s) also höchstens 400 Hz für Gelenke und 200 Hz für Kontakte; Kerns
 Servogelenke nutzen 240 Hz Weichheit in der Welt. Steifere Gelenke bekommt man nur mit mehr
-Sub-Steps. Federn hält Kern zusätzlich unter der halben Schrittfrequenz (Nyquist).
+Sub-Steps. Federn hält Kern zusätzlich unter der halben Sub-Step-Frequenz (Nyquist:
+`max_hertz = 0,5 · step_hz · substeps` in `create_joints`).
 
 ### C.6.6 Massenverhältnisse
 

@@ -18,6 +18,10 @@ Arbeitsbereich, wird das Modell angepasst (skaliert, Massen verteilt, Sub-Steps 
 Physik. Was ein echtes Gerät über die Starrkörperphysik hinaus tut, etwa ein Servo mit Regler und
 Reibung, ist ein eigenes kleines Gerätemodell in echten Einheiten (Abschnitt 6.17).
 
+Die Grundbegriffe, die dieses Kapitel voraussetzt (Starrkörperzustand, Integration, Kollision,
+Kontakte, Constraints, Solver, Servos als Regelkreis, Determinismus), erklärt
+[Anhang C](C-grundlagen-physik.md).
+
 ![Das Beispiel-Level Physics Lab in Kern Studio: Stapel, Pendel, Tür, Seilbrücke, Drehteller, Lift und Rover](bilder/studio-physics-lab.png)
 
 ---
@@ -62,7 +66,7 @@ Box3D rechnet mit Toleranzen, die **in Metern** festgelegt sind
 | Contact Recycling | 50 mm |
 
 Daraus folgt die erste Regel: **Bewegte Körper gehören zwischen 0,1 m und 10 m, nie unter 1 cm**
-(`box3d:docs/loose_ends.md:56-58`, `docs/overview.md:171-181`). Ein Körper, dessen Glieder in der
+(`box3d:docs/loose_ends.md:56-58`, `box3d:docs/overview.md:171-181`). Ein Körper, dessen Glieder in der
 Größenordnung der Toleranzen liegen, wird vom Solver nicht mehr sauber gehalten.
 
 Die Spiel-Laufzeit setzt das beim Aufbau durch: Formen bewegter Körper werden auf mindestens 1 cm
@@ -342,8 +346,8 @@ float pair_friction(float fa, uint64_t ma, float fb, uint64_t mb) {
 }
 ```
 
-Box3D ruft ihn für jeden neuen Kontakt mit den Reibwerten und Material-IDs beider Formen auf
-(`box3d:src/contact.c`, `src/mesh_contact.c`). Hat das Paar einen eigenen Wert, gilt der; sonst die
+Box3D ruft ihn bei jeder Aktualisierung eines Kontakts mit den Reibwerten und Material-IDs beider
+Formen auf (`b3UpdateConvexContact` in `box3d:src/contact.c`, Mesh-Kontakte in `src/mesh_contact.c`). Hat das Paar einen eigenen Wert, gilt der; sonst die
 übliche Kombination √(a · b). Ein Paar, in dem eine Seite `none` ist, nutzt also immer die
 Reibwerte der Formen. Restitution und Rollwiderstand bleiben unberührt.
 
@@ -386,7 +390,7 @@ die Policy trainiert wurde (Sohlen 1,0 auf einem Boden mit 1,0 ergibt √(1 · 1
 **Kontaktreibung** ist pro Form eingestellt (`ColliderComponent::friction`, Standard 0,6). Im
 Editor: Details › Mesh › **Physics** (Reibung, Restitution, Rollwiderstand des automatisch erzeugten
 Colliders, direkt über dem Render-Material) oder Details › Collider bei eigenen Collidern. Der
-endlose Boden: World Settings › Physics › Ground friction / Ground bounciness.
+endlose Boden: World Settings › Physics (Box3D) › Ground friction / Ground bounciness.
 
 **Restitution** (0..1) kombiniert Box3D als Maximum der beiden Formen. Stöße unterhalb der
 Restitutionsschwelle (`restitution_threshold`, Standard 1 m/s) prallen nicht ab.
@@ -452,9 +456,9 @@ körperlokal). Box3D misst B relativ zu A.
 | `parallel` | Parallel | `hertz`, `damping_ratio` | – | `max_torque` |
 | `filter` | Filter | – | – | – (verhindert nur die Kollision zweier Körper) |
 
-Untere und obere Grenze werden bei Bedarf vertauscht, negative Höchstkräfte auf 0 gesetzt.
-Der Editor zeigt außerdem „Rope“ und „Friction“; das sind ein begrenztes Distance- und ein
-Motor-Gelenk ohne Feder (Kommentar in `physics.h`).
+Untere und obere Grenze werden bei Revolute-, Prismatic- und Wheel-Gelenken bei Bedarf vertauscht,
+negative Höchstkräfte auf 0 gesetzt. Ein Seil ist ein begrenztes Distance-Gelenk; der Editor führt
+es als „Distance / rope“.
 
 Gemeinsame Felder: `collide_connected` (Standard: verbundene Körper kollidieren nicht), `user` und
 die **Gelenkweichheit des Solvers** `constraint_hertz` / `constraint_damping_ratio` (0 = Box3Ds
@@ -710,8 +714,9 @@ Kern ist Bit für Bit deterministisch – nicht nur auf derselben Maschine, sond
 - `workerCount = 1`: keine Reihenfolge, die von Threads abhängt;
 - Box3D im Skalar-Pfad (`BOX3D_DISABLE_SIMD`), wie in WebAssembly;
 - alles mit `-ffp-contract=off` übersetzt (keine FMA-Zusammenfassung von `a*b+c`);
-- transzendente Funktionen aus Kerns eigener libm (`kern::dm::sin` usw., musl-Implementierungen in
-  `include/kern/core/dmath.h`); `sqrt`, `fabs`, `floor` sind in IEEE exakt und bleiben `std::`.
+- transzendente Funktionen aus Kerns eigener libm (`kern::dm::sin` usw., deklariert in
+  `include/kern/core/dmath.h`, die musl-Implementierungen liegen in `third_party/musl_math`);
+  `sqrt`, `fabs`, `floor` sind in IEEE exakt und bleiben `std::`.
   Box3D hat eigene deterministische Winkelfunktionen.
 
 Geprüft wird das mit einem Fingerabdruck: Die Ente geht 400 Regeltakte, jeder Takt wird gehasht, und
@@ -812,7 +817,7 @@ vollständig zusammengestellt, jede mit ihrem Grund.
 | Regel | Warum |
 |---|---|
 | Continuous Collision eingeschaltet lassen; schnelle Spielerfahrzeuge sind Bullets. | Sie deckt nur dynamisch gegen statisch ab; Bullets auch gegen dynamische Bodies. |
-| Events nur an Shapes einschalten, deren Events das Spiel liest. | Events sind standardmäßig aus und kosten (6.10). |
+| Events nur an Shapes einschalten, deren Events das Spiel liest. | In Box3D sind Events standardmäßig aus und kosten (6.10); Kerns `ShapeMaterial` schaltet Kontakt- und Sensor-Events dagegen standardmäßig ein, die Spiel-Laufzeit stellt sie gezielt. |
 | Spieler und Roboter schlafen nie. | Eine langsame Gangart liegt unter der Schlafschwelle von 5 cm/s. |
 
 ### Checkliste für einen neuen gelenkigen Preset (§9)

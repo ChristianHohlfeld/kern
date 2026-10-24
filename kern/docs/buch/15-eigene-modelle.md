@@ -257,9 +257,8 @@ Hinweise aus den Läufen in `docs/lehrer.md`:
   Bewegungen messbar. Ein Netz, das mit anderen Sub-Steps lernt, lernt eine andere Physik als die des
   Studios.
 
-Zu `--warm-start`: `make_learner` wertet im aktuellen Code nur den Wert `velstand` aus; jeder andere
-Wert startet mit zufällig initialisierten Gewichten. Die Hilfe des Werkzeugs nennt auch `file.onnx`;
-einen Warmstart von einer Datei gibt es auf diesem Weg derzeit nur für die Spielschicht
+Zu `--warm-start`: `make_learner` wertet nur den Wert `velstand` aus; jeder andere Wert startet mit
+zufällig initialisierten Gewichten. Einen Warmstart von einer Datei gibt es nur für die Spielschicht
 (`--spielen-ueben`).
 
 ## 15.7 Die Spielschicht trainieren
@@ -286,7 +285,7 @@ best: +0.0xx ahead, +0.0xx left (n kept around it)
 ```
 
 Dieselbe Messung macht das Training selbst (`bite_spot`), einmal pro Prozess vor den ersten
-Episoden, und druckt das Ergebnis. Der Befehl ist zum Nachsehen da, etwa nachdem sich Reibung,
+Episoden; `--spielen` druckt das Ergebnis. Der Befehl ist zum Nachsehen da, etwa nachdem sich Reibung,
 Sockenmodell oder Schnabel geändert haben.
 
 `--halt-messen` lässt die Ente aus 0,10, 0,12, 0,15 und 0,20 m/s je viermal anhalten und druckt, wie

@@ -19,7 +19,8 @@ enum class BodyType : u8 { fixed = 0, kinematic = 1, dynamic = 2 };
 enum class ShapeKind : u8 { box, sphere, capsule, hull, mesh };
 
 /// What a surface is made of, where a pair of materials has its own measured friction (two
-/// materials do not simply combine: TPU grips cotton less than either grips itself). Any pair
+/// materials do not simply combine: TPU on cotton has its own measured value, not the mean of
+/// TPU on TPU and cotton on cotton). Any pair
 /// not in surface_friction() combines the shapes' friction as Box3D does, sqrt(a x b).
 enum class Surface : u8 { none, cloth, tpu, floor };
 const char* surface_name(Surface s);

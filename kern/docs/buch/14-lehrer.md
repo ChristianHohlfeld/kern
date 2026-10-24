@@ -21,7 +21,7 @@ Schritt steht in [Kapitel 15](15-eigene-modelle.md).
 
 | Datei | Inhalt |
 |---|---|
-| `include/kern/lehrer/env.h`, `src/lehrer/duck_env.cpp` | `Rng`, `Env`, `Task`, `DuckEnv`; `JumpMeter`, `evaluate_jump`, Fingerabdruck |
+| `include/kern/lehrer/env.h`, `src/lehrer/duck_env.cpp` | `Rng`, `Env`, `Task`, `DuckEnv`; in `env.h` auch die Deklarationen von `JumpMeter`, `evaluate_jump` und Fingerabdruck |
 | `src/lehrer/tasks.cpp` | die Aufgaben `stand` und `jump` |
 | `include/kern/lehrer/nn.h`, `src/lehrer/nn.cpp` | `Mlp`, `Adam`, `Normalizer` |
 | `include/kern/lehrer/ppo.h`, `src/lehrer/ppo.cpp` | `PpoConfig`, `Policy`, `Rollout`, `Collector`, `Ppo` (PPO und Nachahmung) |
@@ -745,7 +745,8 @@ im Schnabel ist.
 ### Das Vorbild (`PlayEnv::teacher`)
 
 Das Vorbild sieht **dasselbe wie das Netz** – die 23 Beobachtungen, keine wahren Positionen – und hat
-kein verstecktes Gedächtnis außer der Stelle, an der der linke Fuß zu Beginn stand. Damit kann das
+kein verstecktes Gedächtnis außer der Stelle, an der der linke Fuß zu Beginn stand (dazu kennt es den
+Ballradius und die gemessene Bissposition). Damit kann das
 Netz es genau lernen: Jede Antwort folgt aus dem, was es jetzt sieht und wie lange es steht. Es
 entscheidet so:
 
@@ -757,14 +758,15 @@ entscheidet so:
 - **Nichts bekannt:** auf der Stelle drehen (0,8), Kopf in Grundstellung (geneigt oder ausgeschwenkt
   kippt sie beim Drehen).
 - **Ziel:** das nähere von Ball und Socke (ein Ball im Weg wird zuerst weggekickt).
-- **Weiter als 0,25 m:** hinschauen (Kopf nickt mit der Nähe stärker), drehen bis höchstens 0,6 rad/s
-  auf der Stelle bzw. 0,4 rad/s im Gehen; gehen mit 0,15–0,3 m/s, solange das Ziel weniger als
-  0,6 rad daneben liegt.
+- **Weiter als 0,25 m:** hinschauen (Kopf nickt mit der Nähe stärker und dreht sich höchstens 0,3 rad
+  zum Ziel), drehen bis höchstens 0,6 rad/s auf der Stelle bzw. 0,4 rad/s im Gehen; gehen mit
+  0,15–0,3 m/s, solange das Ziel weniger als 0,6 rad daneben liegt. Dreht es auf der Stelle, steht der
+  Kopf in Grundstellung.
 - **Nah dran** (für Ball und Socke gleich): Pollens Gang lässt sich nur anhalten, nicht in kleinen
   Schritten setzen, und ein schwingender Fuß schiebt eine Socke weg. Also geht es auf einer Linie
   langsam und gleichmäßig auf das Ziel zu (0,12–0,15 m/s; aus dem Stand ein fester Anstoß mit
   0,3 m/s, weil der Gang sonst nicht ansetzt), lenkt statt seitlich zu treten, sagt „Stopp“ – bei der
-  Socke um die Nachlaufstrecke von 0,7 cm vor der Stelle, beim Ball erst an der Stelle –, steht und
+  Socke um die Nachlaufstrecke von 0,7 cm vor der Stelle, beim Ball erst 0,5 cm hinter ihr –, steht und
   startet die Bewegung, wenn es lange genug gestanden hat.
   Liegt das Ziel nicht richtig (Socke: ±8 mm voraus, ±12 mm seitlich; Ball: ±2 cm), geht es mit
   voller Geschwindigkeit zurück und kommt neu.
@@ -924,7 +926,7 @@ Episoden-Rückgabe und -länge, Aktionsrauschen, echte Sprünge, Sprunghöhe und
 Rückgabe und Länge über die Iterationen. Sie hält den Bildschirm wach (Wake Lock).
 
 Alle 25 Iterationen und am Ende speichert sie das Netz für Kern Studio auf dem Gerät (IndexedDB
-„kern-lehrer“, Store „policies“, Schlüssel `jump.onnx`) und meldet es über den BroadcastChannel
+„kern-lehrer“, Store „policies“, Schlüssel `<Aufgabe>.onnx`, beim Sprung `jump.onnx`) und meldet es über den BroadcastChannel
 „kern-lehrer“; offene Studio-Tabs übernehmen es sofort. „.onnx herunterladen“ speichert die Datei.
 
 Gleicher Seed und gleich viele Enten ergeben dasselbe Netz wie nativ. Die Spielschicht lässt sich im

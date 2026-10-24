@@ -81,7 +81,7 @@ for (i32 link = 1; link <= kActions + 1; ++link) {        // 14 Policy-Servos un
   ...
   game::set_micro_duck_servo(l, duck_, link, p);
 }
-controller->servo_delay = rng_.uniform(servo.delay_min, servo.delay_max);
+controller->servo_delay = servo.delay_max > servo.delay_min ? rng_.uniform(servo.delay_min, servo.delay_max) : servo.delay;
 ```
 
 So hängt das Netz nicht an dem, was die Messung nicht festlegen konnte. Ein gut gemessener Servo
@@ -232,8 +232,8 @@ Das ist der verbleibende Abstand zur echten Welt. Er wird mit jedem besseren Pro
 ein Gelenk auffällig, fehlt dort etwas im Modell, etwa Getriebespiel.
 
 Test `lehrer_replays_robot_logs_against_the_simulation`: Ein Log aus der Simulation
-(`simulated_robot_log`: velstand steht 50 Takte, geht dann mit 0,15 m/s vorwärts und dreht ab Takt
-150 mit 0,6 rad/s), abgespielt mit denselben Servos, ergibt Abstand **0** – Bit für Bit, weil die
+(`simulated_robot_log`, im Test 120 Takte: velstand steht 50 Takte und geht dann mit 0,15 m/s
+vorwärts; ab Takt 150 dreht es zusätzlich mit 0,6 rad/s), abgespielt mit denselben Servos, ergibt Abstand **0** – Bit für Bit, weil die
 Simulation deterministisch ist ([Kapitel 14.7](14-lehrer.md#147-determinismus)). Mit anderen Servos
 ergibt es einen messbaren Abstand.
 
@@ -291,7 +291,9 @@ Simulation, so wie man sie am echten Roboter messen würde:
   am zuverlässigsten hält. Das geschieht einmal pro Prozess vor dem ersten Training; keine
   Bissposition steht als Zahl im Code ([Kapitel 14.8](14-lehrer.md#148-die-spielschicht-lernen)).
 - **Der Nachlauf nach „Stopp“** (`--halt-messen`): wie weit die Ente aus einer langsamen Gangart
-  noch geht. Das Vorbild der Spielschicht nutzt den Wert (`kCoastM`, 0,7 cm aus 0,12 m/s).
+  noch geht. Hier ist die Regel noch nicht ganz umgesetzt: Das Vorbild der Spielschicht trägt den mit
+  `--halt-messen` gemessenen Wert als Konstante ein (`kCoastM`, 0,7 cm aus 0,12 m/s); nach einer
+  Änderung der Physik misst man neu.
 - **Der Mund-Encoder** als Griffsensor: „hält etwas“ ist nicht eingetragen, sondern das, was der
   Servo meldet – auf „zu“ gestellt und trotzdem mehr als 2° offen.
 - **Stillstand** in der Spielschicht: beide Sohlen am Boden, gemessen über die Kontakte, statt „kein

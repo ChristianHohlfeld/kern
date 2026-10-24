@@ -557,7 +557,7 @@ Aus `docs/lehrer.md`, Abschnitt 7:
 
 Reine Darstellung darf die Plattform-libm benutzen. Im aktuellen Stand rufen etwa der
 Synthesizer und Mixer (`src/audio/`), die Primitive (`src/geo/primitives.cpp`), die Partikel und
-Teile des Editors (Gizmos, Overlays, Viewport) `std::sin`/`std::cos` auf; das Beispielspiel
+Teile des Editors (`gizmo.cpp`, `overlays.cpp`, `studio.cpp`) `std::sin`/`std::cos` auf; das Beispielspiel
 `hello` positioniert seine Kamera mit `std::cos`/`std::sin`. Sobald solcher Code Werte erzeugt, die in
 die Physik, einen Controller oder das Training eingehen, muss er auf `kern::dm::` umgestellt werden.
 

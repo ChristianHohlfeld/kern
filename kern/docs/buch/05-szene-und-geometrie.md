@@ -114,17 +114,19 @@ Das Ergebnis `PickHit` enthält Mesh-Id, Instanz, Dreieck, Distanz, Trefferpunkt
 
 ```cpp
 PickHit hit;
-if (engine.renderer.pick(in.pointer().x, in.pointer().y, {}, hit) && hit.mesh == boxes_)
-  tints_[hit.instance * 4 + 0] = 1.0f;   // examples/hello: angeklickte Kiste rot färben
+if (engine.renderer.pick(in.pointer().x, in.pointer().y, {}, hit) && hit.mesh == boxes_) {
+  // examples/hello: die angeklickte Kiste rot färben
+  tints_[hit.instance * 4 + 0] = 1.0f; tints_[hit.instance * 4 + 1] = 0.25f; tints_[hit.instance * 4 + 2] = 0.2f;
+}
 ```
 
-`PickQuery` hat `max_distance` (1800), `ignore_id`, `include_invisible` und `layers`. Kern Studio nutzt die Ebenen, um Gizmos, Icons und Szenengeometrie getrennt zu picken, und bildet Mesh-Ids über eine Tabelle auf Actors ab.
+`PickQuery` hat `max_distance` (1800), `ignore_id`, `include_invisible` und `layers`. Kern Studio pickt nur die Ebene `layer::scene`, bildet Mesh-Ids mit `GameWorld::actor_for_mesh` auf Actors ab und setzt den Strahl mit `ignore_id` hinter dem Boden oder gesperrten Actors fort. Actors ohne Mesh (Lichter, Empties) wählt es über den Bildschirmabstand ihres Icons (`Studio::pick` in `src/studio/viewport.cpp`).
 
 ## 5.5 Earcut: Polygone triangulieren
 
 ### Wofür
 
-Ein Gebäudegrundriss ist ein Polygon, oft nicht konvex (L-Form) und manchmal mit Löchern (Innenhöfe). Für Dach und Boden braucht der Renderer Dreiecke. `kern::Earcut` (`geo/earcut.h`, `src/geo/earcut.cpp`) ist eine C++-Portierung von Mapbox Earcut v3.0.2 (ISC-Lizenz, siehe `LICENSES.md`). Der Port folgt der JavaScript-Vorlage Zeile für Zeile und erzeugt laut Kopfkommentar identische Dreiecke; ein Paritätstest gegen die JS-Version prüft das.
+Ein Gebäudegrundriss ist ein Polygon, oft nicht konvex (L-Form) und manchmal mit Löchern (Innenhöfe). Für Dach und Boden braucht der Renderer Dreiecke. `kern::Earcut` (`geo/earcut.h`, `src/geo/earcut.cpp`) ist eine C++-Portierung von Mapbox Earcut v3.0.2 (ISC-Lizenz, siehe `LICENSES.md`). Der Port folgt der JavaScript-Vorlage und liefert laut Kopfkommentar dieselben Ergebnisse. Der Paritätstest gegen die JS-Version, den `kern/README.md` nennt (`tests/kern_geo_parity_test.mjs`), liegt im SpawnCity-Repository, nicht in diesem; hier prüft `earcut_shapes` Flächentreue und Dreieckszahlen.
 
 ### Schnittstelle
 

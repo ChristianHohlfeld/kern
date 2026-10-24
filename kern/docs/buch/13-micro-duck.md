@@ -322,11 +322,11 @@ Kommando-Kodierung, Dauer, Phase und `action_scale`.
 | Laufen und Stehen | `velstand.onnx` (v8) | dauernd | Twist, Kopf, Körperpose | W A S D | linker Stick | MOVE |
 | Laufen, ältere Gangart | `alpha_walking.onnx` + `alpha_stand.onnx` (unter Twist 0,05) | dauernd | Twist | W A S D | linker Stick | MOVE |
 | Sitzen / Aufstehen | `alpha_sitstand.onnx` | skriptgesteuert | Posture-Flag in vx (1 sitzen, 0 stehen); 2 s Sitzen, 1 s Aufstehen | 1 | B | SIT |
-| Socke aufheben | `alpha_ground_pick.onnx` | episodisch | Phase cos/sin(2π·φ), Periode 4 s, Ende bei φ = 0,7 | 2 | X | PICK |
+| Socke aufheben | `alpha_ground_pick.onnx` | episodisch | Phase cos/sin(2π·φ), Periode 4 s, Ende bei φ = 0,7 | 2 | Y | PICK |
 | Kick links / rechts | `ball_kick_left.onnx` / `ball_kick_right.onnx` | episodisch, 0,5 s | null | 3 / 4 | – | KICK L / KICK R |
-| Rolle | `roulade.onnx` | episodisch, 1 s, Kette | null; gehalten rollt sie weiter (Fenster 0,15 s) | 5 (halten) | Y | ROLL |
+| Rolle | `roulade.onnx` | episodisch, 1 s, Kette | null; gehalten rollt sie weiter (Fenster 0,15 s) | 5 (halten) | X | ROLL |
 | Rollschuh fahren | `roller.onnx`, Action-Scale 0,8 | dauernd | Twist | W A S D | linker Stick | MOVE |
-| Ducken auf Rollen | `roller_crouch.onnx`, Action-Scale 0,8 | episodisch | Phase | 2 | X | PICK |
+| Ducken auf Rollen | `roller_crouch.onnx`, Action-Scale 0,8 | episodisch | Phase | 2 | Y | PICK |
 | **Sprung** (Kern) | `policies/jump.onnx` | episodisch, 2 s | Phase cos/sin in Plätzen 55/56 | 7 | – | HOP |
 | Schnabel auf / zu | Mund-Servo (kein Netz) | | | 6 | – | BEAK |
 
@@ -671,10 +671,10 @@ Die Eingaben landen in `PlayInput::robot`, einem Bitfeld der gehaltenen Robot-Ta
 | Bit | Bewegung | Tastatur | Gamepad | Touch |
 |---|---|---|---|---|
 | 1 | Sitzen / Aufstehen | 1 | B | SIT |
-| 2 | Aufheben (auf Rollen: Ducken) | 2 | X | PICK |
+| 2 | Aufheben (auf Rollen: Ducken) | 2 | Y | PICK |
 | 4 | Kick links | 3 | – | KICK L |
 | 8 | Kick rechts | 4 | – | KICK R |
-| 16 | Rolle (gehalten: weiter) | 5 | Y | ROLL |
+| 16 | Rolle (gehalten: weiter) | 5 | X | ROLL |
 | 32 | Schnabel auf/zu | 6 | – | BEAK |
 | 64 | Quaken (Chirp) | Leertaste | RT | QUACK |
 | 128 | „Wheee“ (gehalten) | V | LT | WHEEE |

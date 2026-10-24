@@ -35,7 +35,7 @@ mixer.init(48000);          // Abtastrate des Ausgabegeräts, 8000..192000; max_
 
 Ein Clip ist PCM in der Rate des Mixers, mono oder stereo.
 
-- `create_clip(samples, frames, channels, rate, name)` kopiert Samples beliebiger Rate (3000 bis 384 000 Hz) und bringt sie **einmal** auf die Mixer-Rate. Clips über 60 Sekunden werden abgelehnt, nicht-endliche Samples durch 0 ersetzt.
+- `create_clip(samples, frames, channels, rate, name)` kopiert Samples beliebiger Rate (3000 bis 384 000 Hz) und bringt sie **einmal** auf die Mixer-Rate. Abgelehnt werden Clips mit mehr Samples, als 60 Sekunden Stereo bei 384 kHz hätten (`60 × 384 000 × 2`); nicht-endliche Samples werden nach dem Resampling durch 0 ersetzt.
 - `adopt_clip(samples, channels, name, loopable)` übernimmt Samples, die bereits in Mixer-Rate vorliegen – so kommen die synthetisierten Sounds hinein.
 - `destroy_clip` stoppt alle Stimmen des Clips. `clip_info` liefert Name, Frames, Kanäle, Dauer, Spitzenwert und ob der Clip ein nahtloser Loop ist.
 
@@ -92,7 +92,7 @@ Pro Frame dann:
 
 Mono-Clips werden auf beide Kanäle verteilt.
 
-**Virtuelle Stimmen.** Liegt die Lautheit einer 3D-Stimme unter 10⁻⁵ (`kSilence`) – etwa weil sie jenseits von `max_distance` ist –, wird sie nicht gemischt. Ihre Position läuft trotzdem weiter. Kommt der Hörer zurück, ist eine Maschine an der Stelle, an der sie gewesen wäre, statt wieder von vorn zu beginnen. `stats().virtual_voices` zählt solche Stimmen.
+**Virtuelle Stimmen.** Liegt die Lautheit einer 3D-Stimme unter 10⁻⁵ (`kSilence`) – etwa weil sie jenseits von `max_distance` ist –, wird sie nicht gemischt. Ihre Position läuft trotzdem weiter. Kommt der Hörer zurück, läuft etwa das Brummen einer Maschine an der Stelle weiter, an der es gewesen wäre, statt wieder von vorn zu beginnen. `stats().virtual_voices` zählt solche Stimmen.
 
 ## 7.3 3D-Klang
 
@@ -218,7 +218,7 @@ Kern bringt keine Sound-Dateien mit. Alle eingebauten Sounds entstehen beim Lade
 
 - **Modulation mit Kontrollrate.** Slide, Vibrato, Tremolo und Filter-Sweep werden nur alle 16 Samples neu berechnet. Laut Kommentar würden `exp2`/`sin` pro Sample bei langen Noten die Kosten dominieren; 16 Samples liegen weit unter hörbaren Stufen.
 - **Oszillatoren** über eine Phase in [0, 1): Rechteck und Puls mit ±0,6, Sägezahn, Dreieck, Sinus (mit optionaler Phasenmodulation durch einen zweiten Sinus im Verhältnis `fm_ratio`).
-- **Rauschen** wird wie bei sfxr mit der Oszillatorfrequenz neu gewürfelt: tiefe Noten klingen dunkler. Rosa Rauschen entsteht aus weißem mit Paul Kellets sparsamem Filter (drei einpolige Tiefpässe).
+- **Rauschen** wird wie bei sfxr im Takt der Oszillatorfrequenz neu gewürfelt (mit dem Achtfachen der Frequenz; ab 10 kHz Startfrequenz jedes Sample): tiefe Noten klingen dunkler. Rosa Rauschen entsteht aus weißem mit Paul Kellets sparsamem Filter (drei einpolige Tiefpässe).
 - **Tiefpass:** Chamberlin-State-Variable-Filter mit Resonanz (`q = 1 − resonance`), Grenzfrequenz-Koeffizient `2 · sin(π · f / rate)`. **Hochpass:** einpolig.
 - **Bitcrush** als Sample-and-Hold.
 - **Hüllkurve:** linearer Anstieg, Haltephase mit optionalem „Punch“ (Überhöhung, die linear auf 1 abfällt), linearer Abfall.
@@ -365,7 +365,7 @@ Die Bank macht aus Referenzen Mixer-Clips.
 
 **`begin(world)`** übernimmt Musik und Ambience aus den World Settings, bestimmt den Motor-Loop des Spielers und sammelt alle Audio Sources mit `autoplay`.
 
-**`apply_settings(world)`** bildet die Level-Einstellungen auf den Mixer ab:
+**`apply_settings(w)`** bildet die World Settings des Levels auf den Mixer ab (`update` ruft es jeden Frame):
 
 | Level | Mixer |
 |---|---|
@@ -389,7 +389,7 @@ Die Bank macht aus Referenzen Mixer-Clips.
 5. **Audio Sources** folgen ihren Actors; ihre Geschwindigkeit wird aus der Positionsänderung geschätzt (für Doppler). Loops starten mit Priorität 40 und 0,3 s Einblenden, One-Shots mit Priorität 20, beide nach ihrer Startverzögerung. Mit `pitch_by_speed` steigt die Tonhöhe mit der Geschwindigkeit des Actors: `pitch · (1 + pitch_by_speed · speed · 0,1)`. Stirbt der Actor, wird die Stimme in 0,15 s ausgeblendet.
 6. **Cues der Simulation** (7.8) werden abgespielt. Ist der Clip eines Cues noch nicht fertig, wartet er bis zu 0,25 s und wird danach verworfen – ein Geräusch, das zu spät kommt, ist schlimmer als keins. Mehr als 64 wartende Cues werden abgeschnitten.
 
-Cue-Stimmen haben `min_distance` 3 m, `max_distance` 80 m und Priorität 50 (Bus `ui`) oder 10 (alles andere). Wichtige Dauerklänge (Musik, Motor, Loops) verdrängen also bei Stimmenknappheit nie einen Effekt – umgekehrt schon. `cues_played()` und `cues_dropped()` zählen mit.
+Cue-Stimmen haben `min_distance` 3 m, `max_distance` 80 m und Priorität 50 (Bus `ui`) oder 10 (alles andere). Ein Effekt verdrängt bei Stimmenknappheit also nie einen wichtigen Dauerklang (Musik, Motor, Loops) – umgekehrt schon, denn `play()` stiehlt nur Stimmen mit höchstens gleicher Priorität. `cues_played()` und `cues_dropped()` zählen mit.
 
 **`end(fade)`** blendet alles aus dem Spiel aus. `set_muted` schaltet den Master stumm und bleibt über `begin`/`end` erhalten (Stummschalter des Editors).
 
@@ -432,7 +432,7 @@ Jeder Rigid Body hat `impact_sound` (Standard `builtin:impact`) und `impact_thre
 
 Der Ablauf in `GameWorld` (`src/game/runtime.cpp`):
 
-1. Nur Shapes, die einen Sound haben (oder vom Spieler oder der Logik gebraucht werden), melden Box3D-Hit-Events. Die globale Hit-Schwelle von Box3D startet bei der Schwelle für Spielertreffer (`kHitSpeed`) und wird auf die kleinste Schwelle aller klingenden Körper gesenkt, aber nie unter 0,05 m/s (`kMinImpactThreshold`).
+1. Nur Shapes, die einen Sound haben (oder vom Spieler oder der Logik gebraucht werden), melden Box3D-Hit-Events. Die globale Hit-Schwelle von Box3D startet bei `kHitSpeed` (2 m/s, ab hier zählt ein Treffer für die Logik und das Kamerawackeln) und wird auf die kleinste Schwelle aller klingenden Körper gesenkt, aber nie unter 0,05 m/s (`kMinImpactThreshold`).
 2. Pro Physikschritt höchstens 6 Aufprallgeräusche – mehr würde der Mixer ohnehin stehlen.
 3. Unter der Schwelle des Körpers bleibt es still.
 4. **Entprellen:** Eine Sohle rollt von der Ferse zur Spitze und setzt sich in kleinen Hüpfern, die Box3D als einzelne Treffer meldet. Ein Schritt (Sound mit „step“ im Namen) klingt deshalb höchstens alle 0,5 s pro Actor, ein Klopfen alle 0,09 s.
@@ -479,7 +479,7 @@ Der Studio-Katalog enthält fertige Varianten: Audio Source (Maschinenbrummen), 
 
 ## 7.10 Die Browser-Anbindung
 
-Der Mixer rendert PCM; der Browser spielt es ab. Diese Aufgabe übernimmt `KernAudio` in `web/studio/game.mjs`, das Studio und exportierte Spiele gemeinsam nutzen. (Der Kopfkommentar von `audio.h` nennt noch `kern/web/audio.mjs`; im Repository liegt der Code in `game.mjs`.)
+Der Mixer rendert PCM; der Browser spielt es ab. Diese Aufgabe übernimmt `KernAudio` in `web/studio/game.mjs`, das Studio und exportierte Spiele gemeinsam nutzen.
 
 ### Starten
 

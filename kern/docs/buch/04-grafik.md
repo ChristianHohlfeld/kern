@@ -74,11 +74,11 @@ canvas.getContext("webgl2", { alpha: false, antialias: false, depth: true,
                               powerPreference: "high-performance", ... });
 ```
 
-`antialias: false` ist gewollt: Der Renderer zeichnet die Szene ohnehin in eigene Framebuffer (siehe 4.7), in denen Multisampling des Standard-Framebuffers nichts bewirken würde.
+`antialias: false` ist gewollt: Der Renderer zeichnet die Szene ohnehin in eigene Framebuffer (siehe 4.7), in denen Multisampling des Standard-Framebuffers nichts bewirken würde. Kern Studio und exportierte Spiele erzeugen ihren Kontext selbst und fordern dabei `antialias: true` an (`web/studio/studio.mjs`, `web/studio/game.mjs`).
 
 ### Zwei Arten, den Renderer zu benutzen
 
-- **C++-Spiele** schreiben eine `kern::App` (`include/kern/app/app.h`). `web/app.mjs` (`runKernApp`) erzeugt den Kontext, leitet Eingaben weiter und ruft jeden Frame `kern_app_frame(now, hidden)` auf. Darin läuft zuerst `App::update()`, danach `Renderer::render()`. Das Beispiel `examples/hello` und Orb Run arbeiten so; Details in [Kapitel 3](03-grundlagen.md) und [Kapitel 12](12-eigene-spiele.md).
+- **C++-Spiele** schreiben eine `kern::App` (`include/kern/app/app.h`). `web/app.mjs` (`runKernApp`) erzeugt den Kontext, leitet Eingaben weiter und ruft jeden Frame `kern_app_frame(now, hidden)` auf. Darin läuft zuerst `App::update()`, danach `Renderer::render()`. Das Beispiel `examples/hello` und Orb Run arbeiten so; Details in [Kapitel 12](12-eigene-spiele.md).
 - **JavaScript-Hosts** (etwa SpawnCity) benutzen `KernRenderer` aus `kern.mjs`. Die Fassade schreibt Kamera, Licht und Mesh-Deskriptoren in feste Wortlayouts (`KERN_MD_*`, `KERN_LI_*`, `KERN_RP_*` aus `c_api.h`) und ruft die exportierten C-Funktionen auf. Pro Modul gibt es genau einen `KernRenderer` („one KernRenderer per module“).
 
 Kern Studio und exportierte Spiele nutzen eine dritte, eigene C-ABI (`kern_studio_*`, siehe [Kapitel 11](11-studio.md)); intern ist es derselbe `Renderer`.
@@ -216,7 +216,7 @@ Weitere Setter: `update_bones` (gleiche Knochenzahl wie beim Anlegen), `set_visi
 
 ### Ebenen (Layers)
 
-Jedes Mesh hat eine Bitmaske `layers` (Standard 1). `RenderParams::layers` bestimmt, welche Bits gezeichnet werden – und welche Meshes Schatten werfen. `PickQuery::layers` filtert genauso beim Picking. Kern Studio nutzt das für Raster, Icons, Gizmos pro Viewport, Collider-Darstellung und die Welten mehrerer Netzwerk-Clients (`src/studio/viewport.cpp`).
+Jedes Mesh hat eine Bitmaske `layers` (Standard 1). `RenderParams::layers` bestimmt, welche Bits gezeichnet werden – und welche Meshes Schatten werfen. `PickQuery::layers` filtert genauso beim Picking. Kern Studio nutzt das für Raster, Icons, Gizmos pro Viewport, Collider-Darstellung und die Welten mehrerer Netzwerk-Clients (`layer` in `include/kern/studio/studio.h`, gesetzt in `src/studio/viewport.cpp`).
 
 ### Texturen
 
@@ -433,7 +433,7 @@ Erweiterungen sollten ihre Uniforms über den übergebenen `UniformCache` setzen
 
 **2. Sonnenschatten.** Falls aktiviert, wird die Schattenkarte nur neu gezeichnet, wenn sich ihr Schlüssel geändert hat (4.8.1); sonst meldet `stats.shadow_reused`.
 
-**3. Ziel binden.** Ohne Viewport-Rechteck (`has_viewport == false`) bindet `BloomPass::begin()` das Szenen-Target. Mit Rechteck wird mit Scissor direkt in den Standard-Framebuffer gezeichnet – ohne Bloom und ohne Ambient Occlusion. Danach Viewport setzen, Farbe und Tiefe löschen.
+**3. Ziel binden.** Ohne Viewport-Rechteck (`has_viewport == false`) bindet `BloomPass::begin()` das Szenen-Target, sofern Bloom eingeschaltet (`BloomOptions::enabled`) und unterstützt ist; sonst zeichnet der Renderer direkt in den Standard-Framebuffer. Mit Rechteck wird mit Scissor direkt in den Standard-Framebuffer gezeichnet – ohne Bloom und ohne Ambient Occlusion. Danach Viewport setzen, Farbe und Tiefe löschen.
 
 **4. Einsortieren.** Jedes lebende Mesh wird geprüft: unsichtbar, ohne GPU-Daten oder außerhalb der Ebenenmaske → übersprungen. Nicht geskinnte Meshes mit `frustum_culled` werden gegen das Frustum getestet (`culled_meshes`). Geskinnte Meshes werden nie über Bounds verworfen, weil ihre Pose die Bind-Pose-Bounds verlassen kann. Dann drei Listen: Ego-Ebene, transparent (`AlphaMode::blend`), opak. Sortierschlüssel ist der quadrierte Abstand des Weltbounds-Mittelpunkts zur Kamera.
    - Opak: **vorne nach hinten**. Nahe Flächen füllen den Tiefenpuffer zuerst, verdeckte Fragmente scheitern am frühen Tiefentest und kosten keine Shader-Zeit.
@@ -530,7 +530,7 @@ Die Blickrichtung pro Pixel entsteht aus Vorwärts-, Rechts- und Hochvektor der 
 - **Goldene Stunde:** `dusk = clamp(1 - |sun.z| * 4, 0, 1) * (1 - night * 0.6)` färbt den Horizont orange und den Zenit violett, plus ein Glühen am Horizont auf der Seite der Sonne.
 - **Sonne:** Mie-artiges Glühen `pow(mu, 8) * 0.22 + pow(mu, 64) * 0.5` und eine Scheibe `smoothstep(0.9993, 0.99975, mu) * 12` mit `mu = dot(Richtung, Sonne)`. Steht die Sonne unter −0,05, fällt beides weg.
 - **Nacht:** Mondschein, Mondscheibe und funkelnde Sterne aus einem Hash-Raster.
-- **Wolken:** eine Schicht aus 5-Oktaven-fBm (Value Noise), projiziert über `d.xy / (d.z + 0.12)`, verschoben mit `SkyState::wind * Zeit`. `SkyState::blast_age ≥ 0` drückt die Wolken von einer Explosionsrichtung weg (Schockwelle).
+- **Wolken:** eine Schicht aus 5-Oktaven-fBm (Value Noise), projiziert über `d.xy / (d.z + 0.12)`, verschoben mit `SkyState::wind * Zeit`. `SkyState::blast_age > 0` drückt die Wolken von einer Explosionsrichtung weg (Schockwelle).
 - **Unter dem Horizont** blendet die Farbe zur Horizontfarbe über.
 - **Horizontnebel:** Mit `fog_horizon > 0` löst sich der Horizont in die Nebelfarbe der Szene auf (gleiche Farbe, gleicher Sonnenschein). Der Renderer skaliert den Wert mit `1 - exp(-(fog_density * min(far, 2000))²)`: Dünner Nebel ergibt nur einen dünnen Dunst am Horizont.
 
@@ -575,7 +575,7 @@ Kern implementiert Ground-Truth Ambient Occlusion nach Jimenez, Wu, Pesce und Ja
 
 Damit ist AO physikalisch an der richtigen Stelle (Verdeckung betrifft Umgebungslicht), ohne dass ein zweites Mal Geometrie gezeichnet werden muss. Der README begründet den Verzicht auf den Prepass damit, dass die Hidden-Surface-Removal-Hardware von Apple und Mali-FPK Überzeichnung ohnehin verwirft.
 
-**Hauptpass** (eine AO-Texel pro Fragment, Ausgabe RG16F = Sichtbarkeit, Sichttiefe):
+**Hauptpass** (ein AO-Texel pro Fragment, Ausgabe RG16F = Sichtbarkeit, Sichttiefe):
 
 - *Sichttiefe aus dem Tiefenpuffer:* `w = P[3][2] / ((d * 2 - 1) + P[2][2])`, Position im Sichtraum `(ndc.x * w / P[0][0], ndc.y * w / P[1][1], -w)`.
 - *Normale aus der Tiefe:* Pro Achse wird der Nachbar genommen, dessen Tiefensprung kleiner ist (er liegt eher auf derselben Fläche); `N = normalize(cross(dx, dy))`, zur Kamera gedreht.
@@ -615,7 +615,7 @@ und `h2 *= 1 - share.rgb * (1 - aoMultiBounce(v, share.a))`.
 
 `set_ambient_occlusion_radius(r)` ändert nur den Radius – eine Eigenschaft der Szene, nicht des Geräts; 0 schaltet AO für diese Szene ab. Die Spiel-Laufzeit setzt ihn aus `WorldSettings::ao_radius` ([Kapitel 8](08-spiel-laufzeit.md)).
 
-**Wann AO läuft:** nur mit Szenen-Target (also nicht in Teil-Viewports und nicht ohne Bloom-Unterstützung), nur bei perspektivischer Kamera und nur wenn aktiviert. Das Studio und exportierte Spiele wählen auf Geräten mit grobem Zeiger (Telefone) `medium` in halber Auflösung, sonst `high` in voller; die URL-Parameter `?ao=off|low|medium|high|ultra` und `?aoRes=half|full` überschreiben das (`web/studio/game.mjs`). Aus JavaScript: `KernRenderer.setAmbientOcclusion({enabled, quality, fullResolution, radius})`.
+**Wann AO läuft:** nur mit Szenen-Target (also nicht in Teil-Viewports und nicht, wenn Bloom abgeschaltet oder nicht unterstützt ist), nur bei perspektivischer Kamera und nur wenn aktiviert. Das Studio und exportierte Spiele wählen auf Geräten mit grobem Zeiger (Telefone) `medium` in halber Auflösung, sonst `high` in voller; die URL-Parameter `?ao=off|low|medium|high|ultra` und `?aoRes=half|full` überschreiben das (`web/studio/game.mjs`). Aus JavaScript: `KernRenderer.setAmbientOcclusion({enabled, quality, fullResolution, radius})`.
 
 ## 4.9 Partikel und Punktlichter
 
@@ -650,7 +650,7 @@ Der Shader kennt 6 Punktlichter. `LightPool` wählt pro Frame die wichtigsten au
 score = intensity / (1 + distance_to_eye / max(4, range))
 ```
 
-Bei Gleichstand gewinnt die frühere Anfrage. `request()` begrenzt Intensität auf 100 und Reichweite auf 1000; `resolve(eye)` sortiert, füllt eine `PointLights`-Struktur und leert die Warteschlange. Orb Run fordert pro Frame die Scheinwerfer des Autos und ein Licht pro Orb an und übergibt das Ergebnis an `set_point_lights`.
+Bei Gleichstand gewinnt die frühere Anfrage. `request()` begrenzt Intensität auf 100 und Reichweite auf 1000; `resolve(eye)` sortiert, füllt eine `PointLights`-Struktur und leert die Warteschlange. Orb Run fordert pro Frame ein Scheinwerferlicht vor dem Auto und ein Licht pro Orb an und übergibt das Ergebnis an `set_point_lights`.
 
 ## 4.10 Einstellungen
 
@@ -790,4 +790,4 @@ ShaderExtension* extensions_[1] = {&windows_};
 
 Beim Hochladen der Gebäude-Chunks gibt Orb Run den Zusatzstrom in Slot 0 weiter (`mesh.as_input(0)`); Straßen und Bodenplatten bekommen `kMaxExtensionAttributes` als Slot, also keinen Strom – dort ist `vWall.x` 0, und der Hook tut nichts.
 
-Die Spiel-Laufzeit hat eine Klasse `kern::game::NightWindows` mit identischem GLSL (`include/kern/game/runtime.h`), die Kern Studio und exportierte Spiele immer registrieren. Die Komponente „Procedural City“ entscheidet mit `night_windows`, ob ihre Gebäude den Strom bekommen ([Kapitel 5](05-szene-und-geometrie.md)).
+Die Spiel-Laufzeit hat eine Klasse `kern::game::NightWindows` mit identischem GLSL (deklariert in `include/kern/game/runtime.h`, implementiert in `src/game/runtime.cpp`), die Kern Studio und exportierte Spiele immer registrieren. Die Komponente „Procedural City“ entscheidet mit `night_windows`, ob ihre Gebäude den Strom bekommen ([Kapitel 5](05-szene-und-geometrie.md)).

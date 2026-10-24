@@ -85,7 +85,7 @@ flowchart LR
 
 **In Kern:** `Mlp` in `nn.h`. Die Form wird als Liste `dims` angegeben: Eingänge, verborgene
 Schichten, Ausgänge. `PpoConfig` (in `ppo.h`) setzt standardmäßig `actor_hidden{512, 256, 128}`;
-das Rezept des Sprungs gibt dem Kritiker `{256, 128}` (`recipe.cpp`). Das Spielnetz ist
+die Rezepte geben dem Kritiker `{256, 128}` (`recipe_for` in `recipe.cpp`). Das Spielnetz ist
 `23 → 256 → 128 → 9` (`make_play_learner` in `spielen.h`).
 
 Wie viele Parameter sind das? Eine Schicht $n \to m$ hat $n\cdot m$ Gewichte und $m$ Biases. Für
@@ -97,7 +97,9 @@ den Actor $61 \to 512 \to 256 \to 128 \to 14$:
 | 512 → 256 | 131 072 | 256 |
 | 256 → 128 | 32 768 | 128 |
 | 128 → 14 | 1 792 | 14 |
-| **Summe** | | **197 774** |
+| **Summe** | **196 864** | **910** |
+
+Zusammen sind das **197 774** Parameter.
 
 Kern legt alle Parameter in **einen** zusammenhängenden Vektor `params_`; `w_[l]` und `b_[l]` sind
 Versätze in diesen Vektor. Die Gewichte stehen **eingangsweise** (`w[i * out + o]`): Für einen festen
@@ -360,8 +362,8 @@ Startwerte: $x = 1$, $t = 1$, $w_1 = 0{,}5$, $b_1 = -1$, $w_2 = 2$, $b_2 = 0{,}5
 **Ein Schritt Gradientenabstieg** mit $\eta = 0{,}1$:
 $w_2 = 1{,}89873$, $b_2 = 0{,}75739$, $w_1 = 0{,}81223$, $b_1 = -0{,}68777$.
 
-**Erneut vorwärts:** $z = 0{,}12446$ (jetzt positiv, ELU lässt durch), $h = 0{,}12446$,
-$y = 1{,}89873 \cdot 0{,}12446 + 0{,}75739 = 0{,}99370$, $\mathcal{L} \approx 4 \cdot 10^{-5}$.
+**Erneut vorwärts:** $z = 0{,}12445$ (jetzt positiv, ELU lässt durch), $h = 0{,}12445$,
+$y = 1{,}89873 \cdot 0{,}12445 + 0{,}75739 = 0{,}99369$, $\mathcal{L} \approx 4 \cdot 10^{-5}$.
 Ein einziger Schritt hat den Fehler hier fast beseitigt – bei echten Netzen mit vielen Beispielen,
 die sich widersprechen, geht es in winzigen Schritten voran.
 
@@ -654,8 +656,8 @@ $$G_t = r_t + \gamma\, r_{t+1} + \gamma^2 r_{t+2} + \dots = \sum_{k=0}^{\infty} 
 
 Intuition: Eine Belohnung in $k$ Schritten zählt nur $\gamma^k$-mal so viel wie eine jetzt. Die
 **effektive Vorausschau** ist etwa $1/(1-\gamma)$ Schritte. Kern nutzt $\gamma = 0{,}99$
-(`PpoConfig::gamma`): rund 100 Takte, also 2 s bei 50 Hz – so lang wie die Phase des Sprungs
-($t/2\,\text{s}$). Nach 100 Schritten ist $0{,}99^{100} \approx 0{,}37$, nach 300 nur noch
+(`PpoConfig::gamma`): rund 100 Takte, also 2 s bei 50 Hz – so lang wie ein ganzer Sprung
+(`kJumpSeconds = 2`, die Phase läuft als $t/2\,\text{s}$ von 0 bis 1). Nach 100 Schritten ist $0{,}99^{100} \approx 0{,}37$, nach 300 nur noch
 $\approx 0{,}05$.
 
 Wichtig ist die Rekursion
@@ -966,7 +968,7 @@ flowchart TD
   N --> E["alte Policy neu bewerten: μ_alt, log π_alt, V_alt"]
   E --> G["GAE: Vorteile Â, Ziele R̂; Â normieren"]
   G --> P["eine Permutation ziehen"]
-  P --> EP{"Epoche < 5?"}
+  P --> EP{"noch eine Epoche (von 5)?"}
   EP -->|ja| MB["Minibatch (von 4)"]
   MB --> KL["KL messen, Lernrate anpassen"]
   KL --> GR["Gradienten in 8 festen Teilen, Summe in fester Reihenfolge"]
@@ -1035,7 +1037,7 @@ hat gelernt, was ihnen gemeinsam ist.
 | Bau | Rumpfmasse und -trägheit ±5 %, Schwerpunkt von Rumpf und Kopf (Lehrplan 3 → 15 mm bzw. 3 → 10 mm) |
 | Servos | aus den Streuungen des Profils (XL330: Reibung, Rotorträgheit ±10 %), Totzeit 15–30 ms |
 | Sensoren | Rauschen auf Gyro, Schwerkraft, Gelenkwinkeln, -geschwindigkeiten; Encoder-Versatz; IMU-Verzug |
-| Stöße | alle 3–6 s ±0,3 m/s, ab Iteration 300 |
+| Stöße | alle 3–6 s ±0,3 m/s, ab Iteration 300 (bis 500 mit 27 % der Stärke) |
 
 Zwei Feinheiten:
 

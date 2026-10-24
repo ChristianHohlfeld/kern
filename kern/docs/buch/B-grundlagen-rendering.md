@@ -131,7 +131,10 @@ Für parallele Projektion (Editor-Ansichten von oben, vorn, Seite) gibt es `Mat4
 
 ### B.1.6 Tiefe ist nicht linear
 
-Die Tiefe in NDC ist $z_\text{ndc} = -P_{22} + P_{32}/w$, also **proportional zu $1/w$**. Die
+Die Indizes folgen hier GLSL und Kerns spaltenweisem Layout, `P[Spalte][Zeile]`: $P_{22}$ ist das
+Element $\frac{f_\text{ar}+n}{n-f_\text{ar}}$ (`m[10]`), $P_{32}$ das Element $\frac{2 f_\text{ar} n}{n-f_\text{ar}}$
+in Spalte 3, Zeile 2 der Matrix oben (ab 0 gezählt; `m[14]`). Die Tiefe in NDC ist
+$z_\text{ndc} = -P_{22} + P_{32}/w$, also bis auf eine Konstante **proportional zu $1/w$**. Die
 Tiefenpuffer-Werte $d = (z_\text{ndc}+1)/2$ drängen sich deshalb in der Ferne gegen 1. Mit Kerns
 $n = 0{,}05$, $f_\text{ar} = 1800$ ($P_{22} \approx -1{,}0000556$, $P_{32} \approx -0{,}1000028$):
 
@@ -218,7 +221,8 @@ Tiefe den Test besteht (etwa „kleiner oder gleich“). So kommt es auf die Zei
 Bei geschlossenen Körpern sind Dreiecke, die von der Kamera wegzeigen, immer verdeckt. Die GPU
 erkennt sie an der Umlaufrichtung ihrer Ecken auf dem Bildschirm und verwirft sie
 (**Backface Culling**). `Mesh::cull_mode()` wählt: doppelseitige Materialien und Linien ohne Culling;
-gespiegelte Instanzen (negative Determinante) mit vertauschter Seite.
+gespiegelte Instanzen (negative Determinante) mit vertauschter Seite; ein Mesh, dessen Instanzen
+teils gespiegelt sind und teils nicht, ebenfalls ohne Culling.
 
 ---
 

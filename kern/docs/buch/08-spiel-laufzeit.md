@@ -258,7 +258,7 @@ Geschwindigkeit, höchstens `max_motor_force`, mit `servo_friction` Gelenkreibun
 | `kern_extras` | `false` | `kernExtras` | Walker: Kerns Zusätze (Ballspiel, Socken holen, Schnabel beim Aufheben) |
 | `servo_delay` | 0,02 s | `servoDelay` | Walker: Kommandolatenz der Servos (echte Sekunden) |
 
-Die Walker-Schlüssel werden nur bei `mode = walker` geschrieben (`servoDelay` nur, wenn ≠ 0,02).
+Die Walker-Schlüssel werden nur bei `mode = walker` geschrieben (`kernExtras` und `rollers` nur, wenn `true`, `servoDelay` nur, wenn ≠ 0,02).
 Beim Lesen wird `gait` auf `velstand`/`alpha` und `actions` auf `training`/`robot` normalisiert.
 Was die Walker-Felder bewirken, beschreibt [Kapitel 13](13-micro-duck.md).
 
@@ -518,7 +518,7 @@ also dasselbe.
 
 1. **Actors mit Body-Komponente** (außer Städten) bekommen einen Body am Weltframe des Actors (ohne
    Skalierung). Ein statischer Body mit Rotator oder Mover wird kinematisch.
-2. **Implizite Bodies:** Meshes mit Kollision, Pickups und Trigger *außerhalb* jedes Bodys bekommen
+2. **Implizite Bodies:** Actors mit eigenen Collidern, Meshes mit Kollision, Pickups und Trigger *außerhalb* jedes Bodys bekommen
    einen eigenen – statisch, oder kinematisch, wenn sie oder ein Vorfahr animiert sind.
 3. **Formen:** Jeder Actor trägt zu seinem Body-Besitzer bei (sich selbst, einem Vorfahren oder
    seinem impliziten Body), mit seiner Transform relativ zum Body-Frame:
@@ -534,9 +534,9 @@ also dasselbe.
 
 Formregeln (`add_shape`): Skalierung geht exakt in Größen, Radien und Hull-Punkte ein. Bewegte
 Formen sind mindestens 1 cm groß, statische mindestens 2 mm ([Kapitel 6](06-physik.md)).
-Automatische Collider werden konvexe Hulls aus den Mesh-Punkten – außer einem **statischen Torus**:
-Der bekommt die exakten Dreiecke als Mesh-Form, weil eine Hülle sein Loch füllen würde. Gespiegelte
-Skalierung dreht dabei die Dreiecksreihenfolge um.
+Automatische Collider passt `fit_collider` an die Mesh-Form an: Box und Plane werden eine Box,
+Sphere eine Kugel, Capsule eine Kapsel, alle anderen Formen (auch Torus) eine konvexe Hull aus den
+Mesh-Punkten.
 
 Test: `game_body_planning` (Wagen mit eingeschweißtem, skaliertem Rad; Wand als impliziter
 statischer Body; Münze als impliziter kinematischer Sensor; Boden).
@@ -627,7 +627,8 @@ behält seinen Zustand. `restart` startet das ursprüngliche Level neu, `set_pau
 ### In der GameWorld
 
 `step(dt, input)` verbraucht die Frame-Zeit in festen Schritten (Akkumulator, Begrenzung auf 0,25 s
-und 0,1 s Simulation pro Frame – [Kapitel 6](06-physik.md), Abschnitt 6.13). Vor jedem Schritt
+und 0,1 s Simulation pro Frame – [Kapitel 6](06-physik.md), Abschnitt 6.13; zum Prinzip des festen
+Zeitschritts siehe [Anhang C](C-grundlagen-physik.md), C.2.4). Vor jedem Schritt
 merkt es sich die Posen beweglicher Körper. Ein fester Schritt, `fixed_step(input, h)`:
 
 1. **Spieler** (nur bei Status `playing`): für jeden Pawn die Eingabe wählen (lokal: die des
@@ -794,8 +795,8 @@ festen Schritten auf der Autorität.
 - **Waffe:** Nachladen (auch automatisch bei leerem Magazin), Halbautomatik per Flanke, kein Feuer
   beim Sprinten. Jeder Schuss ist ein Box3D-Strahl aus dem Auge; die **Streuung ist
   deterministisch** (gleichverteilt im Kegel, aus Actor-ID, Schusszahl und Kugel gehasht). Andere
-  Pawns werden als Kapseln geprüft, mit **Lag-Kompensation**: Der Server nimmt ihre Füße von vor
-  `rewind` Sekunden (eine Sekunde Verlauf). Ein Treffer an einem Actor mit Tag `head` (oder in der
+  Pawns werden als Kapseln geprüft, mit **Lag-Kompensation**: Der Server nimmt ihre Füße aus dem
+  Positionsverlauf von vor `rewind` Sekunden (höchstens 0,5 s). Ein Treffer an einem Actor mit Tag `head` (oder in der
   oberen 0,32 m der Kapsel) ist ein Kopftreffer. Getroffene dynamische Körper bekommen `impulse`.
   Die Streuung blüht durch Bewegung, Luft (×2,5) und Schüsse auf und klingt ab; Ducken ×0,7.
 - **Schaden:** Rüstung fängt bis zu zwei Drittel ab; frisch gespawnte Spieler sind 2,5 s geschützt.
@@ -909,7 +910,7 @@ SpawnCitys Regeln:
 
 | Modus | Buttons |
 |---|---|
-| Soldier | JUMP, RELOAD (mit Waffe), AIM (Schalter), CROUCH (Schalter), USE |
+| Soldier | JUMP, RELOAD und AIM (beide nur mit Waffe; AIM ist ein Schalter), CROUCH (Schalter), USE |
 | Walker | QUACK, PICK, SIT, KICK L, KICK R, ROLL, BEAK, WHEEE, HOP |
 | Character | JUMP (mit Sprung), USE |
 | Rolling Ball | JUMP, BOOST (wenn vorhanden) |
@@ -920,7 +921,7 @@ SpawnCitys Regeln:
   feuert beim Soldaten (und zielt mit), sonst schaut er.
 - **Move-Stick:** analog; bis zum Rand nach vorn gedrückt heißt Sprinten (Charakter, Soldat).
 - **Look:** 1:1-Ziehen mit „Flick“-Verstärkung bei schnellen Bewegungen, dazu **Edge Turn**: Wer
-  über 92 % des Rings hinauszieht, dreht weiter (bis 4,2 rad/s Gieren, 3,3 rad/s Nicken, über 42 px
+  über 92 % des Auslenkradius (0,42 × Ringgröße) hinauszieht, dreht weiter (bis 4,2 rad/s Gieren, 3,3 rad/s Nicken, über 42 px
   eingeblendet, mit SpawnCitys Stick-Kurve). Gezoomte Ansichten drehen langsamer.
 - `update` liefert die Eingabe eines Frames inklusive der Walker-Bits; `view()` beschreibt, was die
   Seite zeichnet.
@@ -966,7 +967,7 @@ Tests: `game_world_orb_run_play`, `game_world_physics_lab`, `game_shooting_range
 | Bereich | Methoden |
 |---|---|
 | Darstellung | `set_layers`, `sync`, `clear`, `actor_for_mesh`, `actor_matrix`, `actor_bounds`, `actor_meshes`, `pending_textures`, `set_texture_pixels`, `time_of_day` |
-| Zustand | `running`, `mode`, `paused`, `player`, `camera_yaw`, `camera_pitch`, `sim_time`, `hud`, `hud_mut`, `stats` (`SimStats`: Bodies, wache Bodies, Formen, Gelenke, gebrochene, Schritte), `level`, `physics`, `actor_body`, `actor_alive`, `last_input` |
+| Zustand | `running`, `mode`, `paused`, `player`, `camera_yaw`, `camera_pitch`, `sim_time`, `hud`, `hud_mut`, `stats` (`SimStats`: Bodies, wache Bodies, Formen, Gelenke, gebrochene, Kontakte, Schritte), `level`, `physics`, `actor_body`, `actor_alive`, `last_input` |
 | Debug | `debug_lines(colliders, contacts, joints, …)` – Collider farbig nach Typ (statisch grün, kinematisch blau, dynamisch orange, Sensor violett, schlafend grau), Kontaktpunkte mit Normalen, Gelenke mit Achsen |
 | Meldungen | `events()` (Pickups, gebrochene Gelenke, übergangene Collider, Logik-Ausgaben), `sound_cues()`, `shots()` |
 | Kampf | `damage`, `health_of`, `set_health`, `heal`, `give_ammo`, `soldier_state`, `apply_soldier_state`, `set_view` |

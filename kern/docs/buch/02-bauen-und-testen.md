@@ -368,7 +368,8 @@ KERN_E2E_SHOTS=artifacts/e2e node kern/tests/e2e/studio_e2e.mjs http://127.0.0.1
 
 Dann entstehen `studio.png`, `studio-selected.png`, `studio-play.png`, `studio-simulate.png`,
 `studio-quad.png`, `studio-physics-lab.png`, `studio-multiplayer.png`, `game.png`,
-`game-phone.png` und `studio-narrow.png` – die Bilder, die auch dieses Buch verwendet.
+`game-phone.png`, `studio-narrow.png` sowie je Telefongröße `phone-play-<breite>.png` und
+`phone-dock-<breite>.png`. Einige davon verwendet auch dieses Buch.
 
 ![Simulate mit Physik-Debug-Ansicht, wie der Browser-Test es prüft](bilder/studio-simulate.png)
 
