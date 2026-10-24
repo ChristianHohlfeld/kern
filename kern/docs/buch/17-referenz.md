@@ -252,6 +252,7 @@ Funktionen an. JSON-Antworten kommen als Zeiger zurück (gültig bis zum nächst
 |---|---|
 | `i32 kern_studio_init(i32 width, i32 height, i32 player_only)` | Renderer (Schatten 2048 px, Ausdehnung 110, Bias 0,0014, Bloom, Erweiterung `NightWindows`) und Studio; `player_only = 1` startet die Laufzeit exportierter Spiele ohne Editor |
 | `void kern_studio_ao_set(i32 enabled, i32 quality, i32 half, f32 radius)` | GTAO wie `kern_ao_set` |
+| `void kern_studio_shadow_filter(i32 taps)` | PCF-Taps des Sonnenschattens: 1, 4 (Telefone) oder 9 (Desktop); die Seite wählt nach dem Gerät, `?shadowFilter=1\|4\|9` überschreibt |
 | `i32 kern_studio_resize(i32 width, i32 height)` | Drawing Buffer |
 | `void kern_studio_frame(f64 now_ms)` | Kameras, Simulation, Overlays, Rendern aller sichtbaren Viewports (nicht bei verlorenem Kontext) |
 | `void kern_studio_set_viewport(u32 index, i32 x, i32 y, i32 w, i32 h, f32 css_w, f32 css_h, f32 dpr, i32 visible)` | Rechteck eines Viewports im Drawing Buffer (Ursprung unten links) |
@@ -392,7 +393,7 @@ aus und endet mit Rückgabe 2.
 | `--task jump\|stand` | `jump` | Aufgabe (Training, `--trace`) |
 | `--threads N` | Hardware-Threads | Rechen-Threads |
 | `--envs N` | 16 × Threads | Enten insgesamt; wird auf ein Vielfaches der Threads abgerundet (mindestens 1 je Thread). Das Ergebnis hängt von der Zahl der Enten ab, nicht von der Zahl der Threads |
-| `--seed N` | 1 | Seed. Bei `--trace` und `--spielen-spur` Episodenseed (intern 1000 + N); bei `--demo-spur` die **Dauer in Sekunden**; ohne `--seed` also 1 s, die im Code vorgesehenen 120 s nur mit `--seed 0` |
+| `--seed N` | 1 | Seed. Bei `--trace` und `--spielen-spur` Episodenseed (intern 1000 + N); bei `--demo-spur` die **Dauer in Sekunden** (Werte über 1; ohne `--seed` oder mit 0 bzw. 1 sind es 120 s) |
 | `--iterations N` | 600 | Training: letzte Iteration. Bei `--kalibrieren` Generationen (Standard 80), `--vorbild-suchen` Generationen (Standard 120), `--spielen-ueben` Iterationen (Standard 300) – jeweils, wenn nicht abweichend von 600 angegeben |
 | `--episodes N` | 10 | Episoden für `--eval`, `--vorbild-pruefen`, `--spielen-pruefen` |
 | `--out FILE` | `<task>.onnx` | Ausgabe. `--kalibrieren`: `<profil>_calibrated.json`; `--spielen`: `play.onnx`; `--spielen-ueben`: `play_geuebt.onnx` |
@@ -477,7 +478,7 @@ Nachahmung, vor dem Üben).
 | `--netz play.onnx` | Spiel-Netz für `--spielen-spur` und `--demo-spur` |
 | `--biss-fenster` | wo der Schnabel eine Socke bekommt |
 | `--halt-messen` | wie weit die Ente nach „Stopp“ geht |
-| `--demo-spur` | Studio-Beispiellevel der Micro Duck mit 60-Hz-Frames, einmal pro Sekunde eine Zeile; Netze aus `kern/policies/`. Umgebungsvariable `KERN_JUMP_AT=<s>` löst in Sekunde s den Sprung aus (Taste 7) |
+| `--demo-spur` | Studio-Beispiellevel der Micro Duck mit 60-Hz-Frames, einmal pro Sekunde eine Zeile mit Zustand, Beobachtung und der Antwort des Spielnetzes; Netze aus `kern/policies/`, `--seed` ist die Dauer in Sekunden (Standard 120). Umgebungsvariable `KERN_JUMP_AT=<s>` löst in Sekunde s den Sprung aus (Taste 7) |
 
 ### Beispiele
 
@@ -563,8 +564,14 @@ Für das Spiel-Netz (`play_metadata()`): `task` = `play`, `lehrer` = `Kern (C++ 
 Box3D)`, `rate_hz` = `25`, `observation_names` (23 Namen von `ball_known` bis `walking_s`),
 `action_names` = `forward,strafe,turn,head_yaw,head_pitch_down,beak_open,kick_left,ground_pick,neck_bow`.
 
-**Wo die Dateien liegen:** Pollens Set in `kern/third_party/microduck/` (`velstand.onnx` ist
-zusätzlich eingebaut), Kerns eigene Netze in `kern/policies/` (`jump.onnx`, `play.onnx`). Auf der
+**Der Pick-up-Detektor** (`pickup_detector.onnx`, robotd) hat eine andere Form: Eingang ein Fenster
+von 50 × 63 Merkmalen, Normieren und Maskieren, Gather der gelesenen Spalten, drei Conv1d mit ELU,
+dann Gemm, ELU, Gemm, Sigmoid; Ausgang p(gehalten). Ihn liest `parse_onnx_pickup`
+(`PickupDetector`); er ist als Bytes eingebaut (`third_party/microduck/pickup_detector.inc`,
+`pickup_detector()`), [Kapitel 13](13-micro-duck.md).
+
+**Wo die Dateien liegen:** Pollens Set in `kern/third_party/microduck/` (`velstand.onnx` und
+`pickup_detector.onnx` sind zusätzlich eingebaut), Kerns eigene Netze in `kern/policies/` (`jump.onnx`, `play.onnx`). Auf der
 veröffentlichten Seite liegen sie in `editor/microduck/` und `editor/policies/`. Ein im Browser
 trainiertes Netz speichert die Lehrer-Seite in IndexedDB („kern-lehrer“); es ersetzt auf demselben
 Gerät das mitgelieferte ([Kapitel 14](14-lehrer.md), [Kapitel 15](15-eigene-modelle.md)).

@@ -431,7 +431,7 @@ Erweiterungen sollten ihre Uniforms über den übergebenen `UniformCache` setzen
 
 **1. GPU-Zeit einsammeln.** Wenn `EXT_disjoint_timer_query_webgl2` vorhanden ist, umschließt eine `TIME_ELAPSED`-Query den Frame. Die Ergebnisse kommen asynchron einige Frames später; höchstens 4 Queries sind gleichzeitig unterwegs, und Query-Objekte werden wiederverwendet. Ist das Ergebnis durch `GPU_DISJOINT` ungültig, wird es verworfen. `RenderStats::gpu_ms` ist −1, solange keine Messung vorliegt.
 
-**2. Sonnenschatten.** Falls aktiviert, wird die Schattenkarte nur neu gezeichnet, wenn sich ihr Schlüssel geändert hat (4.8.1); sonst setzt der Renderer `stats.shadow_reused`.
+**2. Sonnenschatten.** Falls aktiviert, bestimmt der Renderer mit einer Schattendistanz zuerst Fokus und Ausdehnung der Karte aus dem Sichtkegel (4.8.1). Die Schattenkarte wird nur neu gezeichnet, wenn sich ihr Schlüssel geändert hat (4.8.1); sonst setzt der Renderer `stats.shadow_reused`.
 
 **3. Ziel binden.** Ohne Viewport-Rechteck (`has_viewport == false`) bindet `BloomPass::begin()` das Szenen-Target, sofern Bloom eingeschaltet (`BloomOptions::enabled`) und unterstützt ist; sonst zeichnet der Renderer direkt in den Standard-Framebuffer. Mit Rechteck wird mit Scissor direkt in den Standard-Framebuffer gezeichnet – ohne Bloom und ohne Ambient Occlusion. Danach Viewport setzen, Farbe und Tiefe löschen.
 
@@ -478,22 +478,38 @@ Kern Studio rendert jeden Viewport mit einem eigenen `render()`-Aufruf. Ein einz
 
 ### 4.8.1 Sonnenschatten
 
-`SunShadowMap` (`src/gfx/shadow.cpp`) ist eine einzelne orthografische Tiefenkarte mit Hardware-PCF.
+`SunShadowMap` (`src/gfx/shadow.cpp`) ist eine einzelne orthografische Tiefenkarte. Sie folgt der Sicht der Kamera (Schattendistanz), rastet auf ihr Texelraster ein und wird im Standard-Shader mit Castaños optimiertem PCF gefiltert. So bleiben die Schatten scharf und stehen still, wenn sich die Kamera bewegt.
 
 **Optionen und Grenzen** (`ShadowOptions`):
 
 | Feld | Standard | Gültig | Bedeutung |
 |---|---|---|---|
 | `resolution` | 512 | Zweierpotenz 128–4096 | Kantenlänge der Karte in Texeln |
-| `extent` | 120 | 10–2000 | halbe Kantenlänge des abgedeckten Quadrats in Metern |
+| `extent` | 120 | 10–2000 | halbe Kantenlänge des abgedeckten Quadrats in Metern (ohne Schattendistanz) |
 | `bias` | 0,0012 | 0 ≤ bias < 0,04 | Tiefenversatz beim Vergleich |
+| `filter` | 9 | 1, 4, 9 | PCF-Taps: 1 Hardware-Tap (2 × 2), 4 Taps (3 × 3-Kern), 9 Taps (5 × 5-Kern) |
+
+Zur Laufzeit setzt `Renderer::set_shadow_filter(taps)` die Filterstufe. Die Studio-Seite wählt sie nach dem Gerät (`defaultShadowFilter` in `web/studio/game.mjs`, über `kern_studio_shadow_filter`): Telefone (grober Zeiger) 4, Desktop 9; `?shadowFilter=1|4|9` in der Adresse überschreibt das.
 
 **Lichtbasis.** Aus der Sonnenrichtung `dir` entsteht eine Orthonormalbasis `right`, `up` (Hilfsvektor +Z, bei fast senkrechter Sonne +Y).
 
-**Einrasten auf das Texelraster.** Der Fokus (`camera.target`) wird in Lichtkoordinaten zerlegt und auf ganze Texel gerundet:
+**An die Sicht angepasst: die Schattendistanz.** `Renderer::set_shadow_distance(m)` (Standard 0 = aus) legt fest, wie weit die Karte in die Sicht reicht. Die Spiel-Laufzeit setzt sie in jedem Frame aus `WorldSettings::shadow_distance` (World Settings › **Shadow distance**, Standard 80 m; das Micro-Duck-Level nimmt 10 m für scharfe Schatten von Ente, Ball und Wänden). Mit einer Schattendistanz und einer perspektivischen Kamera deckt die Karte die **umschließende Kugel des Sichtkegels** von der Near-Plane bis zur Schattendistanz ab (stabile Schattenkarte nach Valient 2008). Für einen symmetrischen Kegel mit den Tangenten der halben Öffnungswinkel `th`, `tv` gilt:
 
 ```cpp
-const f32 texel = 2 * options_.extent / static_cast<f32>(options_.resolution);
+const f32 n = camera.near, f = max_of(camera.near + 0.1f, min_of(shadow_distance_, camera.far));
+const f32 tv = std::tan(camera.fov * 0.5f), th = tv * aspect, k = th * th + tv * tv;
+const f32 c = min_of(f, (f + n) * (1 + k) * 0.5f);         // Mittelpunkt auf der Sichtachse
+const f32 r = std::sqrt((f - c) * (f - c) + f * f * k);    // Radius
+focus = camera.eye + forward * c;  extent = r;
+```
+
+Warum eine Kugel? Ihre Größe ändert sich nicht, wenn die Kamera sich dreht. Damit bleibt auch die Texelgröße gleich, und zusammen mit dem Einrasten (unten) fallen Kanten in jedem Frame gleich auf das Raster. Ohne Schattendistanz oder mit orthografischer Kamera gilt wie bisher das feste Quadrat `extent` um `camera.target`.
+
+**Einrasten auf das Texelraster.** Der Fokus wird in Lichtkoordinaten zerlegt und auf ganze Texel gerundet; die Texelgröße folgt aus der aktuellen Ausdehnung (`extent_`, die angepasste oder die feste):
+
+```cpp
+extent_ = extent_for(extent);                       // > 0: die angepasste, sonst options_.extent
+const f32 texel = 2 * extent_ / static_cast<f32>(options_.resolution);
 const f64 a = std::round(dot(focus, b.right) / texel);
 const f64 c = std::round(dot(focus, b.up) / texel);
 const f64 d = std::round(dot(focus, b.dir) / 8.0f);   // grob entlang des Lichts
@@ -501,24 +517,30 @@ const f64 d = std::round(dot(focus, b.dir) / 8.0f);   // grob entlang des Lichts
 
 Warum? Bewegt sich die Karte um Bruchteile eines Texels mit der Kamera, fallen Schattenkanten in jedem Frame anders auf das Raster – die Kanten „schwimmen“ und flimmern. Eingerastet verschiebt sich die Karte nur in ganzen Texeln, und eine Kante liegt immer gleich. Entlang der Lichtrichtung reicht ein grober 8-m-Schritt; diese Bewegung verschiebt keine Texel, sie muss nur den Tiefenbereich gültig halten.
 
-**Wiederverwendung.** Aus den gerundeten Koordinaten und der (auf 10⁻⁴ gerundeten) Sonnenrichtung entsteht ein Hash. Der Renderer verknüpft ihn mit der Schatten-Revision und der Ebenenmaske des Frames. Nur wenn sich dieser Schlüssel ändert, wird die Karte neu gezeichnet. Die Schatten-Revision steigt, wenn ein Schattenwerfer erscheint, verschwindet, sich bewegt, sein Material ändert oder `invalidate(true)` gerufen wird. Bei einer stehenden Kamera über einer statischen Stadt kostet der Schatten danach keinen einzigen Drawcall.
+**Wiederverwendung.** Aus den gerundeten Koordinaten, der (auf 10⁻⁴ gerundeten) Sonnenrichtung und der Ausdehnung (auf Millimeter gerundet) entsteht ein Hash. Der Renderer verknüpft ihn mit der Schatten-Revision und der Ebenenmaske des Frames. Nur wenn sich dieser Schlüssel ändert, wird die Karte neu gezeichnet. Die Schatten-Revision steigt, wenn ein Schattenwerfer erscheint, verschwindet, sich bewegt, sein Material ändert oder `invalidate(true)` gerufen wird. Bei einer stehenden Kamera über einer statischen Stadt kostet der Schatten danach keinen einzigen Drawcall.
 
-**Zeichnen.** Matrix: `ortho(-e, e, -e, e, 0.2, 4e) * look_at(focus + dir * 2e, focus, up)`. Das Lichtfrustum verwirft Meshes, deren Bounds außerhalb liegen (außer geskinnten). Farbschreiben aus, Tiefentest `LESS`, `polygonOffset(2, 3)` gegen Schattenakne, eigener schlanker Shader (nur Position, Instanzmatrix, Skinning; der Fragment-Shader ist leer). Gezeichnet werden nur Meshes mit `casts_shadow()` in den aktiven Ebenen, mit ihrem eigenen Cull-Modus.
+**Zeichnen.** Matrix: `ortho(-e, e, -e, e, 0.2, 4e) * look_at(focus + dir * 2e, focus, up)` mit `e` = aktuelle Ausdehnung und dem eingerasteten Fokus. Das Lichtfrustum verwirft Meshes, deren Bounds außerhalb liegen (außer geskinnten). Farbschreiben aus, Tiefentest `LESS`, `polygonOffset(2, 3)` gegen Schattenakne, eigener schlanker Shader (nur Position, Instanzmatrix, Skinning; der Fragment-Shader ist leer). Gezeichnet werden nur Meshes mit `casts_shadow()` in den aktiven Ebenen, mit ihrem eigenen Cull-Modus.
 
-**Abtasten.** Die Tiefentextur hat `TEXTURE_COMPARE_MODE = COMPARE_REF_TO_TEXTURE` und lineare Filterung. Ein `texture(sampler2DShadow, ...)` vergleicht dann vier benachbarte Texel in der Hardware und interpoliert die Ergebnisse bilinear – das ist das „Hardware-PCF“. Im Standard-Shader:
+**Abtasten.** Die Tiefentextur hat `TEXTURE_COMPARE_MODE = COMPARE_REF_TO_TEXTURE` und lineare Filterung. Ein `texture(sampler2DShadow, ...)` vergleicht dann vier benachbarte Texel in der Hardware und interpoliert die Ergebnisse bilinear – das ist das „Hardware-PCF“, die Stufe 1. Die Stufen 4 und 9 setzen daraus nach Castaño (2013, „The Witness“) einen zeltgefilterten 3 × 3- bzw. 5 × 5-Kern zusammen: Jeder Tap liegt so zwischen den Texeln, dass die bilineare Hardware-Gewichtung genau die Zeltgewichte ergibt (`sunShadow` im Standard-Shader; Summe durch 16 bzw. 144). Der Shader bekommt dafür `uSunShadowFilter` und `uSunShadowTexel` (Kartengröße, ihr Kehrwert, ein Texel in Metern):
 
 ```glsl
 if (uSunShadowEnabled == 1 && ndl > 0.0) {
-  vec4 clip = uSunShadowProjection * vec4(vWorld, 1.0);
+  // Normal Offset (Holbein 2011): einen Texel von der Fläche weg entlang der Normale nachschlagen,
+  // mehr bei streifendem Licht – keine Akne ohne großen konstanten Bias.
+  vec3 lookup = vWorld + n * (uSunShadowTexel.z * (0.6 + 1.4 * (1.0 - ndl)));
+  vec4 clip = uSunShadowProjection * vec4(lookup, 1.0);
   vec3 uvz = clip.xyz / clip.w * 0.5 + 0.5;
-  if (uvz.x > 0.0 && uvz.x < 1.0 && uvz.y > 0.0 && uvz.y < 1.0 && uvz.z > 0.0)
-    shadow = texture(uSunShadowMap, vec3(uvz.xy, uvz.z - uSunShadowBias));
+  if (uvz.x > 0.0 && uvz.x < 1.0 && uvz.y > 0.0 && uvz.y < 1.0 && uvz.z > 0.0) {
+    shadow = sunShadow(uvz);
+    float d = length(vWorld - uSunShadowFade.xyz);
+    shadow = mix(shadow, 1.0, smoothstep(uSunShadowFade.w * 0.9, uSunShadowFade.w, d));
+  }
 }
 ```
 
-Außerhalb der Karte gilt eine Fläche als beleuchtet. Flächen, die von der Sonne weg zeigen (`ndl == 0`), lesen die Karte gar nicht.
+Außerhalb der Karte gilt eine Fläche als beleuchtet. Flächen, die von der Sonne weg zeigen (`ndl == 0`), lesen die Karte gar nicht. Mit Schattendistanz blendet der Schatten über ihr letztes Zehntel (gemessen vom Auge, `uSunShadowFade`) aus, statt an der Kartengrenze abzureißen; ohne Schattendistanz gibt es kein Ausblenden.
 
-Daraus folgt der wichtigste Abstimmungshinweis: `extent` und `resolution` bestimmen zusammen die Texelgröße. Orb Run und Kern Studio nutzen 2048 Texel auf ±110 m, also gut 10 cm pro Texel; `examples/hello` 1024 Texel auf ±40 m.
+Daraus folgt der wichtigste Abstimmungshinweis: Ausdehnung und `resolution` bestimmen zusammen die Texelgröße. Mit Schattendistanz ist die Ausdehnung der Kugelradius: Eine kleinere Schattendistanz macht die Schatten schärfer, reicht aber weniger weit. Kern Studio legt die Karte mit 2048 Texeln an (festes `extent` 110 m) und nutzt in Levels die Schattendistanz der World Settings; das C++-Beispiel Orb Run nutzt 2048 Texel auf festen ±110 m, also gut 10 cm pro Texel, `examples/hello` 1024 Texel auf ±40 m.
 
 ### 4.8.2 Himmel
 
@@ -660,12 +682,12 @@ Bei Gleichstand gewinnt die frühere Anfrage. `request()` begrenzt Intensität a
 |---|---|---|
 | `width`, `height` | 960 × 540 | Größe des Drawing Buffers (später `resize`) |
 | `shadows` | `false` | Sonnenschatten anlegen |
-| `shadow` | 512 / 120 / 0,0012 | `ShadowOptions` (4.8.1) |
+| `shadow` | 512 / 120 / 0,0012 / 9 | `ShadowOptions` (4.8.1) |
 | `bloom` | `enabled`, nicht `forced`, `grade` | `BloomOptions` (4.8.3) |
 | `ao` | siehe 4.8.4 | `AoOptions` |
 | `grade` | `true` | Produktions-Grading nach dem Tonemapping |
 
-Zur Laufzeit: `set_shadows(&options)` bzw. `set_shadows(nullptr)`, `set_ambient_occlusion`, `set_ambient_occlusion_radius`, `set_point_lights`, `invalidate(shadows)`.
+Zur Laufzeit: `set_shadows(&options)` bzw. `set_shadows(nullptr)`, `set_shadow_distance` (Meter, 0 = festes `extent`), `set_shadow_filter` (1, 4 oder 9 Taps), `set_ambient_occlusion`, `set_ambient_occlusion_radius`, `set_point_lights`, `invalidate(shadows)`.
 
 ### `Lighting` und `SkyState`
 
@@ -717,7 +739,7 @@ Was der Code selbst nahelegt:
 - **Instanzieren statt duplizieren.** Viele gleiche Objekte (Bäume, Autos, Kisten) sind ein Mesh mit vielen Instanzen und damit ein Drawcall. Die Stadt der Laufzeit zeichnet alle Baumstämme als ein Mesh und alle Kronen als ein zweites.
 - **Statische Geometrie zusammenführen.** `primitives::append` und die Chunks der Gebäude- und Straßenbauer fassen viele kleine Teile zu wenigen großen Meshes zusammen. Weniger Meshes bedeuten weniger Drawcalls und weniger Sortierarbeit.
 - **Nur hochladen, was sich ändert.** `update_instances` vergleicht bytegenau und tut bei gleichen Daten nichts; ein reines Tint-Update lädt nur einen Puffer hoch und lässt den Schatten gültig. Wer Instanzen jeden Frame neu schreibt, sollte nur die bewegten Meshes anfassen.
-- **Schatten wiederverwenden.** Jede Bewegung eines Schattenwerfers zeichnet die ganze Schattenkarte neu. Bewegte Dinge, die keinen sichtbaren Schatten brauchen (Partikel, Straßen, Bodenplatten), sollten `cast_shadow = false` haben – Orb Run und die Laufzeit tun das für Straßen und den Boden.
+- **Schatten wiederverwenden.** Jede Bewegung eines Schattenwerfers zeichnet die ganze Schattenkarte neu. Bewegte Dinge, die keinen sichtbaren Schatten brauchen (Partikel, Straßen, Bodenplatten), sollten `cast_shadow = false` haben – Orb Run und die Laufzeit tun das für Straßen und den Boden. Mit Schattendistanz folgt die Karte außerdem der Kamera: Eine stehende Kamera nutzt sie wieder, eine bewegte oder gedrehte zeichnet sie neu, sobald sich der Fokus um einen Texel verschiebt.
 - **16-Bit-Indizes.** Meshes bis 65 536 Vertices bekommen automatisch 16-Bit-Indizes. `weld` (Kapitel 5) macht aus Triangle-Soups indizierte Meshes und spart dabei Speicher.
 - **Frustum-Culling nicht abschalten** ohne Grund. `frustum_culled = false` ist für Dinge gedacht, deren Bounds nicht stimmen (Partikel).
 - **AO und Bloom passen sich an.** Beide haben Frame-Zeit-Wächter. Für Telefone ist AO in halber Auflösung der Standard.

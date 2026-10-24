@@ -27,10 +27,10 @@ Spielschicht und Steuerung. Wie man selbst Netze trainiert, steht in
 | Datei | Inhalt |
 |---|---|
 | `include/kern/game/walker.h` | Konstanten (`kWalkerStepHz`, `kWalkerSubsteps`, `kWalkerScale`, `kJumpSeconds`, `kJumpPhaseSlot`), `micro_duck_actors`, `add_micro_duck`, `vary_micro_duck`, `micro_duck_sock_actors` |
-| `include/kern/game/walker_policy.h`, `src/game/walker_policy.cpp` | `WalkerPolicy`: ONNX-Netze lesen und rechnen, Register der geladenen Netze, das eingebaute Manifest |
+| `include/kern/game/walker_policy.h`, `src/game/walker_policy.cpp` | `WalkerPolicy`: ONNX-Netze lesen und rechnen, Register der geladenen Netze, das eingebaute Manifest; robotds Pick-up-Detektor (`PickupDetector`, `parse_onnx_pickup`, `pickup_detector()`) |
 | `include/kern/game/servo.h`, `src/game/servo.cpp` | das Gerätemodell des Positionsservos und seine Profile |
-| `src/game/walker.cpp` | Aufbau des Modells, Regler (`run_controller`), Steuerung (`drive_walkers`), Sensoren (`sense_walker`), Kamera, Stimme, Lehrer-Schnittstelle |
-| `src/game/walker_brain.cpp` | das autonome Gehirn (Port von Pollens `autod`) und der Idle-Blick |
+| `src/game/walker.cpp` | Aufbau des Modells, Regler (`run_controller`), Steuerung (`drive_walkers`, darin die Pick-up-Erkennung), Sensoren (`sense_walker`), Kamera, Stimme, Lehrer-Schnittstelle |
+| `src/game/walker_brain.cpp` | das autonome Gehirn (Port von Pollens `autod`, dazu BallPlay aus Pollens ursprünglicher Runtime) und der Idle-Blick |
 | `src/game/walker_play.cpp` | die Spielschicht: Detektor, Tracker, Beobachtung, Ausführung von `play.onnx` |
 | `include/kern/game/runtime.h` | die öffentliche API in `GameWorld` (Abschnitt „walkers“) |
 | `src/game/micro_duck_model.inc`, `micro_duck_velstand.inc` | vom Importwerkzeug erzeugte Modelldaten und das eingebaute velstand-Netz |
@@ -142,7 +142,8 @@ dafür `no_collision`-Gelenke). Auf ihnen liegt eine gestürzte Ente und rutscht
 
 Seit der Überarbeitung der Spielschicht kennt die Physik **Oberflächenmaterialien mit eigener
 Paar-Reibung** (`physics::Surface`: `cloth`, `tpu`, `floor`). Zwei Materialien mischen sich nicht
-einfach: TPU greift Baumwolle schwächer, als jedes für sich greift. `physics::surface_friction`
+einfach: TPU auf Baumwolle hat einen eigenen gemessenen Wert, nicht das Mittel aus TPU auf TPU und
+Baumwolle auf Baumwolle. `physics::surface_friction`
 liefert für bestimmte Paare einen eigenen Wert, alle anderen Paare mischen wie Box3D als
 geometrisches Mittel √(a·b):
 
@@ -459,6 +460,40 @@ den Kopf gesteuert, legt sich der **Idle-Blick** darauf (`idle_walker`, Port von
 `robotd/src/idle_head.rs`): Blicke auf Minimum-Jerk-Kurven, kleine Sprünge, langsame Drift, Dösen
 mit der Zeit und gelegentliches Gähnen.
 
+### In der Hand: robotds Pick-up-Erkennung
+
+Wie robotd (`[pickup]`, seit dem v2-Modell standardmäßig an; duck-control und robotd `pickup.rs`)
+merkt die Ente, wenn eine Hand sie hochhebt, und tritt dann nicht in der Luft weiter. Pollens
+Klassifikator `pickup_detector.onnx` (ein temporales CNN mit rund 8000 Parametern, als Bytes
+eingebaut in `third_party/microduck/pickup_detector.inc`) liest in jedem Regeltakt die letzte
+Sekunde: 50 Zeilen à 63 Merkmale (`kPickupWindow`, `kPickupFeatures`) – Gyro, Schwerkraft, Gelenke
+minus Home, Gelenkgeschwindigkeiten, den Sollwert des vorigen Takts minus Home, Servoströme und ein
+Pause-Flag. Er antwortet mit p(gehalten). Kern rechnet das Netz selbst und deterministisch
+(`parse_onnx_pickup`: normieren und maskieren, per Gather die gelesenen Spalten, drei Conv1d mit ELU,
+dann Gemm, ELU, Gemm, Sigmoid).
+
+| Schritt | Regel (`drive_walkers`, nach duck-control `pickup.rs`) |
+|---|---|
+| Pausieren | p > 0,8 in 5 Takten hintereinander |
+| Gehalten | kein Netz läuft; die Sollwerte rampen in 300 ms vom letzten Sollwert auf `PAUSE_POSE` (die mittlere Standhaltung der Lauf-Policy); `walker_driving` meldet `held`, `walker_state` „Held“ |
+| Weiter | p < 0,35 in 4 Takten hintereinander, frühestens nach 300 ms Pause; die Netze starten frisch (letzte Aktion 0, Tiefpass ohne Anker), wie robotd nach einer Pause |
+
+- Ausgewertet wird nur ein volles Fenster; ein aufgefülltes läge außerhalb der Trainingsverteilung.
+- Beobachtet wird nur, solange Lauf- oder Stehnetz die Ente haben. Eine Bewegung, Sitzen,
+  Rollschuhe (das Modell kennt keine Räder) oder der Lernende des Lehrers beenden eine Pause und
+  leeren das Fenster.
+- Ströme: Kern hat keine Servoströme. Das ausgelieferte Modell liest diese Spalten nicht (der Graph
+  verwirft sie per Gather), Kern füllt 0.
+- Im Studio hebt man die Ente in **Simulate** am Rumpf hoch (oder beim Zuschauen mit der Observer
+  camera, wie im Beispiel-Level). Dieser Griff hält den Rumpf in seiner
+  Ausrichtung wie eine Hand, statt ihn am Punkt pendeln zu lassen (`MouseGrab::begin` mit
+  `hold_rotation`, [Kapitel 6](06-physik.md)).
+
+*Gemessen:* Test `micro_duck_pickup_detector_matches_onnxruntime`: Kerns Rechnung weicht auf Pollens
+zwei Fixture-Fenstern um weniger als 10⁻⁵ von onnxruntime ab. Test
+`micro_duck_pauses_in_the_hand_and_walks_when_put_down`: 20 s autonom ohne falsche Pause; 15 cm
+(echt) hochgehoben, pausiert sie und bleibt pausiert; abgesetzt läuft sie weiter und fällt nicht.
+
 ## 13.10 Das Gehirn: Autonomie
 
 Fährt niemand die Ente, entscheidet sie selbst (`src/game/walker_brain.cpp`). Quelle ist Pollens
@@ -480,6 +515,8 @@ Gamepad: Twist, Kopfpose mit eigener Glättungsrate, Körperpose, Mund und Laute
 | GroundPick | die Aufheben-Bewegung, danach ein Quak |
 | Nap | setzt sich und döst oder ruht (12–40 s) |
 | Petted | gestreichelt (`walker_pet`) |
+| BallPlay | sieht einen Ball, läuft an und richtet ihn vor dem linken Fuß aus (aus Pollens ursprünglicher Runtime nachgebaut, unten) |
+| Kick | Pollens linker Kick, danach eine Quak-Salve und ein Blick in die Runde |
 
 Darüber liegen wie im Original eine **Energie** (0–1), die den nächsten Zustand gewichtet, ein
 **Neuheitsraster** (0,5-m-Zellen), **Quak-Salven**, **Hören** (`walker_hear`: eine Stimme bekommt
@@ -492,21 +529,61 @@ Streicheln kommen über die API. Zufall kommt aus einem Generator mit dem Actor 
 läuft auch die Autonomie deterministisch. Solange eine Bewegung läuft, die Ente sich setzt oder
 aufsteht oder gefallen ist, hält das Gehirn still.
 
-**Wichtig für die Spielschicht:** Pollens Gehirn hat keinen Ball- oder Sockendetektor. Während die
-Spielschicht eingreift (Abschnitt 13.11), startet das Gehirn weder Aufheben noch Sitzen.
+### BallPlay: aus Pollens ursprünglicher Runtime, standardmäßig an
+
+Pollens Runtime (`apirrone/microduck_runtime`, `autonomous.rs`) hatte einen Zustand BallPlay:
+„approach / line up / kick“. `autod` hat ihn nur weggelassen, weil der Daemon noch keinen
+Balldetektor hat (`docs/design/autonomous.md` §4). Der Code der Runtime ist nicht öffentlich. Kern
+baut BallPlay deshalb nach dieser Beschreibung nach, mit Pollens eigenem Kick-Netz
+(`ball_kick_left.onnx`) und der Ballposition aus dessen Training. BallPlay ist **standardmäßig an**:
+Es gehört zu Pollens Software in Kern, nicht zu Kern extras.
+
+Es läuft, wenn die Ente autonom ist, keine Rollschuhe trägt, `kick_left` geladen ist, die
+Spielschicht nicht verfügbar ist (Abschnitt 13.11) und das Gehirn gerade nicht kickt, döst,
+gestreichelt wird, aufhebt oder sitzt.
+
+- **Sehen:** Ein Ball (dynamischer Kugel-Actor mit Tag `ball` oder Namen „Ball“, ohne Elternteil,
+  auf dem Boden, also höchstens 8 cm hoch) im Bild der Kopfkamera (`walker_sees`: im Sichtfeld der
+  IMX219-Optik und nicht verdeckt) startet BallPlay. Sieht sie mehrere, nimmt sie den nächsten und
+  bleibt bei ihm.
+- **Anlaufen:** mit gesenktem Kopf (nur der Kopf nickt, nicht der Nacken: Beugen verlagert das
+  Gewicht nach vorn, und der Gang leidet), langsamer je näher, bis 35 cm. Ist der Ball mehr als
+  0,6 rad seitlich, dreht sie erst auf der Stelle. Ein Hindernis-Tor gibt es dabei nicht: Was das ToF
+  voraus sieht, ist der Ball.
+- **Ausrichten:** in kleinen Schritten (0,2–0,25 m/s, nie unter dem, womit der Gang aus dem Stand
+  anläuft), den Kopf auf dem Ball (−1,1 rad), bis er dort liegt, wo das Kick-Training ihn hinlegt
+  (`microduck_ball_kick_env_cfg.py`: 9 cm vor, 4,2 cm neben dem linken Fuß, ±1,5 cm, gemessen vom
+  Fuß). Verliert sie ihn dicht vor sich aus dem Bild, tritt sie mit gesenktem Kopf zurück, bis sie
+  ihn wieder sieht; dort, wo er war, kickt sie nicht.
+- **Kicken:** Kopf in Grundstellung (der Kick wurde so trainiert), 3 s ruhig, bis sie langsamer als
+  1 cm/s ist, dann der Kick. Danach eine Quak-Salve, und dieser Ball ist 2–5 s uninteressant.
+- **Aufgeben:** Einen Ball, den sie 6 s nicht gesehen hat, gibt sie auf, solange er weit weg ist
+  (näher als 0,4 m geht sie nach der letzten Position). Nach 45 s ohne Kick lässt sie den Ball 20 s
+  in Ruhe. In beiden Fällen folgt LookAround.
+
+Abweichungen vom Original, soweit bekannt: Der Detektor ist ein geometrischer Sichttest statt eines
+neuronalen Detektors im Kamerabild. Gekickt wird nur links, weil der rechte Kick die Ente in Kern
+umkippt (Abschnitt 13.15). Anlauf- und Ausrichtwerte sind Kerns, weil die Werte der Runtime nicht
+lesbar sind.
+
+**Spielschicht statt BallPlay:** Mit Kern extras und geladenem `play.onnx` (`walker_play_available`)
+startet das Gehirn kein BallPlay; dann spielt Kerns gelerntes Netz mit Ball und Socke
+(Abschnitt 13.11). Während die Spielschicht eingreift, startet das Gehirn weder Aufheben noch
+Sitzen.
 
 ## 13.11 Die Spielschicht (`walker_play.cpp`)
 
 Pollens Netze sind die Bewegungen der Ente; keines davon sieht. Was die Ente mit einem Ball oder
 einer Socke tut – hinschauen, hingehen, kicken, aufheben, wegtragen, ausspucken –, entscheidet ein
-eigenes Netz: `policies/play.onnx`. Es ersetzt den früheren handgeschriebenen Code im Gehirn (die
-Zustände BallPlay, Fetch und Carry), der entfernt ist. Zur Laufzeit gibt es keine handgeschriebene
-Spiellogik; um das Netz herum gibt es nur Wahrnehmung.
+eigenes Netz: `policies/play.onnx`. Es ist Kern-eigen (nur mit Kern extras) und übernimmt dann statt
+Pollens BallPlay (Abschnitt 13.10); Kerns früherer handgeschriebener Code für Fetch und Carry ist
+entfernt. Die Spielschicht selbst enthält keine handgeschriebene Spiellogik; um das Netz herum gibt
+es nur Wahrnehmung.
 
 > **Arbeitsstand:** Die Spielschicht wird gerade überarbeitet. Dieser Abschnitt beschreibt den Code
 > im Arbeitsverzeichnis: Stillstand über „beide Sohlen auf dem Boden“, Bissposition vom Lehrer
 > gemessen, Paar-Reibung der Oberflächen, Trainingsszenen mit Ball und Socken dicht beieinander,
-> Übungsphase mit PPO.
+> Rückwärtsgang wie bei `autod`, Übungsphase mit PPO.
 
 ![Die Ente spielt](bilder/duck-play.png)
 
@@ -623,6 +700,10 @@ Takten exakt.
 - Die drei Laufbefehle haben eine **Totzone wie ein Gamepad-Stick**: unter 20 % des Bereichs
   (0,06 m/s, 0,04 m/s, 0,2 rad/s) steht die Ente. Ein Netz, das 0,1 statt 0 antwortet, bleibt so
   stehen.
+- **Rückwärts** fährt die Spielschicht den Gang an wie Pollens `autod` (`walkable` in
+  `walker_brain.cpp`): die ersten 0,6 s mit voller Geschwindigkeit (0,3 m/s), danach nie langsamer
+  als 0,15 m/s. Aus dem Stand setzt ein langsamerer Schritt zurück gar nicht an. Vorwärts gibt das
+  Netz das Tempo selbst vor; es hat gelernt, dem Gang aus dem Stand einen kräftigen Anstoß zu geben.
 - Der Kopf folgt mit Glättungsrate 0,3; Körperpose und „Wheee“ sind aus.
 - Eine Bewegung startet nur, wenn keine läuft und der Schnabel leer ist; der Daemon lehnt sonst ab.
   Startet ein Kick, merkt sich der Tracker den Ball 15 s lang nicht.
@@ -719,7 +800,7 @@ erneut angefragt. Netze, die der Lehrer im Browser auf demselben Gerät gespeich
 | Autonomous (camera, ToF) | `autonomous` | eigenes Verhalten, wenn niemand fährt |
 | Walking network | `gait` | `velstand` (v8) oder `alpha` (alpha_walking + alpha_stand) |
 | Actions to servo goals | `actions` | `training` (Scale 1, kein Filter) oder `robot` (0,9, Tiefpass 0,5 / 0,7) |
-| Kern extras | `kernExtras` | Spielschicht, Schnabel beim Aufheben |
+| Kern extras | `kernExtras` | Spielschicht (übernimmt dann statt BallPlay), Schnabel beim Aufheben |
 | – | `rollers` | Rollschuh-Modell |
 | – | `servoDelay` | Busverzögerung in Sekunden (Standard 0,02) |
 
@@ -737,7 +818,7 @@ erneut angefragt. Netze, die der Lehrer im Browser auf demselben Gerät gespeich
 | Robot Hears | Stimme oder Geräusch |
 | Robot ToF | Hindernis, Entfernung, Richtung, freie Hälften |
 | Robot Camera Sees | ein Actor im Bild: sichtbar, Richtung, Entfernung |
-| Robot State | Verhalten (Chill, Wander, …, Play, Driven, Logic), gefallen, Geschwindigkeit |
+| Robot State | Verhalten (Chill, Wander, …, BallPlay, Kick, Play, Held, Driven, Logic), gefallen, Geschwindigkeit |
 | Robot Holds Something | der Mund-Encoder |
 
 Die Logik selbst beschreibt [Kapitel 9](09-logik.md), das Studio [Kapitel 11](11-studio.md).
@@ -758,8 +839,8 @@ w.walker_sensors(duck, s);                       // ToF, Schwerkraft, Sturz
 bool visible; f32 bearing, distance;
 w.walker_sees(duck, ball, visible, bearing, distance);
 
-std::string net = w.walker_driving(duck);        // "walk", "stand", "ground_pick", "kick_left", "jump", ...
-std::string state = w.walker_state(duck);        // "Wander", "Play", "Driven", "Logic", "GetUp", ...
+std::string net = w.walker_driving(duck);        // "walk", "stand", "ground_pick", "kick_left", "jump", "held", ...
+std::string state = w.walker_state(duck);        // "Wander", "BallPlay", "Play", "Held", "Driven", "Logic", "GetUp", ...
 ```
 
 Für den Lehrer gibt es zusätzlich `set_walker_external` / `set_walker_action` (eine lernende Policy
@@ -784,6 +865,10 @@ Test `micro_duck_runs_every_move_of_its_set`: Sitzen und Aufstehen, Aufheben (ti
 Kick links (Ball fliegt 4 m echt), Rolle und Ducken auf Rollen gelingen; Kick rechts kippt manchmal
 und steht wieder auf. Kein Gelenk überschreitet seine Grenze um mehr als 0,004 rad.
 
+Test `micro_duck_plays_ball_as_pollens_brain_does` (nur Pollens Software, ohne Kern extras): Die
+Ente sieht den Ball, läuft an, richtet ihn aus und kickt mit Pollens Kick-Netz, ohne zu fallen; der
+Ball rollt mehr als 25 cm (echt) weg. Die Pick-up-Erkennung prüfen die Tests in Abschnitt 13.9.
+
 ## 13.15 Was fehlt, und warum
 
 - **Getriebespiel ±1°:** nicht modelliert. Im Training ist es Randomisierung, die Policy ist dagegen
@@ -794,6 +879,10 @@ und steht wieder auf. Kein Gelenk überschreitet seine Grenze um mehr als 0,004 
   Boden 1,0 und die Sohle greift mit 1,0.
 - **Kick rechts:** kippt in Kern nach dem Tritt manchmal um. Die Ursache ist offen (Spiel,
   Kontaktweichheit, Fußreibung).
+- **BallPlay:** nach der Beschreibung der Runtime nachgebaut, deren Code nicht öffentlich ist;
+  Detektor als geometrischer Sichttest, nur der linke Kick (Abschnitt 13.10).
+- **Servoströme:** Kern hat keine. Der Pick-up-Detektor bekommt 0; das ausgelieferte Modell liest
+  diese Spalten nicht (Abschnitt 13.9).
 - **Kern-eigen, nicht im Original:** die Spielschicht, das Schnabel-Timing beim Aufheben (beide nur mit
   Kern extras) und der Sprung. Immer an, weil reiner Klang: Kunststoff- und Schrittgeräusche, das
   Servo-Geräusch aus der Last.

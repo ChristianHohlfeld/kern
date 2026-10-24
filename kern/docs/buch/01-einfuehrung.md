@@ -315,6 +315,7 @@ erzeugte Dateien.
 ```
 /                                Repository-Wurzel
   README.md                      Überblick, Schnellstart, CI und Pages
+  LICENSE                        Lizenz von Kern: proprietär, alle Rechte vorbehalten
   .github/workflows/ci.yml       CI: native Tests, Determinismus (macOS), Build, e2e, Deploy
   tools/
     build_studio.sh              Kern Studio als eine HTML-Datei -> generated/studio.html
@@ -322,13 +323,13 @@ erzeugte Dateien.
     micro_duck_import.py         Import von Pollens Micro Duck (Modell, Laufpolicy)
     mesh_simplify.py, qem_simplify.cpp   Mesh-Vereinfachung für den Import
   site/
-    index.html                   Startseite von GitHub Pages
+    index.html                   Startseite von GitHub Pages (Fußzeile: Rechteinhaber, Lizenz-Links)
     editor/                      App-Dateien des Editors (Manifest, Service Worker, Icons)
   generated/                     Build-Ergebnisse (studio.html, *.wasm, ...)
 
   kern/                          die Engine
     README.md                    Engine-Überblick
-    LICENSES.md                  Lizenzen der Fremdbibliotheken
+    LICENSES.md                  Bestandteile Dritter und ihre Lizenzen (Box3D, Earcut, musl, Micro Duck ...)
     build.sh                     WebAssembly-Build (--app, --physics, --game, --studio, --lehrer)
     include/kern/                öffentliche Header (kern/kern.h bindet App, Grundlagen, Geometrie,
                                  Renderer, Mathematik und Szene ein)

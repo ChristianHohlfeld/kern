@@ -487,6 +487,7 @@ und WebAssembly bewegen.
    | Ziel | Quelle |
    |---|---|
    | `index.html` | `site/index.html` |
+   | `LICENSE.txt`, `LICENSES.txt` | `LICENSE` (Wurzel) und `kern/LICENSES.md`; die Fußzeile der Startseite verlinkt beide |
    | `editor/index.html` | `generated/studio.html` mit vorangestelltem Kommentar `<!--BUILD_SHA:<sha>-->` |
    | `editor/build.json` | `{"sha":"<sha>"}` für die Update-Prüfung des installierbaren Editors |
    | `editor/` | `site/editor/` (Manifest, Service Worker, Icons) |

@@ -766,6 +766,14 @@ Ein exportiertes Studio-Spiel braucht das alles nicht: Es ist eine Datei, die au
 
 ## 12.6 Veröffentlichen
 
+> **Rechte:** Kern ist proprietär (`LICENSE` im Wurzelverzeichnis, alle Rechte vorbehalten). Ohne
+> gesonderte Vereinbarung erlaubt die Lizenz nur, die öffentlich bereitgestellte Seite im Browser zum
+> persönlichen, nicht kommerziellen Ausprobieren zu benutzen (Nummer 3). Mit Studio exportierte Spiele
+> und mit dem Lehrer trainierte Netze darüber hinaus zu verwenden oder weiterzugeben, braucht die
+> schriftliche Zustimmung des Rechteinhabers (Nummer 4 d, 5). Bestandteile Dritter behalten ihre eigenen
+> Lizenzen (`kern/LICENSES.md`); die Meshes der Micro Duck stehen unter CC BY-NC-SA 4.0, also nicht
+> kommerziell. Die folgenden Abschnitte beschreiben das Technische.
+
 ### Studio-Spiele
 
 Die exportierte HTML-Datei lädt man auf einen beliebigen Webspace, legt sie in ein Repository mit GitHub

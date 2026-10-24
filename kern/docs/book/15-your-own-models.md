@@ -350,8 +350,8 @@ kern/build/kern_lehrer --demo-spur --netz play_geuebt.onnx --seed 120
 `--demo-spur` plays the Studio's Micro Duck level with 60 Hz frames, the way the Studio plays it
 (120 s here; for this command `--seed` is the duration in seconds), with `kern/policies/jump.onnx`
 and the given play network (otherwise `kern/policies/play.onnx`). Once per second: position, state,
-driving network, what the tracker knows about ball and sock, holding, standing still, walking time.
-With the environment variable `KERN_JUMP_AT=SECOND` it presses key 7 (jump) in that second.
+driving network, what the tracker knows about ball and sock, holding, standing still, walking time
+and the play network's answer to this observation (`net fwd`, `turn`, `kick`, `pick`). With the environment variable `KERN_JUMP_AT=SECOND` it presses key 7 (jump) in that second.
 
 ## 15.8 Using it in the Studio
 

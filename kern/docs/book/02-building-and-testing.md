@@ -487,6 +487,7 @@ x86 and WebAssembly do.
    | Target | Source |
    |---|---|
    | `index.html` | `site/index.html` |
+   | `LICENSE.txt`, `LICENSES.txt` | `LICENSE` (root) and `kern/LICENSES.md`; the start page's footer links both |
    | `editor/index.html` | `generated/studio.html`, prefixed with the comment `<!--BUILD_SHA:<sha>-->` |
    | `editor/build.json` | `{"sha":"<sha>"}` for the update check of the installable editor |
    | `editor/` | `site/editor/` (manifest, service worker, icons) |

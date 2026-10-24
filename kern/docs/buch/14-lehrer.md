@@ -758,8 +758,9 @@ entscheidet so:
 - **Nichts bekannt:** auf der Stelle drehen (0,8), Kopf in Grundstellung (geneigt oder ausgeschwenkt
   kippt sie beim Drehen).
 - **Ziel:** das nähere von Ball und Socke (ein Ball im Weg wird zuerst weggekickt).
-- **Weiter als 0,25 m:** hinschauen (Kopf nickt mit der Nähe stärker und dreht sich höchstens 0,3 rad
-  zum Ziel), drehen bis höchstens 0,6 rad/s auf der Stelle bzw. 0,4 rad/s im Gehen; gehen mit
+- **Weiter als 0,25 m:** hinschauen (der Kopf nickt mit der Nähe stärker, 0,1–0,5 rad, und dreht
+  sich höchstens 0,3 rad zum Ziel – sanft, weil weit geneigt beim schnellen Gehen und Drehen die Ente
+  kippt), drehen bis höchstens 0,6 rad/s auf der Stelle bzw. 0,4 rad/s im Gehen; gehen mit
   0,15–0,3 m/s, solange das Ziel weniger als 0,6 rad daneben liegt. Dreht es auf der Stelle, steht der
   Kopf in Grundstellung.
 - **Nah dran** (für Ball und Socke gleich): Pollens Gang lässt sich nur anhalten, nicht in kleinen
@@ -768,6 +769,10 @@ entscheidet so:
   0,3 m/s, weil der Gang sonst nicht ansetzt), lenkt statt seitlich zu treten, sagt „Stopp“ – bei der
   Socke um die Nachlaufstrecke von 0,7 cm vor der Stelle, beim Ball erst 0,5 cm hinter ihr –, steht und
   startet die Bewegung, wenn es lange genug gestanden hat.
+  **Stehen** heißt hier: beide Sohlen länger als 0,25 s am Boden (länger, als die Doppelstützphase
+  eines Schritts dauert; Beobachtung `still_s`). Steht es an der richtigen Stelle, bleibt es stehen
+  und startet die Bewegung, gleich was sein Laufbefehl einen Moment vorher tat: Ein Zucken rückwärts
+  ist kein Grund zurückzuweichen.
   Liegt das Ziel nicht richtig (Socke: ±8 mm voraus, ±12 mm seitlich; Ball: ±2 cm), geht es mit
   voller Geschwindigkeit zurück und kommt neu.
 - **Ziel für die Socke** ist die gemessene Bissposition (`bite_spot`, unten), für den Ball 9 cm vor
@@ -789,7 +794,10 @@ Was das Vorbild nicht von Hand weiß, misst der Lehrer in der Physik, wie sie je
   Stelle ist eine gehaltene mit den meisten gehaltenen Stellen in ihrer Umgebung (±2 seitlich,
   ±1 voraus), denn das Hingehen ist nie exakt.
 - **`bite_spot()`** misst das einmal pro Prozess, bevor die Episoden es brauchen, mit dem Schnabel-
-  fenster, das das Netz gezeigt bekommt. Hält nirgends etwas, nimmt es 6,5 cm vor dem Rumpf, mittig.
+  fenster, das das Netz gezeigt bekommt. Die Gitterstellen laufen parallel auf den Threads des
+  Trainings; nativ sorgt `std::call_once` für die eine Messung, WebAssembly läuft auf einem Thread und
+  braucht dafür keinen Mutex. `--spielen` gibt das Ergebnis vor der ersten Runde aus („the bite,
+  measured in this physics: …“). Hält nirgends etwas, nimmt es 6,5 cm vor dem Rumpf, mittig.
   Damit steht **keine Bissposition als Zahl im Code**: Ändert sich die Physik (Reibung,
   Sockenmodell, Schnabel), misst der Lehrer neu.
 - **Wie weit die Ente nach „Stopp“ noch geht** (`measure_stop`, `--halt-messen`): aus 0,10, 0,12,

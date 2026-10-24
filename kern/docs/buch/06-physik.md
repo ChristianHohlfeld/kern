@@ -307,8 +307,8 @@ weniger als 4 oder mehr als 4096 Punkte oder eine flache Punktmenge liefert sie 
 
 Box3D kombiniert die Reibung zweier Formen standardmäßig als **√(a · b)** und die Restitution als
 **Maximum**. Für die meisten Dinge reicht das. Es stimmt aber nicht für jedes reale Paar: Zwei
-Materialien kombinieren sich nicht einfach, *TPU greift Baumwolle weniger als jedes der beiden sich
-selbst* (Kommentar in `physics.h`). Für solche Paare kennt Kern Oberflächenmaterialien mit eigener,
+Materialien kombinieren sich nicht einfach: *TPU auf Baumwolle hat einen eigenen gemessenen Wert,
+nicht das Mittel aus TPU auf TPU und Baumwolle auf Baumwolle* (Kommentar in `physics.h`). Für solche Paare kennt Kern Oberflächenmaterialien mit eigener,
 gemessener Paar-Reibung.
 
 ### Das Modell
@@ -406,8 +406,9 @@ stiffness (30 Hz), Contact damping ratio (10), Contact push-out speed (3 m/s).
   Hulls.
 - Im Solver begrenzt er den Rollimpuls auf Rollwiderstand × gesamter Normalimpuls des Kontakts.
 
-`docs/physics.md` und der Kommentar in `physics.h` sagen „Rollwiderstand wirkt nur auf Kugeln und
-Kapseln“. Gedacht und eingesetzt ist er genau dafür: der Ball im Micro-Duck-Level (0,03, „ein
+`docs/physics.md` und der Kommentar in `physics.h` sagen dasselbe: Rollwiderstand wirkt auf Kugeln
+und Kapseln (Radius) und auf konvexe Hüllen (ein Viertel ihres Innenradius; auch Quader sind in
+Box3D Hüllen). Eingesetzt ist er für runde Dinge: der Ball im Micro-Duck-Level (0,03, „ein
 Gummiball auf Holzboden rollt aus“), die Reifen des Rovers im Physics Lab (0,02) und die
 Socken-Klumpen (0,5: „ein Stoffklumpen rollt nicht; runde Klumpen würden es, und der Haufen
 krabbelt“).
@@ -570,7 +571,7 @@ Box3D-Samples:
 
 ```cpp
 physics::MouseGrab grab;
-if (grab.begin(world, body, hit_point)) {   // Federfrequenz Standard 7,5 Hz
+if (grab.begin(world, body, hit_point)) {   // Federfrequenz Standard 7,5 Hz; 5. Argument hold_rotation
   grab.set_target(cursor_point);
   // jeden Schritt, vor World::step:
   grab.update(h);
@@ -586,6 +587,11 @@ So funktioniert es:
 - Die lineare Feder hat `stiffness_hertz` (Standard 7,5 Hz) und Dämpfungsgrad 1 (kritisch
   gedämpft). Ihre Höchstkraft ist auf 100 × Masse × g begrenzt (g mindestens 1 m/s²). Die
   Drehfeder ist aus: Der Körper darf am Griff kippen und schwingen.
+- Mit `hold_rotation = true` hält der Griff zusätzlich die Ausrichtung, die der Körper beim Greifen
+  hatte, wie eine Hand: Drehfeder mit der halben Frequenz, kritisch gedämpft, Höchstmoment ein
+  Viertel der Höchstkraft (ein Viertelmeter Hebel). `GameWorld::begin_grab` nutzt das für den Rumpf
+  einer Micro Duck, damit sie hochgehoben aufrecht bleibt, statt am Punkt zu pendeln
+  ([Kapitel 13](13-micro-duck.md)).
 - `update(dt)` bewegt den Maus-Körper per `set_target_pose` zum Ziel. Der Körper bleibt ganz in der
   Physik: Er stößt an, kippt und fliegt beim Loslassen mit seinem Schwung weiter.
 - Statische und kinematische Körper lassen sich nicht greifen (`begin` liefert `false`).
@@ -765,7 +771,7 @@ vollständig zusammengestellt, jede mit ihrem Grund.
 | Kamera folgt der interpolierten Pose. | Sonst wackeln schnelle Körper im Bild. |
 | Lange Gelenkketten: mehr Sub-Steps (Roboter 16). | Weniger Dehnung (`box3d:docs/simulation.md:155-159`); *[gemessen]* Hüftlücke 5 cm → < 1 mm. |
 | `constraintHertz` nur zusammen mit mehr Sub-Steps erhöhen. | Box3D deckelt auf 0,25 × Sub-Step-Rate. |
-| Federn unter der halben Schritt- bzw. Sub-Step-Frequenz. | Nyquist; steifere Federn werden instabil (Box3D „Distance Joint“). |
+| Federn unter der halben Sub-Step-Frequenz (`max_hertz = 0,5 × step_hz × substeps`). | Nyquist; steifere Federn werden instabil (Box3D „Distance Joint“). |
 
 ### Gelenke (§4)
 
@@ -789,7 +795,7 @@ vollständig zusammengestellt, jede mit ihrem Grund.
 | Rotorträgheit eines Getriebes (MuJoCo „armature“) ist eine Masse-Eigenschaft: eine Scheibe auf der Gelenkachse, die das Glied trägt. Was Box3D gar nicht abbilden kann, wird dokumentiert, nicht vorgetäuscht. | `docs/walker.md` §6; ein rein axialer Tensor wäre kein realer starrer Körper, und Box3D gewinnt damit Energie (`add_armature` in `walker.cpp`). |
 | **Gelenkreibung** ist ein Motor mit Geschwindigkeit 0 und kleinem Maximalmoment. | Erins Rezept (`box3d:docs/simulation.md:1431-1434`); sein Ragdoll nutzt 5 N·m × einen Faktor pro Gelenk (`box3d:shared/human.c:347-393`). |
 | Kontaktreibung pro Shape; zwei Materialien kombiniert Box3D als √(a·b) (Reibung) und max (Restitution); Paare mit eigenem Wert über `Surface`. | 6.6, 6.7. |
-| Rollwiderstand für Kugeln und Kapseln; Roboterfüße breit, flach, mit hoher Reibung. | 6.7. |
+| Rollwiderstand für runde Dinge (Kugeln, Kapseln; auf Hüllen wirkt er mit einem Viertel des Innenradius); Roboterfüße breit, flach, mit hoher Reibung. | 6.7. |
 | Einen Körper weich aufrecht halten: **Parallel-Joint** (Hertz, Dämpfung, Maximalmoment), keine überschriebenen Geschwindigkeiten. | Erins Weg (`box3d:shared/human.c:526-605`). |
 
 ### Kräfte, Geschwindigkeiten, Dämpfung (§6)

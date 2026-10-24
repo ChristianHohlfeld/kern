@@ -446,7 +446,8 @@ front of it.
 | **Shadow acne** (stripes on lit surfaces) | the surface shadows itself because of limited resolution | depth bias, polygon offset |
 | **Peter Panning** (shadow detaches from the object) | too much bias | keep the bias small |
 | **hard, jagged edges** | one texel covers many pixels | filtering (PCF) |
-| **shimmering** when the camera moves | the map shifts by fractions of a texel | snapping to the texel grid |
+| **shimmering** when the camera moves | the map shifts by fractions of a texel or changes its size | snapping to the texel grid, a map of fixed size |
+| **blurry shadows close up** | the map covers much more than you see | fit the map to the view (shadow distance) |
 
 ### B.5.3 In Kern
 
@@ -456,24 +457,37 @@ front of it.
   `Mat4::ortho(-e, e, -e, e, 0.2f, e * 4) * Mat4::look_at(...)` with the half side length `extent`
   (default 120 m) and a resolution of 512 texels (power of two, 128–4096). One texel thus covers
   $2 \cdot 120 / 512 \approx 0.47$ m.
-- **Snapped to the texel grid:** `focus_key` rounds the focus (the camera target) in the plane
-  perpendicular to the sun to whole texels. The map then only jumps by whole texels and does not
-  shimmer. The rounded focus simultaneously yields a **cache key**: as long as it, the sun and the
+- **Fitted to the view:** with a shadow distance (`set_shadow_distance`, in levels
+  `WorldSettings::shadow_distance`, default 80 m), the map covers, instead of the fixed square, the
+  bounding sphere of the view frustum up to that distance (stable shadow maps after Valient 2008).
+  The sphere does not change its size when the camera turns; its radius is the half side length. A
+  smaller shadow distance means smaller texels, i.e. sharper shadows. At the edge the shadow fades
+  out over the last tenth of the distance.
+- **Snapped to the texel grid:** `focus_key` rounds the focus (the camera target or the sphere's
+  centre) in the plane perpendicular to the sun to whole texels. The map then only jumps by whole texels and does not
+  shimmer. Together with the extent, the rounded focus also yields a **cache key**: as long as it, the sun and the
   shadow casters stay the same, the map is reused (`RenderStats::shadow_reused`).
 - **Depth only:** `colorMask(0, 0, 0, 0)`, an empty fragment shader, target `DEPTH_COMPONENT24`.
-- **Double bias:** when generating, `polygonOffset(2, 3)` (shifts the depth depending on the slope of
-  the triangle); when sampling, `uSunShadowBias` (default 0.0012).
+- **Triple bias:** when generating, `polygonOffset(2, 3)` (shifts the depth depending on the slope of
+  the triangle); when sampling, `uSunShadowBias` (default 0.0012) and a **normal offset** (Holbein
+  2011): the lookup happens one texel off the surface along its normal, more where the light grazes
+  it. This avoids acne without a large constant bias detaching the shadow from the object.
 - **Hardware PCF:** the depth texture has `TEXTURE_COMPARE_MODE = COMPARE_REF_TO_TEXTURE` and
   `LINEAR` filtering. A lookup through `sampler2DShadow` then compares the four nearest texels and
   interpolates the results – soft edges from a single `texture()` call.
+- **Optimised PCF** (Castaño 2013, "The Witness"): 4 or 9 such hardware taps form a tent-filtered
+  3 × 3 or 5 × 5 kernel. Each tap sits between the texels so that the hardware's bilinear weighting
+  yields exactly the tent weights. `ShadowOptions::filter` selects 1, 4 or 9 taps; Studio uses 4 on
+  phones and 9 on desktop.
 - Only meshes with `casts_shadow()` and inside the sun's frustum are drawn.
 
 In the standard shader:
 
 ```glsl
-vec4 clip = uSunShadowProjection * vec4(vWorld, 1.0);
+vec3 lookup = vWorld + n * (uSunShadowTexel.z * (0.6 + 1.4 * (1.0 - ndl)));  // normal offset
+vec4 clip = uSunShadowProjection * vec4(lookup, 1.0);
 vec3 uvz = clip.xyz / clip.w * 0.5 + 0.5;                  // NDC → [0,1]
-shadow = texture(uSunShadowMap, vec3(uvz.xy, uvz.z - uSunShadowBias));
+shadow = sunShadow(uvz);                                   // 1, 4 or 9 taps
 ```
 
 The map is sampled only if the surface faces the sun (`ndl > 0.0`) – otherwise it is dark anyway.
@@ -876,7 +890,7 @@ flowchart LR
 | depth test, sorting, transparency | B.2 | `Renderer::render` |
 | vertex/fragment shaders, attributes, uniforms, MRT | B.3 | `standard_shader.cpp` |
 | Lambert, GGX, Schlick, hemisphere light | B.4 | `kFragmentLighting` |
-| shadow map, PCF, texel snapping | B.5 | `SunShadowMap` |
+| shadow map, PCF, texel snapping, shadow distance, normal offset | B.5 | `SunShadowMap`, `Renderer::set_shadow_distance` |
 | HDR, ACES, sRGB, fog | B.6 | `kGlslToneMap`, fog in the standard shader |
 | bloom | B.7 | `BloomPass` |
 | GTAO | B.8 | `AmbientOcclusionPass`, `kCombine` |

@@ -758,8 +758,9 @@ answer follows from what it sees now and how long it has been standing. It decid
 - **Nothing known:** turn on the spot (0.8), head in the default pose (tilted or swung out, it tips
   over while turning).
 - **Target:** the nearer of ball and sock (a ball in the way is kicked away first).
-- **Farther than 0.25 m:** look at it (the head pitches more strongly the closer it is and turns at
-  most 0.3 rad towards the target), turn at up to 0.6 rad/s on the spot or 0.4 rad/s while walking;
+- **Farther than 0.25 m:** look at it (the head pitches more strongly the closer it is, 0.1–0.5 rad,
+  and turns at most 0.3 rad towards the target – gently, because bowed far while walking fast and
+  turning, the duck tips over), turn at up to 0.6 rad/s on the spot or 0.4 rad/s while walking;
   walk at 0.15–0.3 m/s as long as the target is less than 0.6 rad off. When it turns on the spot,
   the head is in the default pose.
 - **Close** (the same for ball and sock): Pollen's gait can only be stopped, not placed in small
@@ -767,7 +768,10 @@ answer follows from what it sees now and how long it has been standing. It decid
   along a line (0.12–0.15 m/s; from standstill a fixed nudge at 0.3 m/s, because the gait otherwise
   does not start), steers instead of side-stepping, says "stop" – for the sock by the coasting
   distance of 0.7 cm before the spot, for the ball only 0.5 cm past it – stands, and starts the
-  motion once it has stood long enough. If the target is not in the right place (sock: ±8 mm ahead,
+  motion once it has stood long enough. **Standing** means here: both soles on the floor for longer
+  than 0.25 s (longer than a step's double support lasts; observation `still_s`). Standing at the
+  right spot, it goes on standing and starts the motion, whatever its walking command did a moment
+  before: a twitch backwards is no reason to back off. If the target is not in the right place (sock: ±8 mm ahead,
   ±12 mm sideways; ball: ±2 cm), it backs off at full speed and approaches again.
 - **The target for the sock** is the measured bite position (`bite_spot`, below); for the ball,
   9 cm in front of and 4.2 cm beside the left foot (`microduck_ball_kick_env_cfg.py`), corrected by
@@ -788,7 +792,10 @@ Whatever the demonstration does not know by hand, the Lehrer measures in the phy
   The best point is a held one with the most held points in its neighbourhood (±2 sideways, ±1
   ahead), because the approach is never exact.
 - **`bite_spot()`** measures this once per process, before the episodes need it, with the beak
-  window the network is shown. If nothing holds anywhere, it takes 6.5 cm in front of the trunk,
+  window the network is shown. The grid points run in parallel on the training's threads; natively
+  `std::call_once` ensures the single measurement, while WebAssembly runs on one thread and needs no
+  mutex for it. `--spielen` prints the result before the first round ("the bite, measured in this
+  physics: …"). If nothing holds anywhere, it takes 6.5 cm in front of the trunk,
   centred. As a result **no bite position is hard-coded as a number**: if the physics changes
   (friction, sock model, beak), the Lehrer measures again.
 - **How far the duck keeps walking after "stop"** (`measure_stop`, `--halt-messen`, "measure

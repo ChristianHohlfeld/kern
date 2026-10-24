@@ -34,7 +34,9 @@ Es gibt drei Wege, Studio zu öffnen:
 
 Die Startseite des Projekts (https://christianhohlfeld.github.io/kern/) verlinkt Studio, den Lehrer, die
 beiden Beispielspiele und zwei Levels zum direkten Spielen (`kern/web/studio/play.html?level=orbRun` bzw.
-`?level=physicsLab`).
+`?level=physicsLab`). Ihre Fußzeile nennt den Rechteinhaber („© 2026 Christian Heinrich Hohlfeld · Alle
+Rechte vorbehalten“) und verlinkt die Lizenz (`LICENSE.txt`), die Bestandteile Dritter (`LICENSES.txt`),
+die Studio-Doku und die Engine-Doku.
 
 **Was beim Start passiert:**
 
@@ -778,6 +780,7 @@ Level.
 | Fog density | Nebeldichte |
 | Exposure | Belichtung |
 | Ambient occlusion radius (0 = off) | Meter |
+| Shadow distance (smaller: sharper) | Meter der Sicht, die die Schattenkarte der Sonne abdeckt (2–2000, Standard 80; das Micro-Duck-Level 10) |
 | Clouds | Wolken an/aus |
 | Endless ground | unendlicher Boden |
 | Ground color | Bodenfarbe |
@@ -874,7 +877,12 @@ Kamera bleibt die des Editors.
 - **Körper greifen:** Linke Maustaste auf einem dynamischen Körper (oder ein Finger) greift ihn mit dem
   Mouse Joint. Ziehen bewegt ihn, den Zeiger nach oben ziehen hebt ihn hoch, das Mausrad bzw. ein zweiter
   Finger (auseinander/zusammen) holt ihn näher oder schiebt ihn weg, Loslassen wirft ihn mit seinem
-  Schwung. Ctrl ist dafür nicht nötig. Ein kurzer Klick wählt den Körper aus.
+  Schwung. Ctrl ist dafür nicht nötig. Ein kurzer Klick wählt den Körper aus. Der Hinweis im Viewport
+  lautet „Simulating · drag grabs bodies · K keeps poses · Esc stops“, der Controls-Dialog (F1) nennt
+  „Drag (Simulate) – Grab and throw physics bodies“.
+- **Eine Micro Duck am Rumpf** hält der Griff zusätzlich in ihrer Ausrichtung, wie eine Hand den
+  Roboter hält, statt sie am Punkt pendeln zu lassen (`begin_grab` mit `hold_rotation`). So
+  hochgehoben, pausiert sie wie der echte Roboter ([Kapitel 13](13-micro-duck.md)).
 - **Warum der Körper physikalisch bleibt:** Ein Motor-Gelenk mit Feder (7,5 Hz, kritisch gedämpft) zieht
   den gegriffenen Punkt zum Zeiger. Der Körper stößt an, kippt und schwingt wie jeder andere.
 - **K** übernimmt die simulierten Posen der ausgewählten Actors ins Level (ein Undo-Schritt) und beendet
@@ -976,13 +984,14 @@ Bedienung im Studio.
 ![Das Beispiel-Level Micro Duck: ein Zimmer im Maßstab der Ente](bilder/duck-level.png)
 
 **Das Beispiel-Level** (File › Example Levels › Micro Duck): ein Zimmer in ihrem Maßstab mit Möbeln, einem
-Ball und zwei Socken. Die Ente läuft autonom, und mit eingeschaltetem **Kern extras** spielt sie mit Ball
-und Socken. Der Level-Blueprint lässt sie quaken, sobald ihre Kopfkamera den Ball sieht. Play startet mit
+Ball und zwei Socken. Die Ente läuft autonom. Schon ohne Zusätze spielt sie Ball wie in Pollens
+ursprünglicher Runtime (BallPlay: hinlaufen, ausrichten, mit links kicken); mit eingeschaltetem
+**Kern extras** (im Beispiel-Level an) spielt stattdessen Kerns Spielschicht mit Ball und Socken. Der Level-Blueprint lässt sie quaken, sobald ihre Kopfkamera den Ball sieht. Play startet mit
 der Observer camera: Man schaut zu und kann den Ball mit Maus oder Finger anheben; F8 übernimmt die Ente.
 
 **Ohne Eingabe** läuft die Ente selbstständig (Details › Player Controller › Walker › **Autonomous**): Sie
 erkundet den Raum mit Kopf-ToF und Kamera, weicht Hindernissen aus und steht nach einem Sturz selbst
-wieder auf.
+wieder auf. Hebt man sie am Rumpf hoch, pausiert sie (Robot State „Held“) und läuft abgesetzt weiter.
 
 **Tastatur** (im Play, den Spieler übernommen):
 
@@ -1297,6 +1306,7 @@ zurück, der bis zum nächsten Aufruf gilt (`kern_studio_result_length()` nennt 
 | `kern_studio_net_push(from, bytes)`, `…_net_take()`, `…_net_out()`, `…_net_out_to()` | Datagramme für den Netzwerk-Stack |
 | `kern_studio_take_autosave(now)`, `…_take_autosave_discard()`, `kern_studio_dirty()` | Autosave |
 | `kern_studio_ao_set(…)` | Ambient Occlusion |
+| `kern_studio_shadow_filter(taps)` | Filter des Sonnenschattens: 1, 4 (Telefone) oder 9 (Desktop) PCF-Taps |
 | `kern_studio_context_lost()`, `…_context_restored()` | WebGL-Kontextverlust |
 
 Alles, was man in Studio tut, ist ein Befehl als JSON-Objekt `{"cmd": …}`, auch jeder Menüeintrag: Ein

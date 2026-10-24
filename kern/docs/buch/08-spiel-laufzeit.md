@@ -45,7 +45,10 @@ world.stop();                            // zurück zum bearbeiteten Level
 ```
 
 `sync` bringt die Meshes des Renderers mit dem Level in Einklang (nur Geändertes wird neu
-hochgeladen) und wird während einer laufenden Simulation ignoriert. `start` kopiert das Level,
+hochgeladen) und wird während einer laufenden Simulation ignoriert. Eine Stadt, die das neue Level
+nicht mehr hat, entfernt `sync` nur mit ihren eigenen Meshes (Chunks, Stämme, Kronen), nicht über die
+Actor-Id: Das neue Level kann dieselbe Id einem anderen Actor geben, etwa dem Boden, der sonst nach
+einem Levelwechsel fehlte. `start` kopiert das Level,
 baut die Box3D-Welt und startet Simulate oder Play. `stop` reißt alles ab und zeigt wieder das
 Level, das `sync` zuletzt gesehen hat – Änderungen der Simulation gehen also nicht ins Dokument
 (Studio bietet dafür „Keep Simulation Changes“).
@@ -255,7 +258,7 @@ Geschwindigkeit, höchstens `max_motor_force`, mit `servo_friction` Gelenkreibun
 | `gait` | `velstand` | `gait` | Walker: `velstand` oder `alpha` |
 | `rollers` | `false` | `rollers` | Walker: Rollschuhe |
 | `actions` | `training` | `actions` | Walker: `training` (Skala 1, kein Filter) oder `robot` (Skala 0,9, Tiefpass Kopf 0,5 / Beine 0,7) |
-| `kern_extras` | `false` | `kernExtras` | Walker: Kerns Zusätze (Ballspiel, Socken holen, Schnabel beim Aufheben) |
+| `kern_extras` | `false` | `kernExtras` | Walker: Kerns Zusätze (die Spielschicht `play.onnx` mit Ball und Socke, die dann statt Pollens BallPlay spielt; Schnabel beim Aufheben) |
 | `servo_delay` | 0,02 s | `servoDelay` | Walker: Kommandolatenz der Servos (echte Sekunden) |
 
 Die Walker-Schlüssel werden nur bei `mode = walker` geschrieben (`kernExtras` und `rollers` nur, wenn `true`, `servoDelay` nur, wenn ≠ 0,02).
@@ -385,6 +388,7 @@ Betrag. Beides berechnet `GameWorld::animated_local` aus der Simulationszeit.
 | `fog_density` | 0,0009 | `fogDensity` | |
 | `exposure` | 1 | `exposure` | |
 | `ao_radius` | 1,6 m | `aoRadius` | Reichweite der Ambient Occlusion, 0 = aus |
+| `shadow_distance` | 80 m | `shadowDistance` | wie weit die Schattenkarte der Sonne die Sicht abdeckt (2..2000 m; kleiner: schärfer; [Kapitel 4](04-grafik.md)) |
 | `clouds` | `true` | `clouds` | |
 | `ground_color` | (0,19, 0,27, 0,15) | `groundColor` | Farbe des endlosen Bodens |
 | `ground` | `true` | `ground` | endloser Boden unter allem |

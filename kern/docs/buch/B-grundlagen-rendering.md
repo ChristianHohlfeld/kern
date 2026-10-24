@@ -453,7 +453,8 @@ davor.
 | **Schattenakne** (Streifen auf beleuchteten Flächen) | Die Fläche verdeckt sich wegen begrenzter Auflösung selbst | Tiefen-Bias, Polygon-Offset |
 | **Peter Panning** (Schatten löst sich vom Objekt) | zu viel Bias | Bias klein halten |
 | **harte, gezackte Kanten** | ein Texel deckt viele Pixel | Filterung (PCF) |
-| **Flimmern** bei Kamerabewegung | die Karte verschiebt sich um Bruchteile eines Texels | Ausrichtung am Texelraster |
+| **Flimmern** bei Kamerabewegung | die Karte verschiebt sich um Bruchteile eines Texels oder ändert ihre Größe | Ausrichtung am Texelraster, eine Karte fester Größe |
+| **unscharfe Schatten in der Nähe** | die Karte deckt viel mehr ab, als man sieht | die Karte an die Sicht anpassen (Schattendistanz) |
 
 ### B.5.3 In Kern
 
@@ -463,24 +464,38 @@ davor.
   `Mat4::ortho(-e, e, -e, e, 0.2f, e * 4) * Mat4::look_at(...)` mit der halben Seitenlänge
   `extent` (Standard 120 m) und einer Auflösung von 512 Texeln (Zweierpotenz 128–4096). Ein Texel
   deckt damit $2 \cdot 120 / 512 \approx 0{,}47$ m.
-- **Am Texelraster ausgerichtet:** `focus_key` rundet den Fokus (das Kameraziel) in der Ebene
-  senkrecht zur Sonne auf ganze Texel. Die Karte springt dann nur um ganze Texel und flimmert nicht.
-  Der gerundete Fokus ergibt zugleich einen **Cache-Schlüssel**: Solange er, die Sonne und die
+- **An die Sicht angepasst:** Mit einer Schattendistanz (`set_shadow_distance`, in Levels
+  `WorldSettings::shadow_distance`, Standard 80 m) deckt die Karte statt des festen Quadrats die
+  umschließende Kugel des Sichtkegels bis zu dieser Entfernung ab (stabile Schattenkarte nach Valient
+  2008). Die Kugel ändert ihre Größe nicht, wenn sich die Kamera dreht; ihr Radius ist die halbe
+  Seitenlänge. Kleinere Schattendistanz heißt kleinere Texel, also schärfere Schatten. Am Rand blendet
+  der Schatten über das letzte Zehntel der Distanz aus.
+- **Am Texelraster ausgerichtet:** `focus_key` rundet den Fokus (das Kameraziel bzw. den
+  Kugelmittelpunkt) in der Ebene senkrecht zur Sonne auf ganze Texel. Die Karte springt dann nur um ganze Texel und flimmert nicht.
+  Der gerundete Fokus ergibt zusammen mit der Ausdehnung einen **Cache-Schlüssel**: Solange er, die Sonne und die
   Schattenwerfer gleich bleiben, wird die Karte wiederverwendet (`RenderStats::shadow_reused`).
 - **Nur Tiefe:** `colorMask(0, 0, 0, 0)`, ein leerer Fragment-Shader, Ziel `DEPTH_COMPONENT24`.
-- **Bias doppelt:** beim Erzeugen `polygonOffset(2, 3)` (verschiebt die Tiefe abhängig von der
-  Neigung des Dreiecks), beim Abfragen `uSunShadowBias` (Standard 0,0012).
+- **Bias dreifach:** beim Erzeugen `polygonOffset(2, 3)` (verschiebt die Tiefe abhängig von der
+  Neigung des Dreiecks), beim Abfragen `uSunShadowBias` (Standard 0,0012) und ein **Normal Offset**
+  (Holbein 2011): Nachgeschlagen wird einen Texel von der Fläche weg entlang ihrer Normale, mehr bei
+  streifendem Licht. So gibt es keine Akne, ohne dass ein großer konstanter Bias den Schatten vom
+  Objekt löst.
 - **Hardware-PCF:** Die Tiefentextur hat `TEXTURE_COMPARE_MODE = COMPARE_REF_TO_TEXTURE` und
   `LINEAR`-Filterung. Ein Zugriff über `sampler2DShadow` vergleicht dann die vier nächsten Texel und
   interpoliert die Ergebnisse – weiche Kanten aus einem einzigen `texture()`-Aufruf.
+- **Optimiertes PCF** (Castaño 2013, „The Witness“): Aus 4 bzw. 9 solcher Hardware-Taps entsteht ein
+  zeltgefilterter 3 × 3- bzw. 5 × 5-Kern. Jeder Tap sitzt so zwischen den Texeln, dass die bilineare
+  Gewichtung der Hardware genau die Zeltgewichte ergibt. `ShadowOptions::filter` wählt 1, 4 oder 9
+  Taps; Studio nimmt auf Telefonen 4, auf dem Desktop 9.
 - Nur Meshes mit `casts_shadow()` und innerhalb der Sichtpyramide der Sonne werden gezeichnet.
 
 Im Standard-Shader:
 
 ```glsl
-vec4 clip = uSunShadowProjection * vec4(vWorld, 1.0);
+vec3 lookup = vWorld + n * (uSunShadowTexel.z * (0.6 + 1.4 * (1.0 - ndl)));  // Normal Offset
+vec4 clip = uSunShadowProjection * vec4(lookup, 1.0);
 vec3 uvz = clip.xyz / clip.w * 0.5 + 0.5;                  // NDC → [0,1]
-shadow = texture(uSunShadowMap, vec3(uvz.xy, uvz.z - uSunShadowBias));
+shadow = sunShadow(uvz);                                   // 1, 4 oder 9 Taps
 ```
 
 Abgefragt wird nur, wenn die Fläche der Sonne zugewandt ist (`ndl > 0.0`) – sonst ist sie ohnehin
@@ -887,7 +902,7 @@ flowchart LR
 | Tiefentest, Sortierung, Transparenz | B.2 | `Renderer::render` |
 | Vertex-/Fragment-Shader, Attribute, Uniforms, MRT | B.3 | `standard_shader.cpp` |
 | Lambert, GGX, Schlick, Hemisphärenlicht | B.4 | `kFragmentLighting` |
-| Schattenkarte, PCF, Texel-Ausrichtung | B.5 | `SunShadowMap` |
+| Schattenkarte, PCF, Texel-Ausrichtung, Schattendistanz, Normal Offset | B.5 | `SunShadowMap`, `Renderer::set_shadow_distance` |
 | HDR, ACES, sRGB, Nebel | B.6 | `kGlslToneMap`, Nebel im Standard-Shader |
 | Bloom | B.7 | `BloomPass` |
 | GTAO | B.8 | `AmbientOcclusionPass`, `kCombine` |

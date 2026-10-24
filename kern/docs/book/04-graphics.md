@@ -431,7 +431,7 @@ Extensions should set their uniforms through the provided `UniformCache`; the sa
 
 **1. Collect GPU time.** If `EXT_disjoint_timer_query_webgl2` is available, a `TIME_ELAPSED` query wraps the frame. The results arrive asynchronously a few frames later; at most 4 queries are in flight at the same time, and query objects are reused. If a result is invalidated by `GPU_DISJOINT`, it is discarded. `RenderStats::gpu_ms` is −1 as long as no measurement is available.
 
-**2. Sun shadows.** If enabled, the shadow map is redrawn only if its key has changed (4.8.1); otherwise the renderer sets `stats.shadow_reused`.
+**2. Sun shadows.** If enabled, with a shadow distance the renderer first determines the map's focus and extent from the view frustum (4.8.1). The shadow map is redrawn only if its key has changed (4.8.1); otherwise the renderer sets `stats.shadow_reused`.
 
 **3. Bind the target.** Without a viewport rectangle (`has_viewport == false`), `BloomPass::begin()` binds the scene target, provided bloom is enabled (`BloomOptions::enabled`) and supported; otherwise the renderer draws directly into the default framebuffer. With a rectangle, drawing goes directly into the default framebuffer using a scissor – without bloom and without ambient occlusion. Then the viewport is set and color and depth are cleared.
 
@@ -478,47 +478,69 @@ Kern Studio renders each viewport with its own `render()` call. A single full-sc
 
 ### 4.8.1 Sun Shadows
 
-`SunShadowMap` (`src/gfx/shadow.cpp`) is a single orthographic depth map with hardware PCF.
+`SunShadowMap` (`src/gfx/shadow.cpp`) is a single orthographic depth map. It follows the camera's view (shadow distance), snaps to its texel grid and is filtered in the standard shader with Castaño's optimised PCF. This keeps the shadows sharp and still when the camera moves.
 
 **Options and limits** (`ShadowOptions`):
 
 | Field | Default | Valid | Meaning |
 |---|---|---|---|
-| `resolution` | 512 | power of two, 128–4096 | edge length of the map in texels |
-| `extent` | 120 | 10–2000 | half the edge length of the covered square, in meters |
-| `bias` | 0.0012 | 0 ≤ bias < 0.04 | depth offset in the comparison |
+| `resolution` | 512 | power of two 128–4096 | edge length of the map in texels |
+| `extent` | 120 | 10–2000 | half edge length of the covered square in metres (without a shadow distance) |
+| `bias` | 0.0012 | 0 ≤ bias < 0.04 | depth offset for the comparison |
+| `filter` | 9 | 1, 4, 9 | PCF taps: 1 hardware tap (2 × 2), 4 taps (3 × 3 kernel), 9 taps (5 × 5 kernel) |
+
+At runtime `Renderer::set_shadow_filter(taps)` sets the filter level. The Studio page chooses it by device (`defaultShadowFilter` in `web/studio/game.mjs`, via `kern_studio_shadow_filter`): phones (coarse pointer) 4, desktop 9; `?shadowFilter=1|4|9` in the address overrides this.
 
 **Light basis.** From the sun direction `dir` an orthonormal basis `right`, `up` is built (helper vector +Z, or +Y when the sun is nearly vertical).
 
-**Snapping to the texel grid.** The focus (`camera.target`) is decomposed into light coordinates and rounded to whole texels:
+**Fitted to the view: the shadow distance.** `Renderer::set_shadow_distance(m)` (default 0 = off) sets how far into the view the map reaches. The game runtime sets it every frame from `WorldSettings::shadow_distance` (World Settings › **Shadow distance**, default 80 m; the Micro Duck level uses 10 m for sharp shadows of the duck, the ball and the walls). With a shadow distance and a perspective camera, the map covers the **bounding sphere of the view frustum** from the near plane to the shadow distance (stable shadow maps after Valient 2008). For a symmetric frustum with the tangents of the half opening angles `th`, `tv`:
 
 ```cpp
-const f32 texel = 2 * options_.extent / static_cast<f32>(options_.resolution);
+const f32 n = camera.near, f = max_of(camera.near + 0.1f, min_of(shadow_distance_, camera.far));
+const f32 tv = std::tan(camera.fov * 0.5f), th = tv * aspect, k = th * th + tv * tv;
+const f32 c = min_of(f, (f + n) * (1 + k) * 0.5f);         // centre on the view axis
+const f32 r = std::sqrt((f - c) * (f - c) + f * f * k);    // radius
+focus = camera.eye + forward * c;  extent = r;
+```
+
+Why a sphere? Its size does not change when the camera turns. The texel size therefore stays the same too, and together with the snapping (below), edges fall onto the grid the same way every frame. Without a shadow distance, or with an orthographic camera, the fixed square `extent` around `camera.target` applies as before.
+
+**Snapping to the texel grid.** The focus is decomposed into light coordinates and rounded to whole texels; the texel size follows from the current extent (`extent_`, the fitted or the fixed one):
+
+```cpp
+extent_ = extent_for(extent);                       // > 0: the fitted one, otherwise options_.extent
+const f32 texel = 2 * extent_ / static_cast<f32>(options_.resolution);
 const f64 a = std::round(dot(focus, b.right) / texel);
 const f64 c = std::round(dot(focus, b.up) / texel);
 const f64 d = std::round(dot(focus, b.dir) / 8.0f);   // coarse along the light
 ```
 
-Why? If the map moves with the camera by fractions of a texel, shadow edges fall differently onto the grid every frame – the edges "swim" and flicker. When snapped, the map only moves in whole texels, and an edge always lies the same way. Along the light direction a coarse 8 m step is enough; this movement does not shift texels, it only has to keep the depth range valid.
+Why? If the map moves with the camera by fractions of a texel, shadow edges land on the grid differently every frame – the edges "swim" and flicker. Snapped, the map only moves in whole texels, and an edge always lies the same way. Along the light direction a coarse 8 m step is enough; this movement does not shift any texels, it only has to keep the depth range valid.
 
-**Reuse.** A hash is formed from the rounded coordinates and the sun direction (rounded to 10⁻⁴). The renderer combines it with the shadow revision and the frame's layer mask. Only if this key changes is the map redrawn. The shadow revision increases when a shadow caster appears, disappears, moves, changes its material, or when `invalidate(true)` is called. With a stationary camera over a static city, the shadow then costs not a single draw call.
+**Reuse.** A hash is formed from the rounded coordinates, the sun direction (rounded to 10⁻⁴) and the extent (rounded to millimetres). The renderer combines it with the shadow revision and the frame's layer mask. The map is redrawn only when this key changes. The shadow revision increases when a shadow caster appears, disappears, moves, changes its material, or when `invalidate(true)` is called. With a stationary camera over a static city, the shadow then costs not a single draw call.
 
-**Drawing.** Matrix: `ortho(-e, e, -e, e, 0.2, 4e) * look_at(focus + dir * 2e, focus, up)`. The light frustum rejects meshes whose bounds lie outside (except skinned ones). Color writes off, depth test `LESS`, `polygonOffset(2, 3)` against shadow acne, a dedicated slim shader (position, instance matrix and skinning only; the fragment shader is empty). Only meshes with `casts_shadow()` in the active layers are drawn, each with its own cull mode.
+**Drawing.** Matrix: `ortho(-e, e, -e, e, 0.2, 4e) * look_at(focus + dir * 2e, focus, up)` with `e` = the current extent and the snapped focus. The light frustum culls meshes whose bounds lie outside (except skinned ones). Colour writes off, depth test `LESS`, `polygonOffset(2, 3)` against shadow acne, a dedicated lean shader (position, instance matrix and skinning only; the fragment shader is empty). Only meshes with `casts_shadow()` in the active layers are drawn, with their own cull mode.
 
-**Sampling.** The depth texture has `TEXTURE_COMPARE_MODE = COMPARE_REF_TO_TEXTURE` and linear filtering. A `texture(sampler2DShadow, ...)` then compares four neighboring texels in hardware and interpolates the results bilinearly – that is "hardware PCF". In the standard shader:
+**Sampling.** The depth texture has `TEXTURE_COMPARE_MODE = COMPARE_REF_TO_TEXTURE` and linear filtering. A `texture(sampler2DShadow, ...)` then compares four neighbouring texels in hardware and interpolates the results bilinearly – that is the "hardware PCF", level 1. Levels 4 and 9 build on it, after Castaño (2013, "The Witness"), a tent-filtered 3 × 3 or 5 × 5 kernel: each tap lies between the texels so that the bilinear hardware weighting yields exactly the tent weights (`sunShadow` in the standard shader; sum divided by 16 or 144). For this the shader gets `uSunShadowFilter` and `uSunShadowTexel` (map size, its reciprocal, one texel in metres):
 
 ```glsl
 if (uSunShadowEnabled == 1 && ndl > 0.0) {
-  vec4 clip = uSunShadowProjection * vec4(vWorld, 1.0);
+  // Normal offset (Holbein 2011): look the shadow up a texel off the surface along its normal,
+  // more where the light grazes it - no acne without a large constant bias.
+  vec3 lookup = vWorld + n * (uSunShadowTexel.z * (0.6 + 1.4 * (1.0 - ndl)));
+  vec4 clip = uSunShadowProjection * vec4(lookup, 1.0);
   vec3 uvz = clip.xyz / clip.w * 0.5 + 0.5;
-  if (uvz.x > 0.0 && uvz.x < 1.0 && uvz.y > 0.0 && uvz.y < 1.0 && uvz.z > 0.0)
-    shadow = texture(uSunShadowMap, vec3(uvz.xy, uvz.z - uSunShadowBias));
+  if (uvz.x > 0.0 && uvz.x < 1.0 && uvz.y > 0.0 && uvz.y < 1.0 && uvz.z > 0.0) {
+    shadow = sunShadow(uvz);
+    float d = length(vWorld - uSunShadowFade.xyz);
+    shadow = mix(shadow, 1.0, smoothstep(uSunShadowFade.w * 0.9, uSunShadowFade.w, d));
+  }
 }
 ```
 
-Outside the map, a surface counts as lit. Surfaces facing away from the sun (`ndl == 0`) do not read the map at all.
+Outside the map a surface counts as lit. Surfaces facing away from the sun (`ndl == 0`) do not read the map at all. With a shadow distance, the shadow fades out over its last tenth (measured from the eye, `uSunShadowFade`) instead of breaking off at the map's edge; without a shadow distance there is no fade.
 
-This leads to the most important tuning advice: `extent` and `resolution` together determine the texel size. Orb Run and Kern Studio use 2048 texels over ±110 m, i.e. just over 10 cm per texel; `examples/hello` uses 1024 texels over ±40 m.
+This leads to the most important tuning advice: the extent and `resolution` together determine the texel size. With a shadow distance the extent is the sphere's radius: a smaller shadow distance makes the shadows sharper but reaches less far. Kern Studio creates the map with 2048 texels (fixed `extent` 110 m) and uses the World Settings' shadow distance in levels; the C++ example Orb Run uses 2048 texels over a fixed ±110 m, i.e. just over 10 cm per texel, `examples/hello` 1024 texels over ±40 m.
 
 ### 4.8.2 Sky
 
@@ -660,12 +682,12 @@ On a tie, the earlier request wins. `request()` limits intensity to 100 and rang
 |---|---|---|
 | `width`, `height` | 960 × 540 | size of the drawing buffer (later `resize`) |
 | `shadows` | `false` | create sun shadows |
-| `shadow` | 512 / 120 / 0.0012 | `ShadowOptions` (4.8.1) |
+| `shadow` | 512 / 120 / 0.0012 / 9 | `ShadowOptions` (4.8.1) |
 | `bloom` | `enabled`, not `forced`, `grade` | `BloomOptions` (4.8.3) |
 | `ao` | see 4.8.4 | `AoOptions` |
 | `grade` | `true` | production grading after tonemapping |
 
-At runtime: `set_shadows(&options)` or `set_shadows(nullptr)`, `set_ambient_occlusion`, `set_ambient_occlusion_radius`, `set_point_lights`, `invalidate(shadows)`.
+At runtime: `set_shadows(&options)` or `set_shadows(nullptr)`, `set_shadow_distance` (metres, 0 = fixed `extent`), `set_shadow_filter` (1, 4 or 9 taps), `set_ambient_occlusion`, `set_ambient_occlusion_radius`, `set_point_lights`, `invalidate(shadows)`.
 
 ### `Lighting` and `SkyState`
 
@@ -717,7 +739,7 @@ What the code itself suggests:
 - **Instance instead of duplicating.** Many identical objects (trees, cars, crates) are one mesh with many instances and therefore one draw call. The runtime's city draws all tree trunks as one mesh and all crowns as a second.
 - **Merge static geometry.** `primitives::append` and the chunks of the building and road builders combine many small parts into a few large meshes. Fewer meshes mean fewer draw calls and less sorting work.
 - **Upload only what changes.** `update_instances` compares byte for byte and does nothing for identical data; a pure tint update uploads only one buffer and leaves the shadow valid. If you rewrite instances every frame, touch only the meshes that move.
-- **Reuse shadows.** Every movement of a shadow caster redraws the entire shadow map. Moving things that need no visible shadow (particles, roads, ground tiles) should have `cast_shadow = false` – Orb Run and the runtime do this for roads and the ground.
+- **Reuse shadows.** Every movement of a shadow caster redraws the entire shadow map. Moving things that need no visible shadow (particles, roads, ground tiles) should have `cast_shadow = false` – Orb Run and the runtime do this for roads and the ground. With a shadow distance the map also follows the camera: a stationary camera reuses it, a moving or turning one redraws it as soon as the focus shifts by a texel.
 - **16-bit indices.** Meshes with up to 65,536 vertices automatically get 16-bit indices. `weld` (Chapter 5) turns triangle soups into indexed meshes and saves memory in the process.
 - **Don't switch off frustum culling** without a reason. `frustum_culled = false` is meant for things whose bounds are not correct (particles).
 - **AO and bloom adapt.** Both have frame-time guards. For phones, AO at half resolution is the default.

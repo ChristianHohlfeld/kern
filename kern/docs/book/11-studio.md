@@ -34,7 +34,9 @@ There are three ways to open Studio:
 
 The project's home page (https://christianhohlfeld.github.io/kern/) links to Studio, the Lehrer, the
 two example games and two levels you can play directly (`kern/web/studio/play.html?level=orbRun` and
-`?level=physicsLab`).
+`?level=physicsLab`). Its footer names the owner ("© 2026 Christian Heinrich Hohlfeld · Alle Rechte
+vorbehalten", all rights reserved) and links the license (`LICENSE.txt`), the third-party components
+(`LICENSES.txt`), the Studio docs and the engine docs.
 
 **What happens at startup:**
 
@@ -781,6 +783,7 @@ level.
 | Fog density | fog density |
 | Exposure | exposure |
 | Ambient occlusion radius (0 = off) | meters |
+| Shadow distance (smaller: sharper) | meters of the view covered by the sun's shadow map (2–2000, default 80; the Micro Duck level 10) |
 | Clouds | clouds on/off |
 | Endless ground | infinite ground plane |
 | Ground color | ground color |
@@ -877,7 +880,12 @@ remains the editor's.
 - **Grabbing bodies:** the left mouse button on a dynamic body (or a finger) grabs it with the mouse
   joint. Dragging moves it, dragging the pointer upward lifts it, the mouse wheel or a second finger
   (spread/pinch) pulls it closer or pushes it away, and releasing throws it with its momentum. Ctrl is
-  not needed for this. A short click selects the body.
+  not needed for this. A short click selects the body. The hint in the viewport reads "Simulating ·
+  drag grabs bodies · K keeps poses · Esc stops"; the Controls dialog (F1) lists "Drag (Simulate) –
+  Grab and throw physics bodies".
+- **A Micro Duck held by its trunk** is additionally held in its orientation, the way a hand holds
+  the robot, instead of swinging on a point (`begin_grab` with `hold_rotation`). Lifted like this, it
+  pauses as the real robot does ([Chapter 13](13-micro-duck.md)).
 - **Why the body stays physical:** a motor joint with a spring (7.5 Hz, critically damped) pulls the
   grabbed point toward the pointer. The body bumps into things, tips over and swings like any other.
 - **K** applies the simulated poses of the selected actors to the level (one undo step) and ends the
@@ -980,12 +988,14 @@ controlling it in Studio.
 ![The Micro Duck example level: a room at the duck's scale](../buch/bilder/duck-level.png)
 
 **The example level** (File › Example Levels › Micro Duck): a room at its scale with furniture, a ball
-and two socks. The duck walks autonomously, and with **Kern extras** switched on it plays with the ball
-and socks. The level Blueprint makes it quack as soon as its head camera sees the ball. Play starts with
+and two socks. The duck walks autonomously. Even without extras it plays ball as in Pollen's original
+runtime (BallPlay: walk up, line up, kick with the left foot); with **Kern extras** switched on (on in
+the example level), Kern's play layer plays with the ball and socks instead. The level Blueprint makes it quack as soon as its head camera sees the ball. Play starts with
 the observer camera: you watch and can lift the ball with the mouse or a finger; F8 takes over the duck.
 
 **Without input**, the duck walks on its own (Details › Player Controller › Walker › **Autonomous**): it
 explores the room with its head ToF and camera, avoids obstacles and gets back up by itself after a fall.
+Lifted by its trunk, it pauses (Robot State "Held") and walks on once set down.
 
 **Keyboard** (in Play, with the player taken over):
 
@@ -1300,6 +1310,7 @@ valid until the next call (`kern_studio_result_length()` gives the length).
 | `kern_studio_net_push(from, bytes)`, `…_net_take()`, `…_net_out()`, `…_net_out_to()` | datagrams for the network stack |
 | `kern_studio_take_autosave(now)`, `…_take_autosave_discard()`, `kern_studio_dirty()` | autosave |
 | `kern_studio_ao_set(…)` | ambient occlusion |
+| `kern_studio_shadow_filter(taps)` | sun shadow filter: 1, 4 (phones) or 9 (desktop) PCF taps |
 | `kern_studio_context_lost()`, `…_context_restored()` | WebGL context loss |
 
 Everything you do in Studio is a command as a JSON object `{"cmd": …}`, including every menu entry: a

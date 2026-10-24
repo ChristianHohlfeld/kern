@@ -254,6 +254,7 @@ commands for `kern_studio_command` are described in [Chapter 11](11-studio.md) (
 |---|---|
 | `i32 kern_studio_init(i32 width, i32 height, i32 player_only)` | renderer (shadows 2048 px, extent 110, bias 0.0014, bloom, extension `NightWindows`) and Studio; `player_only = 1` starts the runtime of exported games without the editor |
 | `void kern_studio_ao_set(i32 enabled, i32 quality, i32 half, f32 radius)` | GTAO like `kern_ao_set` |
+| `void kern_studio_shadow_filter(i32 taps)` | PCF taps of the sun shadow: 1, 4 (phones) or 9 (desktop); the page chooses by device, `?shadowFilter=1\|4\|9` overrides |
 | `i32 kern_studio_resize(i32 width, i32 height)` | drawing buffer |
 | `void kern_studio_frame(f64 now_ms)` | cameras, simulation, overlays, rendering of all visible viewports (not while the context is lost) |
 | `void kern_studio_set_viewport(u32 index, i32 x, i32 y, i32 w, i32 h, f32 css_w, f32 css_h, f32 dpr, i32 visible)` | rectangle of a viewport in the drawing buffer (origin bottom left) |
@@ -395,7 +396,7 @@ exits with code 2.
 | `--task jump\|stand` | `jump` | task (training, `--trace`) |
 | `--threads N` | hardware threads | compute threads |
 | `--envs N` | 16 × threads | ducks in total; rounded down to a multiple of the threads (at least 1 per thread). The result depends on the number of ducks, not the number of threads |
-| `--seed N` | 1 | seed. With `--trace` and `--spielen-spur` the episode seed (internally 1000 + N); with `--demo-spur` the **duration in seconds** – so without `--seed` it is 1 s, and the 120 s provided for in the code only with `--seed 0` |
+| `--seed N` | 1 | seed. With `--trace` and `--spielen-spur` the episode seed (internally 1000 + N); with `--demo-spur` the **duration in seconds** (values above 1; without `--seed`, or with 0 or 1, it is 120 s) |
 | `--iterations N` | 600 | training: last iteration. With `--kalibrieren` generations (default 80), `--vorbild-suchen` generations (default 120), `--spielen-ueben` iterations (default 300) – in each case unless a value other than 600 is given |
 | `--episodes N` | 10 | episodes for `--eval`, `--vorbild-pruefen`, `--spielen-pruefen` |
 | `--out FILE` | `<task>.onnx` | output. `--kalibrieren`: `<profile>_calibrated.json`; `--spielen`: `play.onnx`; `--spielen-ueben`: `play_geuebt.onnx` |
@@ -480,7 +481,7 @@ before practice).
 | `--netz play.onnx` | play network for `--spielen-spur` and `--demo-spur` ("network") |
 | `--biss-fenster` | where the beak gets hold of a sock ("bite window") |
 | `--halt-messen` | how far the duck keeps walking after "stop" ("measure stopping") |
-| `--demo-spur` | the Studio's Micro Duck example level with 60 Hz frames, one line per second; networks from `kern/policies/`. The environment variable `KERN_JUMP_AT=<s>` triggers the jump in second s (key 7) ("demo trace") |
+| `--demo-spur` | the Studio's Micro Duck example level with 60 Hz frames, one line per second with state, observation and the play network's answer; networks from `kern/policies/`, `--seed` is the duration in seconds (default 120). The environment variable `KERN_JUMP_AT=<s>` triggers the jump in second s (key 7) ("demo trace") |
 
 ### Examples
 
@@ -565,8 +566,14 @@ For the play network (`play_metadata()`): `task` = `play`, `lehrer` = `Kern (C++
 Box3D)`, `rate_hz` = `25`, `observation_names` (23 names from `ball_known` to `walking_s`),
 `action_names` = `forward,strafe,turn,head_yaw,head_pitch_down,beak_open,kick_left,ground_pick,neck_bow`.
 
-**Where the files live:** Pollen's set in `kern/third_party/microduck/` (`velstand.onnx` is also
-built in), Kern's own networks in `kern/policies/` (`jump.onnx`, `play.onnx`). On the published site
+**The pick-up detector** (`pickup_detector.onnx`, robotd) has a different shape: input a window of
+50 × 63 features, normalise and mask, a Gather of the columns it reads, three Conv1d with ELU, then
+Gemm, ELU, Gemm, Sigmoid; output p(held). It is read by `parse_onnx_pickup` (`PickupDetector`); it
+is built in as bytes (`third_party/microduck/pickup_detector.inc`, `pickup_detector()`),
+[Chapter 13](13-micro-duck.md).
+
+**Where the files live:** Pollen's set in `kern/third_party/microduck/` (`velstand.onnx` and
+`pickup_detector.onnx` are also built in), Kern's own networks in `kern/policies/` (`jump.onnx`, `play.onnx`). On the published site
 they are in `editor/microduck/` and `editor/policies/`. A network trained in the browser is stored by
 the Lehrer page in IndexedDB ("kern-lehrer"); on the same device it replaces the bundled one
 ([Chapter 14](14-lehrer.md), [Chapter 15](15-your-own-models.md)).

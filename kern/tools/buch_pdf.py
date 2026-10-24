@@ -33,16 +33,22 @@ ids = {p.name: "kap-" + p.stem.split("-")[0].lower() for p in files}
 mermaid_n = 0
 
 def mermaid(code):
+    """A Mermaid diagram as a print-resolution PNG (4x), set at its natural size or narrower."""
     global mermaid_n
     mermaid_n += 1
-    mmd, pdf = work / "fig" / f"m{mermaid_n}.mmd", work / "fig" / f"m{mermaid_n}.pdf"
+    mmd, png = work / "fig" / f"m{mermaid_n}.mmd", work / "fig" / f"m{mermaid_n}.png"
     mmd.write_text(code)
     cfg = work / "fig" / "mmdc.json"
     cfg.write_text('{"theme":"neutral","themeVariables":{"fontFamily":"DejaVu Sans"}}')
     for attempt in range(3):  # headless Chromium now and then fails to start on a busy machine
-        if subprocess.run(["mmdc", "-q", "-i", str(mmd), "-o", str(pdf), "--pdfFit", "-c", str(cfg)]).returncode == 0: break
+        if subprocess.run(["mmdc", "-q", "-i", str(mmd), "-o", str(png), "-s", "4", "-b", "white", "-c", str(cfg)]).returncode == 0: break
     else: sys.exit(f"mmdc failed on diagram {mermaid_n}:\n{code}")
-    return f"![]({pdf}){{width=90%}}"
+    from PIL import Image
+    pw, ph = Image.open(png).size
+    text_w, max_h = w - 39.0, 185.0                 # mm: the text block's width, the tallest a diagram may be
+    natural = pw / 4 / 96 * 25.4 * 0.85             # mm at 96 dpi, a little smaller (the book's type is smaller than the web's)
+    width = min(text_w, natural, max_h * pw / ph)
+    return f"![]({png}){{width={width:.1f}mm}}"
 
 parts = []
 for i, p in enumerate(files):
@@ -65,11 +71,20 @@ for i, p in enumerate(files):
         if target in ids: return f"[{text}](#{anchor[1:] if anchor else ids[target]})"
         return m.group(0)
     t = re.sub(r"\[([^\]]+)\]\(([0-9A-Z][^)#\s]*\.md)(#[^)\s]+)?\)", link, t)
+    if p.name.startswith("00"):  # in print: the imprint alone (the title page and the table of contents are the book's)
+        t = re.sub(r"\A.*?^## ", "# ", t, count=1, flags=re.S | re.M)
+        t = re.sub(r"^## (Inhalt|Contents)\b.*\Z", "", t, flags=re.S | re.M)
     # The chapter's first heading carries its id; the imprint and the appendices are not numbered.
     first = re.search(r"^# (.+)$", t, flags=re.M)
     if first:
         attrs = "{#" + ids[p.name] + (" .unnumbered" if p.name.startswith("00") else "") + "}"
-        t = t[:first.start()] + f"# {first.group(1)} {attrs}" + t[first.end():]
+        head = first.group(1)
+        short = head
+        if len(short) > 44:  # the running head has one line
+            cut = max(short.rfind(sep, 0, 44) for sep in (",", " – ", " ("))
+            short = short[:cut] if cut > 10 else short[:44]
+        mark = "" if short == head else "\n\n```{=latex}\n\\chaptermark{" + short.replace("&", "\\&") + "}\n```\n"
+        t = t[:first.start()] + f"# {head} {attrs}" + mark + t[first.end():]
     if p.name[0].isalpha() and (i == 0 or files[i - 1].name[0].isdigit()):
         t = "```{=latex}\n\\appendix\n```\n\n" + t
     if p.name.startswith("00"):
@@ -81,31 +96,52 @@ lang = "en" if a.en else "de"
 header = work / "header.tex"
 header.write_text(r"""
 \usepackage{polyglossia}
-\setmainlanguage[spelling=new]{%s}
+\setmainlanguage%s
 \setmonofont{DejaVu Sans Mono}[Scale=0.82]
 \setsansfont{DejaVu Sans}[Scale=0.9]
 \usepackage{fvextra}
-\DefineVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere,fontsize=\small}
-\RecustomVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\},breaklines,breakanywhere,fontsize=\small}
+\DefineVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere,fontsize=\footnotesize}
+\RecustomVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\},breaklines,breakanywhere,fontsize=\footnotesize}
 \usepackage[headsepline]{scrlayer-scrpage}
 \pagestyle{scrheadings}
 \automark[section]{chapter}
 \setcounter{tocdepth}{1}
-\setcounter{secnumdepth}{2}
+\setcounter{secnumdepth}{-1}  %% the headings carry their own numbers
 \renewcommand{\arraystretch}{1.15}
 \setlength{\emergencystretch}{3em}
+\input{%s}
 \frontmatter
-""" % ("english" if a.en else "german"))
+""" % ("[variant=british]{english}" if a.en else "[spelling=new]{german}", (here / "kern_logo.tex").as_posix()))
 title = "Kern – The Book" if a.en else "Kern – Das Buch"
+titlepage = work / "titlepage.tex"
 sub = ("The engine, Kern Studio, the Micro Duck and the Lehrer" if a.en
        else "Die Engine, Kern Studio, die Micro Duck und der Lehrer")
+titlepage.write_text(r"""
+\begin{titlepage}
+\centering
+\vspace*{18mm}
+\kernlogo{34mm}\par
+\vspace{14mm}
+{\sffamily\bfseries\fontsize{46}{50}\selectfont Kern\par}
+\vspace{4mm}
+{\sffamily\Large %s\par}
+\vspace{10mm}
+{\large %s\par}
+\vfill
+{\Large Christian Heinrich Hohlfeld\par}
+\vspace{2mm}
+{\small ORCID 0009-0003-6634-9045\par}
+\vspace{12mm}
+\end{titlepage}
+\cleardoublepage
+""" % ("The Book" if a.en else "Das Buch", sub))
 cmd = ["pandoc", str(work / "buch.md"), "-o", str(out),
        "-f", "markdown+pipe_tables+tex_math_dollars+raw_attribute+autolink_bare_uris-yaml_metadata_block-implicit_figures",
        "--pdf-engine=xelatex", "--top-level-division=chapter", "--toc-depth=1",
        "-V", "documentclass=scrbook", "-V", "classoption=openright,twoside,fontsize=10pt,headings=normal",
        "-V", f"geometry=paperwidth={w}mm,paperheight={h}mm,inner=22mm,outer=17mm,top=20mm,bottom=24mm",
        "-V", "fontfamily=fontspec", "-V", "mainfont=DejaVu Serif", "-V", "mainfontoptions=Scale=0.92", "-V", "mathfont=DejaVu Math TeX Gyre", "-V", "colorlinks=true", "-V", "linkcolor=black", "-V", "urlcolor=black",
-       "-M", f"title={title}", "-M", f"subtitle={sub}", "-M", "author=Christian Heinrich Hohlfeld",
+       "-V", f"title-meta={title}", "-V", "author-meta=Christian Heinrich Hohlfeld", "-B", str(titlepage),
        "-H", str(header), "--resource-path", str(src)]
 r = subprocess.run(cmd, cwd=work)
 if r.returncode: sys.exit(f"pandoc failed (intermediate files in {work})")

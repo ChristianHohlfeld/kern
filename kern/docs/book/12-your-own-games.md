@@ -765,6 +765,13 @@ An exported Studio game needs none of this: it is a single file that also runs f
 
 ## 12.6 Publishing
 
+> **Rights:** Kern is proprietary (`LICENSE` in the root directory, all rights reserved). Without a
+> separate agreement, the license only permits using the publicly provided site in a browser for
+> personal, non-commercial trying out (section 3). Using or passing on games exported with Studio or
+> networks trained with the Lehrer beyond that requires the owner's written consent (sections 4 d, 5).
+> Third-party components keep their own licenses (`kern/LICENSES.md`); the Micro Duck meshes are under
+> CC BY-NC-SA 4.0, i.e. non-commercial. The following sections describe the technical side.
+
 ### Studio games
 
 Upload the exported HTML file to any web space, put it into a repository with GitHub Pages, or send it

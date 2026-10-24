@@ -306,7 +306,8 @@ or a flat point set, it returns `false` (test `physics_hull_mesh`).
 
 By default, Box3D combines the friction of two shapes as **√(a · b)** and restitution as the
 **maximum**. For most things that is enough. But it is not right for every real pair: two materials
-do not simply combine; *TPU grips cotton less than either grips itself* (comment in `physics.h`).
+do not simply combine: *TPU on cotton has its own measured value, not the mean of TPU on TPU and
+cotton on cotton* (comment in `physics.h`).
 For such pairs, Kern knows surface materials with their own measured pair friction.
 
 ### The model
@@ -405,8 +406,9 @@ restitution threshold (`restitution_threshold`, default 1 m/s) do not bounce.
 - In the solver it limits the rolling impulse to rolling resistance × total normal impulse of the
   contact.
 
-`docs/physics.md` and the comment in `physics.h` say "rolling resistance only acts on spheres and
-capsules". That is exactly what it is intended and used for: the ball in the Micro Duck level (0.03,
+`docs/physics.md` and the comment in `physics.h` say the same: rolling resistance acts on spheres
+and capsules (radius) and on convex hulls (a quarter of their inner radius; boxes are hulls in
+Box3D too). It is used for round things: the ball in the Micro Duck level (0.03,
 "a rubber ball on a wooden floor rolls to a stop"), the rover's tires in the Physics Lab (0.02) and
 the sock lumps (0.5: "a lump of fabric does not roll; round lumps would, and the pile would crawl").
 
@@ -566,7 +568,7 @@ samples:
 
 ```cpp
 physics::MouseGrab grab;
-if (grab.begin(world, body, hit_point)) {   // spring frequency default 7.5 Hz
+if (grab.begin(world, body, hit_point)) {   // spring frequency default 7.5 Hz; 5th argument hold_rotation
   grab.set_target(cursor_point);
   // every step, before World::step:
   grab.update(h);
@@ -582,6 +584,11 @@ How it works:
 - The linear spring has `stiffness_hertz` (default 7.5 Hz) and damping ratio 1 (critically damped).
   Its maximum force is limited to 100 × mass × g (g at least 1 m/s²). The angular spring is off: the
   body may tilt and swing at the grab point.
+- With `hold_rotation = true` the grab also keeps the orientation the body had when grabbed, as a
+  hand does: an angular spring at half the frequency, critically damped, maximum torque a quarter of
+  the maximum force (a quarter-metre lever). `GameWorld::begin_grab` uses this for a Micro Duck's
+  trunk, so that it stays upright when lifted instead of swinging on a point
+  ([Chapter 13](13-micro-duck.md)).
 - `update(dt)` moves the mouse body to the target via `set_target_pose`. The body stays fully in the
   physics: it bumps into things, tilts, and flies on with its momentum when released.
 - Static and kinematic bodies cannot be grabbed (`begin` returns `false`).
@@ -756,7 +763,7 @@ a ragdoll preset.** The rules rest on three sources: Erin's own documentation an
 | The camera follows the interpolated pose. | Otherwise fast bodies jitter on screen. |
 | Long joint chains: more sub-steps (robots 16). | Less stretching (`box3d:docs/simulation.md:155-159`); *[measured]* hip gap 5 cm → < 1 mm. |
 | Only raise `constraintHertz` together with more sub-steps. | Box3D caps it at 0.25 × the sub-step rate. |
-| Springs below half the step or sub-step frequency. | Nyquist; stiffer springs become unstable (Box3D "Distance Joint"). |
+| Springs below half the sub-step frequency (`max_hertz = 0.5 × step_hz × substeps`). | Nyquist; stiffer springs become unstable (Box3D "Distance Joint"). |
 
 ### Joints (§4)
 
@@ -780,7 +787,7 @@ a ragdoll preset.** The rules rest on three sources: Erin's own documentation an
 | A gearbox's rotor inertia (MuJoCo "armature") is a mass property: a disc on the joint axis carried by the link. Whatever Box3D cannot represent at all is documented, not faked. | `docs/walker.md` §6; a purely axial tensor would not be a real rigid body, and Box3D gains energy from it (`add_armature` in `walker.cpp`). |
 | **Joint friction** is a motor with speed 0 and a small maximum torque. | Erin's recipe (`box3d:docs/simulation.md:1431-1434`); his ragdoll uses 5 N·m × a factor per joint (`box3d:shared/human.c:347-393`). |
 | Contact friction per shape; Box3D combines two materials as √(a·b) (friction) and max (restitution); pairs with their own value via `Surface`. | 6.6, 6.7. |
-| Rolling resistance for spheres and capsules; robot feet wide, flat, with high friction. | 6.7. |
+| Rolling resistance for round things (spheres, capsules; on hulls it acts with a quarter of the inner radius); robot feet wide, flat, with high friction. | 6.7. |
 | To keep a body softly upright: a **parallel joint** (hertz, damping, maximum torque), no overwritten velocities. | Erin's way (`box3d:shared/human.c:526-605`). |
 
 ### Forces, velocities, damping (§6)

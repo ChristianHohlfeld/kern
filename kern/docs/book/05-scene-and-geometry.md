@@ -356,7 +356,7 @@ for (let i = 0; i < chunks; i++) job.commit(i, "buildings-" + i, { material, ext
 job.free();
 ```
 
-`extraKey` names the extension stream that receives the builder's record. `kern_geo_commit` welds the chunk, uploads it as a mesh and frees the chunk memory immediately, because the renderer keeps its own copy. It reports the bytes before and after welding. `renderer.upsertTerrainTile(id, {x0, y0, step, cells, albedo, material})` builds and uploads a terrain tile in a single call. A `MeshInput` descriptor can also carry the flag `KERN_MF_WELD` (`input.weld === true` in the facade); the engine then welds a supplied soup before uploading – provided it is a pure triangle soup with normals (no indices, no skinning, no lines, at most one extension stream with 1–4 floats); otherwise it is uploaded unchanged.
+`extraKey` names the extension stream that receives the builder's record; without `extraKey` it is the first. A name the renderer does not know as a stream makes `commit` throw an error (`KernGeoJob.commit: no extension stream "…"`) instead of silently using another stream. `kern_geo_commit` welds the chunk, uploads it as a mesh and frees the chunk memory immediately, because the renderer keeps its own copy. It reports the bytes before and after welding. `renderer.upsertTerrainTile(id, {x0, y0, step, cells, albedo, material})` builds and uploads a terrain tile in a single call. A `MeshInput` descriptor can also carry the flag `KERN_MF_WELD` (`input.weld === true` in the facade); the engine then welds a supplied soup before uploading – provided it is a pure triangle soup with normals (no indices, no skinning, no lines, at most one extension stream with 1–4 floats); otherwise it is uploaded unchanged.
 
 ## 5.12 The Game Runtime's Procedural City
 
@@ -436,7 +436,7 @@ They are stored compactly:
 - 16-bit indices,
 - plus the convex-hull points for collision bodies.
 
-`builtin_mesh(name)` decodes on first access and keeps the result for the lifetime of the program. A mutex protects the cache, because the Lehrer builds worlds on several threads at the same time ([Chapter 14](14-lehrer.md)). `shape_mesh` scales a built-in mesh per axis by `size` (normals by the reciprocal) and flips the winding if the overall scale is negative. An unknown name yields a 10 cm cube, so that the error is visible in the level and can be fixed.
+`builtin_mesh(name)` decodes on first access and keeps the result for the lifetime of the program. Natively a mutex protects the cache, because the Lehrer builds worlds on several threads at the same time ([Chapter 14](14-lehrer.md)); WebAssembly runs on one thread, so there is no mutex there (`#if !defined(__wasi__)`). `shape_mesh` scales a built-in mesh per axis by `size` (normals by the reciprocal) and flips the winding if the overall scale is negative. An unknown name yields a 10 cm cube, so that the error is visible in the level and can be fixed.
 
 How the duck is assembled from these parts is described in [Chapter 13](13-micro-duck.md).
 

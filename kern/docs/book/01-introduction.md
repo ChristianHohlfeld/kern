@@ -315,6 +315,7 @@ generated files.
 ```
 /                                repository root
   README.md                      overview, quick start, CI and Pages
+  LICENSE                        Kern's license: proprietary, all rights reserved
   .github/workflows/ci.yml       CI: native tests, determinism (macOS), build, e2e, deploy
   tools/
     build_studio.sh              Kern Studio as a single HTML file -> generated/studio.html
@@ -322,13 +323,13 @@ generated files.
     micro_duck_import.py         import of Pollen's Micro Duck (model, walking policy)
     mesh_simplify.py, qem_simplify.cpp   mesh simplification for the import
   site/
-    index.html                   GitHub Pages start page
+    index.html                   GitHub Pages start page (footer: owner, license links)
     editor/                      editor app files (manifest, service worker, icons)
   generated/                     build outputs (studio.html, *.wasm, ...)
 
   kern/                          the engine
     README.md                    engine overview
-    LICENSES.md                  licenses of third-party libraries
+    LICENSES.md                  third-party components and their licenses (Box3D, Earcut, musl, Micro Duck ...)
     build.sh                     WebAssembly build (--app, --physics, --game, --studio, --lehrer)
     include/kern/                public headers (kern/kern.h includes app, foundations, geometry,
                                  renderer, math and scene)

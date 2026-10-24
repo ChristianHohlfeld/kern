@@ -353,7 +353,8 @@ kern/build/kern_lehrer --demo-spur --netz play_geuebt.onnx --seed 120
 `--demo-spur` spielt das Micro-Duck-Level des Studios mit 60-Hz-Frames, wie das Studio es spielt (hier
 120 s; `--seed` ist bei diesem Befehl die Dauer in Sekunden), mit `kern/policies/jump.onnx` und dem
 angegebenen Spielnetz (sonst `kern/policies/play.onnx`). Einmal pro Sekunde: Position, Zustand,
-fahrendes Netz, was der Tracker über Ball und Socke weiß, hält, Stillstand, Gehzeit. Mit der
+fahrendes Netz, was der Tracker über Ball und Socke weiß, hält, Stillstand, Gehzeit und die Antwort
+des Spielnetzes auf diese Beobachtung (`net fwd`, `turn`, `kick`, `pick`). Mit der
 Umgebungsvariable `KERN_JUMP_AT=SEKUNDE` drückt es in dieser Sekunde Taste 7 (Sprung).
 
 ## 15.8 Im Studio benutzen

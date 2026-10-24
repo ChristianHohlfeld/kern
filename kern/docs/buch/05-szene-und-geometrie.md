@@ -356,7 +356,7 @@ for (let i = 0; i < chunks; i++) job.commit(i, "buildings-" + i, { material, ext
 job.free();
 ```
 
-`extraKey` benennt den Erweiterungs-Strom, der den Datensatz des Bauers bekommt. `kern_geo_commit` weldet den Chunk, lädt ihn als Mesh hoch und gibt den Chunk-Speicher sofort frei, weil der Renderer eine eigene Kopie hält. Er meldet die Bytes vor und nach dem Welding. `renderer.upsertTerrainTile(id, {x0, y0, step, cells, albedo, material})` baut und lädt eine Terrain-Kachel in einem Aufruf. Ein `MeshInput`-Deskriptor kann außerdem das Flag `KERN_MF_WELD` tragen (`input.weld === true` in der Fassade), dann weldet die Engine eine übergebene Soup vor dem Hochladen – sofern sie eine reine Dreiecks-Soup mit Normalen ist (keine Indizes, kein Skinning, keine Linien, höchstens ein Erweiterungs-Strom mit 1–4 Floats); andernfalls wird sie unverändert hochgeladen.
+`extraKey` benennt den Erweiterungs-Strom, der den Datensatz des Bauers bekommt; ohne `extraKey` ist es der erste. Einen Namen, den der Renderer nicht als Strom kennt, lehnt `commit` mit einem Fehler ab (`KernGeoJob.commit: no extension stream "…"`), statt still einen anderen Strom zu nehmen. `kern_geo_commit` weldet den Chunk, lädt ihn als Mesh hoch und gibt den Chunk-Speicher sofort frei, weil der Renderer eine eigene Kopie hält. Er meldet die Bytes vor und nach dem Welding. `renderer.upsertTerrainTile(id, {x0, y0, step, cells, albedo, material})` baut und lädt eine Terrain-Kachel in einem Aufruf. Ein `MeshInput`-Deskriptor kann außerdem das Flag `KERN_MF_WELD` tragen (`input.weld === true` in der Fassade), dann weldet die Engine eine übergebene Soup vor dem Hochladen – sofern sie eine reine Dreiecks-Soup mit Normalen ist (keine Indizes, kein Skinning, keine Linien, höchstens ein Erweiterungs-Strom mit 1–4 Floats); andernfalls wird sie unverändert hochgeladen.
 
 ## 5.12 Die prozedurale Stadt der Spiel-Laufzeit
 
@@ -436,7 +436,7 @@ Gespeichert sind sie kompakt:
 - 16-Bit-Indizes,
 - dazu die Punkte der konvexen Hülle für Kollisionskörper.
 
-`builtin_mesh(name)` dekodiert beim ersten Zugriff und behält das Ergebnis für die Laufzeit des Programms. Ein Mutex schützt den Cache, weil der Lehrer Welten auf mehreren Threads gleichzeitig baut ([Kapitel 14](14-lehrer.md)). `shape_mesh` skaliert ein eingebautes Mesh pro Achse mit `size` (Normalen mit dem Kehrwert) und dreht bei negativer Gesamtskalierung den Umlaufsinn um. Ein unbekannter Name ergibt einen 10-cm-Würfel, damit der Fehler im Level sichtbar ist und behoben werden kann.
+`builtin_mesh(name)` dekodiert beim ersten Zugriff und behält das Ergebnis für die Laufzeit des Programms. Nativ schützt ein Mutex den Cache, weil der Lehrer Welten auf mehreren Threads gleichzeitig baut ([Kapitel 14](14-lehrer.md)); WebAssembly läuft auf einem Thread, dort gibt es keinen Mutex (`#if !defined(__wasi__)`). `shape_mesh` skaliert ein eingebautes Mesh pro Achse mit `size` (Normalen mit dem Kehrwert) und dreht bei negativer Gesamtskalierung den Umlaufsinn um. Ein unbekannter Name ergibt einen 10-cm-Würfel, damit der Fehler im Level sichtbar ist und behoben werden kann.
 
 Wie die Ente aus diesen Teilen zusammengesetzt wird, beschreibt [Kapitel 13](13-micro-duck.md).
 

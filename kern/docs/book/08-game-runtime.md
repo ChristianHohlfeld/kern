@@ -45,7 +45,9 @@ world.stop();                            // back to the edited level
 ```
 
 `sync` brings the renderer's meshes in line with the level (only what changed is re-uploaded) and is
-ignored while a simulation is running. `start` copies the level, builds the Box3D world and starts
+ignored while a simulation is running. A city that the new level no longer has is removed by `sync`
+with its own meshes only (chunks, trunks, crowns), not via the actor id: the new level may give the
+same id to another actor, such as the floor, which would otherwise be missing after a level switch. `start` copies the level, builds the Box3D world and starts
 Simulate or Play. `stop` tears everything down and shows the level that `sync` last saw again –
 changes made by the simulation therefore do not go into the document (Studio offers "Keep
 Simulation Changes" for that).
@@ -254,7 +256,7 @@ velocity, at most `max_motor_force`, with `servo_friction` joint friction
 | `gait` | `velstand` | `gait` | walker: `velstand` or `alpha` |
 | `rollers` | `false` | `rollers` | walker: roller skates |
 | `actions` | `training` | `actions` | walker: `training` (scale 1, no filter) or `robot` (scale 0.9, low-pass head 0.5 / legs 0.7) |
-| `kern_extras` | `false` | `kernExtras` | walker: Kern's extras (ball play, fetching socks, beak when picking up) |
+| `kern_extras` | `false` | `kernExtras` | walker: Kern's extras (the play layer `play.onnx` with ball and sock, which then plays instead of Pollen's BallPlay; beak when picking up) |
 | `servo_delay` | 0.02 s | `servoDelay` | walker: command latency of the servos (real seconds) |
 
 The walker keys are only written when `mode = walker` (`kernExtras` and `rollers` only when `true`,
@@ -383,6 +385,7 @@ Both are computed by `GameWorld::animated_local` from the simulation time.
 | `fog_density` | 0.0009 | `fogDensity` | |
 | `exposure` | 1 | `exposure` | |
 | `ao_radius` | 1.6 m | `aoRadius` | reach of ambient occlusion, 0 = off |
+| `shadow_distance` | 80 m | `shadowDistance` | how far into the view the sun's shadow map reaches (2..2000 m; smaller: sharper; [Chapter 4](04-graphics.md)) |
 | `clouds` | `true` | `clouds` | |
 | `ground_color` | (0.19, 0.27, 0.15) | `groundColor` | color of the endless ground |
 | `ground` | `true` | `ground` | endless ground beneath everything |
