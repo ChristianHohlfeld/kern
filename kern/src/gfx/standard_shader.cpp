@@ -107,6 +107,9 @@ uniform sampler2D uTexture;
 uniform int uAoOut;  // 1: write the indirect-light record for ambient occlusion
 uniform sampler2DShadow uSunShadowMap;
 uniform mat4 uSunShadowProjection;
+uniform int uSunShadowFilter;    // 1, 4 or 9 taps
+uniform vec3 uSunShadowTexel;    // map size, 1 / size, one texel in metres
+uniform vec4 uSunShadowFade;     // eye, shadow distance (fades out over its last tenth)
 uniform int uSunShadowEnabled, uHasTexture, uUnlit, uLinearColor, uGrade, uPointLightCount;
 uniform vec2 uPbr;
 uniform vec4 uPointPosRange[6], uPointColorIntensity[6];
@@ -125,6 +128,35 @@ vec3 envIrradiance(vec3 n) {
 }
 vec3 skyReflection(vec3 r, float sharpness) {
   return mix(uEnvHorizon, uEnvZenith, clamp(r.z, 0.0, 1.0) * sharpness);
+}
+)GLSL";
+
+constexpr const char* kFragmentShadow = R"GLSL(
+// Castano's optimised PCF (2013, "The Witness"; as in MJP's shadow sample): a tent-filtered 3x3 (4 taps)
+// or 5x5 (9 taps) kernel from bilinear-weighted hardware comparison taps.
+float shadowTap(vec2 base, vec2 o, float z) { return texture(uSunShadowMap, vec3(base + o * uSunShadowTexel.y, z)); }
+float sunShadow(vec3 uvz) {
+  float z = uvz.z - uSunShadowBias;
+  if (uSunShadowFilter < 4) return texture(uSunShadowMap, vec3(uvz.xy, z));
+  vec2 uv = uvz.xy * uSunShadowTexel.x;
+  vec2 b = floor(uv + 0.5);
+  float s = uv.x + 0.5 - b.x, t = uv.y + 0.5 - b.y;
+  b = (b - 0.5) * uSunShadowTexel.y;
+  if (uSunShadowFilter < 9) {
+    float uw0 = 3.0 - 2.0 * s, uw1 = 1.0 + 2.0 * s, u0 = (2.0 - s) / uw0 - 1.0, u1 = s / uw1 + 1.0;
+    float vw0 = 3.0 - 2.0 * t, vw1 = 1.0 + 2.0 * t, v0 = (2.0 - t) / vw0 - 1.0, v1 = t / vw1 + 1.0;
+    float sum = uw0 * vw0 * shadowTap(b, vec2(u0, v0), z) + uw1 * vw0 * shadowTap(b, vec2(u1, v0), z)
+              + uw0 * vw1 * shadowTap(b, vec2(u0, v1), z) + uw1 * vw1 * shadowTap(b, vec2(u1, v1), z);
+    return sum / 16.0;
+  }
+  float uw0 = 4.0 - 3.0 * s, uw1 = 7.0, uw2 = 1.0 + 3.0 * s;
+  float u0 = (3.0 - 2.0 * s) / uw0 - 2.0, u1 = (3.0 + s) / uw1, u2 = s / uw2 + 2.0;
+  float vw0 = 4.0 - 3.0 * t, vw1 = 7.0, vw2 = 1.0 + 3.0 * t;
+  float v0 = (3.0 - 2.0 * t) / vw0 - 2.0, v1 = (3.0 + t) / vw1, v2 = t / vw2 + 2.0;
+  float sum = uw0 * vw0 * shadowTap(b, vec2(u0, v0), z) + uw1 * vw0 * shadowTap(b, vec2(u1, v0), z) + uw2 * vw0 * shadowTap(b, vec2(u2, v0), z)
+            + uw0 * vw1 * shadowTap(b, vec2(u0, v1), z) + uw1 * vw1 * shadowTap(b, vec2(u1, v1), z) + uw2 * vw1 * shadowTap(b, vec2(u2, v1), z)
+            + uw0 * vw2 * shadowTap(b, vec2(u0, v2), z) + uw1 * vw2 * shadowTap(b, vec2(u1, v2), z) + uw2 * vw2 * shadowTap(b, vec2(u2, v2), z);
+  return sum / 144.0;
 }
 )GLSL";
 
@@ -148,10 +180,16 @@ constexpr const char* kFragmentLighting = R"GLSL(
   vec3 hemis = mix(uGroundColor, uSkyColor, clamp(n.z * 0.5 + 0.5, 0.0, 1.0));
   float shadow = 1.0;
   if (uSunShadowEnabled == 1 && ndl > 0.0) {
-    vec4 clip = uSunShadowProjection * vec4(vWorld, 1.0);
+    // Normal offset (Holbein 2011): look the shadow up a texel off the surface along its normal,
+    // more where the light grazes it - no acne without a large constant bias (no detached shadows).
+    vec3 lookup = vWorld + n * (uSunShadowTexel.z * (0.6 + 1.4 * (1.0 - ndl)));
+    vec4 clip = uSunShadowProjection * vec4(lookup, 1.0);
     vec3 uvz = clip.xyz / clip.w * 0.5 + 0.5;
-    if (uvz.x > 0.0 && uvz.x < 1.0 && uvz.y > 0.0 && uvz.y < 1.0 && uvz.z > 0.0)
-      shadow = texture(uSunShadowMap, vec3(uvz.xy, uvz.z - uSunShadowBias));
+    if (uvz.x > 0.0 && uvz.x < 1.0 && uvz.y > 0.0 && uvz.y < 1.0 && uvz.z > 0.0) {
+      shadow = sunShadow(uvz);
+      float d = length(vWorld - uSunShadowFade.xyz);
+      shadow = mix(shadow, 1.0, smoothstep(uSunShadowFade.w * 0.9, uSunShadowFade.w, d));
+    }
   }
   vec3 point = vec3(0.0);
   if (uUnlit != 1) {
@@ -255,6 +293,7 @@ ShaderSource build_standard_shader(Span<ShaderExtension* const> extensions) {
   s.fragment += kFragmentHead;
   s.fragment += kGlslToneMap;
   s.fragment += kFragmentFunctions;
+  s.fragment += kFragmentShadow;
   append_hook(s.fragment, extensions, &ShaderExtension::fragment_declarations);
   s.fragment += kFragmentMainHead;
   append_hook(s.fragment, extensions, &ShaderExtension::fragment_discard);

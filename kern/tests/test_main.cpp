@@ -4270,6 +4270,23 @@ DuckSteadiness duck_steadiness() {
 }
 }  // namespace
 
+TEST(switching_levels_keeps_the_new_levels_meshes) {
+  // Orb Run's city and the Micro Duck room's floor share an actor id: dropping the old city on the switch
+  // must not take the new floor with it (it showed as sky until the next edit).
+  GameFixture f;
+  game::Level a = game::orb_run_level(), b = game::micro_duck_level();
+  game::ActorId floor = 0, city = 0;
+  for (const game::Actor& x : b.actors) if (x.name == "Floor") floor = x.id;
+  for (const game::Actor& x : a.actors) if (x.city) city = x.id;
+  f.world->sync(a);
+  f.world->sync(b);
+  std::vector<u32> meshes;
+  f.world->actor_meshes(floor, meshes);
+  if (std::getenv("KERN_DUCK_PRINT")) std::printf("city id %u floor id %u meshes %zu\n", city, floor, meshes.size());
+  CHECK(meshes.size() == 1);
+  CHECK(!meshes.empty() && f.renderer.mesh(meshes[0]) && f.renderer.mesh(meshes[0])->visible);
+}
+
 TEST(micro_duck_stands_on_the_floor) {
   // The soles rest on the floor: neither hovering nor sunk in (Box3D's contact slop allowed).
   for (int floor_box = 0; floor_box < 2; ++floor_box) {

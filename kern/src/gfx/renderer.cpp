@@ -91,6 +91,9 @@ bool Renderer::init_gpu() {
   u_.fog_height_falloff = p.location("uFogHeightFalloff");
   u_.fog_sun_scatter = p.location("uFogSunScatter");
   u_.ao_out = p.location("uAoOut");
+  u_.shadow_filter = p.location("uSunShadowFilter");
+  u_.shadow_texel = p.location("uSunShadowTexel");
+  u_.shadow_fade = p.location("uSunShadowFade");
   u_.point_count = p.location("uPointLightCount");
   u_.point_pos_range = p.location("uPointPosRange[0]");
   u_.point_color_intensity = p.location("uPointColorIntensity[0]");
@@ -605,6 +608,12 @@ void Renderer::set_frame_uniforms(const Mat4& vp) {
   if (shadow_) {
     c.set_mat4(u_.shadow_projection, shadow_->matrix().m);
     c.set_float(u_.shadow_bias, shadow_->options().bias);
+    c.set_int(u_.shadow_filter, shadow_->options().filter);
+    const f32 res = static_cast<f32>(shadow_->options().resolution);
+    c.set_vec3(u_.shadow_texel, {res, 1 / res, 2 * shadow_->extent() / res});  // map size, its inverse, a texel in metres
+    // Beyond the shadow distance the shadow fades out over its last tenth (none without a distance).
+    const f32 fade_end = shadow_fit_radius_ > 0 ? shadow_distance_ : 1e9f;
+    c.set_vec4(u_.shadow_fade, {shadow_fit_eye_.x, shadow_fit_eye_.y, shadow_fit_eye_.z, fade_end});
     gl::activeTexture(gl::TEXTURE0 + 1);
     gl::bindTexture(gl::TEXTURE_2D, shadow_->depth_texture());
     gl::activeTexture(gl::TEXTURE0);
@@ -684,12 +693,29 @@ bool Renderer::render(const RenderParams& params, RenderStats& stats) {
   }
 
   if (shadow_) {
-    const u64 key = shadow_->focus_key(camera.target, lighting.sun_direction) ^ (shadow_revision_ * 0x9e3779b97f4a7c15ull) ^
+    // Stable fit (Valient 2008): the bounding sphere of the view frustum from the near plane to the shadow
+    // distance. A symmetric frustum with tan half-angles th, tv: k = th^2 + tv^2; the sphere's centre lies
+    // on the view axis at c = (f + n)(1 + k) / 2 (at most f), radius sqrt((f - c)^2 + f^2 k).
+    Vec3 focus = camera.target;
+    f32 extent = 0;
+    shadow_fit_radius_ = 0;
+    if (shadow_distance_ > 0 && !camera.orthographic) {
+      const f32 n = camera.near, f = max_of(camera.near + 0.1f, min_of(shadow_distance_, camera.far));
+      const f32 tv = std::tan(camera.fov * 0.5f), th = tv * aspect, k = th * th + tv * tv;
+      const f32 c = min_of(f, (f + n) * (1 + k) * 0.5f);
+      const f32 r = std::sqrt((f - c) * (f - c) + f * f * k);
+      const Vec3 forward = normalize(camera.target - camera.eye, {0, 1, 0});
+      focus = camera.eye + forward * c;
+      extent = r;
+      shadow_fit_radius_ = r;
+      shadow_fit_eye_ = camera.eye;
+    }
+    const u64 key = shadow_->focus_key(focus, lighting.sun_direction, extent) ^ (shadow_revision_ * 0x9e3779b97f4a7c15ull) ^
                     (static_cast<u64>(params.layers) * 0xc2b2ae3d27d4eb4full);
     if (shadow_key_valid_ && key == shadow_key_) {
       stats.shadow_reused = true;
     } else {
-      stats.shadow_draw_calls = shadow_->draw(meshes(), camera.target, lighting.sun_direction, params.layers);
+      stats.shadow_draw_calls = shadow_->draw(meshes(), focus, lighting.sun_direction, params.layers, extent);
       shadow_key_ = key;
       shadow_key_valid_ = true;
     }

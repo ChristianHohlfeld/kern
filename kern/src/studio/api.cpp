@@ -57,6 +57,11 @@ KERN_EXPORT(kern_studio_init) i32 kern_studio_init(i32 width, i32 height, i32 pl
   g_host->ready = true;
   return 1;
 }
+/// Shadow filter: 1, 4 (phones) or 9 (desktop) PCF taps.
+KERN_EXPORT(kern_studio_shadow_filter) void kern_studio_shadow_filter(i32 taps) {
+  if (g_host && g_host->ready) g_host->renderer.set_shadow_filter(taps);
+}
+
 /// Ambient occlusion: quality 0 low .. 3 ultra (XeGTAO presets), half = half resolution.
 KERN_EXPORT(kern_studio_ao_set) void kern_studio_ao_set(i32 enabled, i32 quality, i32 half, f32 radius) {
   if (!g_host || !g_host->ready) return;

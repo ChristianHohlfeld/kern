@@ -933,6 +933,7 @@ json::Value world_to_json(const WorldSettings& w) {
   o.set("fogDensity", num(w.fog_density));
   o.set("exposure", num(w.exposure));
   o.set("aoRadius", num(w.ao_radius));
+  o.set("shadowDistance", num(w.shadow_distance));
   o.set("clouds", w.clouds);
   o.set("ground", w.ground);
   o.set("groundColor", hex_color(w.ground_color));
@@ -970,6 +971,7 @@ bool world_from_json(const json::Value& v, WorldSettings& w, std::string* error)
   r.number("fogDensity", w.fog_density, 0, 0.1);
   r.number("exposure", w.exposure, 0.05, 20);
   r.number("aoRadius", w.ao_radius, 0, 50);
+  r.number("shadowDistance", w.shadow_distance, 2, 2000);
   r.boolean("clouds", w.clouds);
   r.boolean("ground", w.ground);
   r.color("groundColor", w.ground_color);

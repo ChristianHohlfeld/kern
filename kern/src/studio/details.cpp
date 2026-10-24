@@ -245,6 +245,7 @@ constexpr FieldDef kWorld[] = {
     {"fogDensity", "Fog density", F::number, 0, 0.1, 0.0001},
     {"exposure", "Exposure", F::number, 0.05, 20, 0.05},
     {"aoRadius", "Ambient occlusion radius (0 = off)", F::number, 0, 50, 0.05, "m"},
+    {"shadowDistance", "Shadow distance (smaller: sharper)", F::number, 2, 2000, 1, "m"},
     {"clouds", "Clouds", F::boolean},
     {"ground", "Endless ground", F::boolean},
     {"groundColor", "Ground color", F::color},

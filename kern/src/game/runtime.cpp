@@ -708,7 +708,15 @@ void GameWorld::sync(const Level& level) {
   }
   drop.clear();
   for (auto& [id, c] : cities_) if (!keep_city.count(id)) drop.push_back(id);
-  for (ActorId id : drop) remove_visual(id);
+  // Only the city: the new level may give a mesh actor the same id (remove_visual would take that mesh too).
+  for (ActorId id : drop) {
+    if (auto it = cities_.find(id); it != cities_.end()) {
+      for (u32 m : it->second->chunk_meshes) { mesh_owner_.erase(m); r_.remove(m); }
+      if (it->second->trunk) { mesh_owner_.erase(it->second->trunk); r_.remove(it->second->trunk); }
+      if (it->second->crown) { mesh_owner_.erase(it->second->crown); r_.remove(it->second->crown); }
+      cities_.erase(it);
+    }
+  }
   // Parked traffic for the editor view.
   std::vector<f32> transforms, tints;
   for (const Actor& a : level_.actors) {
@@ -825,6 +833,7 @@ f32 GameWorld::apply_lighting(Vec3 eye) {
   }
   l.exposure = w.exposure * (1.0f + 0.35f * night);
   r_.set_ambient_occlusion_radius(w.ao_radius);
+  r_.set_shadow_distance(w.shadow_distance);
   r_.sky.sun = sun;
   r_.sky.moon = moon;
   r_.sky.night = night;

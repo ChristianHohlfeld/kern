@@ -150,6 +150,12 @@ class Renderer {
   bool set_point_lights(const PointLights& lights);
   const PointLights& point_lights() const { return point_lights_; }
   bool set_shadows(const ShadowOptions* options);  // nullptr disables
+  /// Shadow distance in metres (0 = the shadow map's fixed extent around the camera target): the map
+  /// covers the bounding sphere of the view up to this distance - its size does not change as the
+  /// camera turns, and its centre snaps to texels, so edges do not shimmer (stable shadow maps).
+  void set_shadow_distance(f32 metres) { shadow_distance_ = std::isfinite(metres) && metres > 0 ? metres : 0; }
+  /// 1, 4 or 9 PCF taps (phones: 4, desktop: 9).
+  void set_shadow_filter(i32 taps) { shadow_options_.filter = taps; if (shadow_) shadow_->set_filter(taps); }
   void set_ambient_occlusion(const AoOptions& options) { ao_.configure(options); }
   /// The scene's occlusion radius in world units (0 = none); keeps the device's quality settings.
   void set_ambient_occlusion_radius(f32 radius) { ao_.set_radius(radius); }
@@ -223,12 +229,15 @@ class Renderer {
     u32 sun_direction, sun_color, sky_color, ground_color, fog_color, eye, env_zenith, env_horizon, env_ground;
     u32 fog_density, exposure, env_intensity, grade, fog_height_falloff, fog_sun_scatter;
     u32 point_count, point_pos_range, point_color_intensity;
-    u32 shadow_enabled, shadow_map, shadow_projection, shadow_bias;
+    u32 shadow_enabled, shadow_map, shadow_projection, shadow_bias, shadow_filter, shadow_texel, shadow_fade;
     u32 ao_out;
   } u_{};
 
   std::unique_ptr<SunShadowMap> shadow_;
   bool shadow_requested_ = false;
+  f32 shadow_distance_ = 0;
+  f32 shadow_fit_radius_ = 0;
+  Vec3 shadow_fit_eye_;
   ShadowOptions shadow_options_;
   u64 shadow_key_ = 0;
   bool shadow_key_valid_ = false;

@@ -19,8 +19,11 @@ namespace kern {
 
 struct ShadowOptions {
   i32 resolution = 512;  // power of two, 128..4096
-  f32 extent = 120;      // half size of the covered square in metres
+  f32 extent = 120;      // half size of the covered square in metres (without a shadow distance)
   f32 bias = 0.0012f;
+  // Percentage-closer filtering: 1 hardware 2x2 tap, 4 taps (3x3 kernel) or 9 taps (5x5 kernel),
+  // Castano's optimised PCF (bilinear-weighted comparison taps).
+  i32 filter = 9;
 };
 
 class SunShadowMap {
@@ -29,14 +32,18 @@ class SunShadowMap {
   void destroy(bool contextLost);
   bool valid() const { return fbo_ != 0; }
 
-  /// Snaps `focus` for `sun` and returns a cache key of the resulting map.
-  u64 focus_key(Vec3 focus, Vec3 sun);
+  /// Snaps `focus` for `sun` and returns a cache key of the resulting map. `extent` (half size in
+  /// metres) overrides the options' when > 0.
+  u64 focus_key(Vec3 focus, Vec3 sun, f32 extent = 0);
   /// Renders the casters among `meshes`; returns the number of draw calls.
-  u32 draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun, u32 layers = ~0u);
+  u32 draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun, u32 layers = ~0u, f32 extent = 0);
 
   const Mat4& matrix() const { return matrix_; }
   u32 depth_texture() const { return depth_; }
   const ShadowOptions& options() const { return options_; }
+  void set_filter(i32 taps) { options_.filter = taps >= 9 ? 9 : taps >= 4 ? 4 : 1; }
+  /// Half size of the square the map covers now (metres).
+  f32 extent() const { return extent_; }
 
  private:
   ShadowOptions options_;
@@ -45,6 +52,8 @@ class SunShadowMap {
   u32 depth_ = 0, fbo_ = 0;
   Mat4 matrix_;
   Vec3 snapped_focus_;
+  f32 extent_ = 0;
+  f32 extent_for(f32 e) const { return e > 0 ? e : options_.extent; }
 };
 
 // ---------------------------------------------------------------------------
