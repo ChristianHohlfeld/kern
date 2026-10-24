@@ -16,7 +16,7 @@ angepasst.** Weder der Quelltext noch seine Konstanten werden verändert, und Ke
 Solver-Parameter, um ein Modell „zum Laufen zu bringen“. Passt ein Modell nicht in Box3Ds
 Arbeitsbereich, wird das Modell angepasst (skaliert, Massen verteilt, Sub-Steps erhöht), nicht die
 Physik. Was ein echtes Gerät über die Starrkörperphysik hinaus tut, etwa ein Servo mit Regler und
-Reibung, ist ein eigenes kleines Gerätemodell in echten Einheiten (Abschnitt 6.15).
+Reibung, ist ein eigenes kleines Gerätemodell in echten Einheiten (Abschnitt 6.17).
 
 ![Das Beispiel-Level Physics Lab in Kern Studio: Stapel, Pendel, Tür, Seilbrücke, Drehteller, Lift und Rover](bilder/studio-physics-lab.png)
 
@@ -143,7 +143,7 @@ world.step(1.0f / 60, 4);           // ein fester Schritt mit 4 Sub-Steps
 |---|---|---|
 | `gravity` | (0, 0, −9,80665) | m/s², muss endlich sein |
 | `enable_sleep` | `true` | ruhende Inseln schlafen |
-| `enable_continuous` | `true` | Continuous Collision (siehe 6.12) |
+| `enable_continuous` | `true` | Continuous Collision (siehe 6.15, „Continuous Collision, Events, Schlaf“) |
 | `restitution_threshold` | 1 m/s | langsamere Stöße prallen nicht ab |
 | `restitution_iterations` | 2 | 0..63 |
 | `restitution_propagation` | `false` | Box3Ds `enableRestitutionPropagation` |

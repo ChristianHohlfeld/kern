@@ -261,7 +261,7 @@ gespeicherten Ausgang.
 
 ## 9.5 Kern-Knoten
 
-`src/logic/core_nodes.cpp` registriert 74 Knoten:
+`src/logic/core_nodes.cpp` registriert 76 Knoten:
 
 | Kategorie | Knoten |
 |---|---|
@@ -272,7 +272,7 @@ gespeicherten Ausgang.
 | **Mathe** | `math.add`, `sub`, `mul`, `div`, `mod`, `min`, `max`, `clamp`, `abs`, `negate`, `lerp`, `sin`/`cos`/`atan2` (Grad), `sqrt`, `pow`, `round`, `floor`, `random` (Float im Bereich), `random_int`, `random_bool` |
 | **Logik** | `math.compare` Compare (`==`, `!=`, `<`, `<=`, `>`, `>=`; Gleichheit mit 10⁻⁹ Toleranz) · `logic.and`, `or`, `xor`, `not` · `logic.select` Select |
 | **Werte** | `value.float`, `value.int`, `value.bool`, `value.text` |
-| **Vektor** | `vector.make`, `break`, `scale`, `length`, `normalize`, `distance`, `dot`, `lerp` |
+| **Vektor** | `vector.make`, `break`, `add`, `sub`, `cross`, `scale`, `length`, `normalize`, `distance`, `dot`, `lerp` |
 | **Text** | `text.append`, `equal`, `contains`, `length` |
 | **Utilities** | `time.now` Game Time · `debug.print` Print (Text, On Screen) |
 
