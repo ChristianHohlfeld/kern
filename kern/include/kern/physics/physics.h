@@ -66,7 +66,7 @@ struct ShapeMaterial {
   f32 density = 1;            // kg/m^3
   f32 friction = 0.6f;
   f32 restitution = 0;        // 0..1
-  f32 rolling_resistance = 0; // spheres and capsules
+  f32 rolling_resistance = 0; // spheres, capsules, hulls (Box3D: a quarter of the inner radius)
   bool sensor = false;
   u64 category_bits = 1, mask_bits = ~0ull;
   i32 group_index = 0;
@@ -113,7 +113,7 @@ struct JointSettings {
   f32 max_velocity_force = 0, max_velocity_torque = 0, max_spring_force = 0, max_spring_torque = 0;
   // parallel joint
   f32 max_torque = 0;
-  // Joint softness of the solver (0 = Box3D defaults); keep below half the step rate.
+  // Joint softness of the solver (0 = Box3D defaults); keep below half the sub-step rate.
   f32 constraint_hertz = 0, constraint_damping_ratio = 0;
   u64 user = 0;
 };

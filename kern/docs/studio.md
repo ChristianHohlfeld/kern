@@ -67,8 +67,7 @@ Lange Menüs scrollen, und auf Touch sind die Zeilen 40 px hoch.
 |---|---|
 | Rechte Maustaste + WASD / QE | Fly Mode; Mausrad währenddessen ändert die Geschwindigkeit (1-8), Shift schneller, Z/C zoomen |
 | Linksklick | auswählen (Shift ergänzt, Ctrl schaltet um); Klick ins Leere hebt die Auswahl auf |
-| Actor mit links ziehen | über die Oberflächen unter dem Cursor verschieben, setzt auf (Grid-Snap) |
-| Ins Leere mit links ziehen | Rahmenauswahl (Shift ergänzt, Ctrl schaltet um) |
+| Mit links ziehen (auch über einem Actor) | Rahmenauswahl (Shift ergänzt, Ctrl schaltet um); verschoben wird mit dem Gizmo |
 | Rechte + linke Maustaste | im Fly Mode hoch/runter und seitwärts |
 | Mittlere Maustaste ziehen | schwenken |
 | Alt + links / rechts / Mitte | um die Auswahl kreisen / Dolly / schwenken |
@@ -119,13 +118,13 @@ Fehler wie verwaiste Referenzen oder ungültige Werte verhindern Play; Warnungen
 
 ## Place Actors
 
-Basic: Cube, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp, Empty Actor · Lights: Point Light · Physics: Physics Cube, Physics Sphere, Physics Barrel, Crate Stack, Pendulum, Hinged Door, Chain, See-Saw · Players: Soldier, Character, Hover Car, Rolling Ball, Drone, Micro Duck · Gameplay: Orb, Star, Goal, Hazard, Checkpoint, Message Trigger, Moving Platform, Spinner · Audio: Audio Source, Ambient Wind, City Ambience, Radio · Procedural: Procedural City.
+Shapes: Cube, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp, Empty Actor · Lights: Point Light · Physics: Physics Cube, Physics Sphere, Physics Barrel, Crate Stack, Pendulum, Hinged Door, Chain, See-Saw, Sock · Players: Soldier, Character, Hover Car, Rolling Ball, Drone, Micro Duck, Micro Duck (Rollers) · Gameplay: Orb, Star, Health Pack, Ammo Box, Goal, Hazard, Damage Zone, Checkpoint, Jump Pad, Teleporter, Message Trigger, Moving Platform, Spinner, Target Dummy, Explosive Barrel · Audio: Audio Source, Ambient Wind, City Ambience, Radio · World: Procedural City (Liste: `src/studio/catalog.cpp`).
 
 ## Sound
 
 Die Sound-Engine ist C++ im Engine-Modul (`kern/src/audio`): ein Software-Mixer mit 64 Stimmen (Hermite-Resampling, Prioritäten, Voice Stealing, virtuelle Stimmen außerhalb der Hörweite), 3D-Klang am Listener der Kamera (Equal-Power-Panning, Roll-off, Luftdämpfung, Tiefpass hinter dem Hörer, Doppler), Bussen (Music, Effects, Ambience, Interface, Voice → Master) mit klickfreien Lautstärkerampen, Tiefpass und Hall-Send, einem Freeverb-Hall, Peak-Limiter und Soft-Clip. Die Ausgabe überschreitet nie ±1.
 
-Eingebaut sind knapp 30 synthetisierte Sounds (Pickup, Jump, Impact, Kunststoff-Tippen, kleine Schritte, Explosion, Motor, Hover, Wind, Stadt, Servo, Quack, UI-Klicks und zwei Musik-Loops). Sie werden deterministisch und in Zeitscheiben gerendert, ein Level mit Musik ruckelt beim Laden nicht. Eigene Dateien (WAV, MP3, OGG, M4A, FLAC – was der Browser dekodieren kann) importiert man im Content Drawer unter **Sounds**, per Drag & Drop auf die Seite oder über das Plus am Sound-Feld; sie liegen als Data-URL im Level und werden per Windowed-Sinc auf die Ausgaberate gebracht.
+Eingebaut sind 38 synthetisierte Sounds (`builtin_sounds()`) und die Laute der Ente (Pickup, Jump, Impact, Kunststoff-Tippen, kleine Schritte, Explosion, Motor, Hover, Wind, Stadt, Servo, Quack, UI-Klicks und zwei Musik-Loops). Sie werden deterministisch und in Zeitscheiben gerendert, ein Level mit Musik ruckelt beim Laden nicht. Eigene Dateien (WAV, MP3, OGG, M4A, FLAC – was der Browser dekodieren kann) importiert man im Content Drawer unter **Sounds**, per Drag & Drop auf die Seite oder über das Plus am Sound-Feld; sie liegen als Data-URL im Level und werden per Windowed-Sinc auf die Ausgaberate gebracht.
 
 Bedienung: Ein Klick auf einen Sound im Tab Sounds spielt ihn an, ein Doppelklick setzt ihn auf die Auswahl, Ziehen in den Viewport platziert eine Audio Source. Jedes Sound-Feld hat eine Vorhör-Taste. Ausgewählte Audio Sources zeigen innen den vollen und außen den Falloff-Radius. Die Statusleiste hat Stummschalter und Pegelanzeige.
 
@@ -275,7 +274,7 @@ das.
 ## Logic: Blueprints, die C++ sind
 
 Jeder Actor und das Level können einen Logic-Graphen tragen: Events, Flow, Variablen,
-State Machines, Mathe und rund 60 Gameplay-Knoten. Geöffnet wird er über **Logic** in der Toolbar
+State Machines, Mathe und rund 70 Gameplay-Knoten. Geöffnet wird er über **Logic** in der Toolbar
 oder in Details.
 
 Der Blueprint-Editor folgt Unreals Blueprint-Editor (`web/studio/logic.mjs`) und deckt das ganze Fenster ab:

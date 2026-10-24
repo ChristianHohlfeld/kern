@@ -732,7 +732,7 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
         {"[  /  ]", "Smaller / larger grid snap"},
         {"Alt+P  /  Alt+S", "Play  /  Simulate"},
         {"Esc  /  F8  /  Shift+F1", "Stop  /  eject or possess  /  free the mouse"},
-        {"Ctrl + drag (Simulate)", "Grab and throw physics bodies"},
+        {"Drag (Simulate)", "Grab and throw physics bodies"},
         {"K (Simulate)", "Keep the simulated poses of the selection"},
     };
     json::Value list = json::Value::array();

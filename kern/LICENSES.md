@@ -26,7 +26,7 @@ THIS SOFTWARE.
 
 Box3D by Erin Catto (https://github.com/erincatto/box3d), vendored at commit
 51f056e0 and compiled unchanged as C17 into modules built with `--physics`,
-`--world` or `--editor`.
+`--game`, `--studio` or `--lehrer`.
 
 ```
 MIT License

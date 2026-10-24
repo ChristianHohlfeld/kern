@@ -561,7 +561,7 @@ int main(int argc, char** argv) {
       std::fprintf(stderr,
                    "usage: kern_lehrer [--task jump|stand] [--envs N] [--threads N] [--iterations 600] [--steps 24] [--seed 1]\n"
                    "                  [--out task.onnx] [--log log.csv] [--checkpoint run.ckpt] [--resume run.ckpt] [--save-every 25]\n"
-                   "                  [--warm-start velstand|none|file.onnx] [--init-std 0.3] [--lr 1e-3] [--entropy 0.005]\n"
+                   "                  [--warm-start velstand|none] [--init-std 0.3] [--lr 1e-3] [--entropy 0.005]\n"
                    "                  [--critic 256,128] [--actor 512,256,128] [--epochs 5] [--minibatches 4] [--adaptive-lr 1] [--kl 0.01]\n"
                    "                  [--substeps 16] [--eval-every 10] [--stop-after-jump] [--profil servo.json]\n"
                    "       kern_lehrer --fingerprint 400       one state hash per control tick (determinism)\n"

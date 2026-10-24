@@ -257,18 +257,18 @@ seine Odometrie ebenfalls für perfekt.
 
 **Kern-Verhalten, nicht im Original, standardmäßig aus** (Details › Controller › „Kern extras“,
 `kernExtras`; aus läuft nur Pollens Software). Pollens Gehirn hat keinen Ball- oder Sockendetektor;
-hier ist der Detektor das Bild der Kopfkamera, `walker_sees`:
+hier ist der Detektor das Bild der Kopfkamera, `walker_sees`, mit einem Tracker.
 
-- **BallPlay:** Sieht sie einen Ball, läuft sie hin, bis er dort liegt, wo das Kick-Training ihn
-  hinlegt (`microduck_ball_kick_env_cfg.py`: 9 cm vor, 4,2 cm neben dem Kickfuß, ±1,5 cm),
-  hebt den Kopf (der Kick wurde mit dem Kopf in Grundstellung trainiert) und kickt mit links.
-  Der rechte Kick kippt sie in Kern um (Abschnitt 12).
-- **Fetch / Carry:** Sieht sie eine Socke, läuft sie hin, bis die Socke 5,9 cm vor dem Rumpf liegt,
-  hebt den Kopf, hebt die Socke auf (Ground Pick, der Mund-Encoder sagt, ob sie sie hat; sonst
-  bis zu vier Versuche), trägt sie 1,5 m weit und legt sie ab.
+- **Spielschicht** (`src/game/walker_play.cpp`): Ball und Socke sind kein handgeschriebenes
+  Verhalten, sondern ein gelerntes Netz, `kern/policies/play.onnx` (25 Hz, 23 Beobachtungen,
+  9 Aktionen), das der Lehrer trainiert (docs/lehrer.md, Abschnitt Spielen). Es übernimmt, solange
+  die Ente ein Objekt kennt, etwas im Schnabel hat oder eine von ihm gestartete Bewegung läuft: Es
+  gibt Twist, Kopf und Schnabel vor und startet Pollens Kick und Ground Pick. Sonst läuft Pollens
+  Gehirn wie oben. Steuert jemand die Ente (Stick, Telefon, Taste) oder ein Logic-Kommando, wartet
+  das Netz.
 
-*[gemessen]* Tests `micro_duck_roams_on_its_own_with_its_tof`, `micro_duck_plays_with_a_ball_on_its_own`
-(der Ball rollt danach 4,5 m in Weltmaß), `micro_duck_fetches_a_sock_on_its_own`.
+*[gemessen]* Tests `micro_duck_roams_on_its_own_with_its_tof`, `micro_duck_plays_with_a_ball_on_its_own`,
+`micro_duck_fetches_a_sock_on_its_own`.
 
 ### Blick in die Runde (Idle-Look-around)
 
@@ -370,15 +370,17 @@ Die Ablaufsteuerung folgt `robotd/src/control.rs`:
 |---|---|---|---|---|---|
 | Laufen | `velstand.onnx` (oder `alpha_walking` + `alpha_stand` unter Twist 0,05: Details › Walking network) | Twist, Kopf | W A S D | linker Stick | MOVE |
 | Sitzen / Aufstehen | `alpha_sitstand.onnx` | Posture-Flag in vx (1 sitzen, 0 stehen); 2 s Sitzen, 1 s Aufstehen | 1 | B | SIT |
-| Socke aufheben | `alpha_ground_pick.onnx` | Phase cos/sin(2π·φ), Periode 4 s, Ende bei φ = 0,7 | 2 | X | PICK |
-| Kick links / rechts | `ball_kick_left/right.onnx` | null, 0,5 s | 3 / 4 | LT / RT | KICK L / R |
-| Rolle | `roulade.onnx` | null, 1 s; gehalten rollt sie weiter (Chain-Fenster 0,15 s) | 5 | Y | ROLL |
+| Socke aufheben | `alpha_ground_pick.onnx` | Phase cos/sin(2π·φ), Periode 4 s, Ende bei φ = 0,7 | 2 | Y | PICK |
+| Kick links / rechts | `ball_kick_left/right.onnx` | null, 0,5 s | 3 / 4 | | KICK L / R |
+| Rolle | `roulade.onnx` | null, 1 s; gehalten rollt sie weiter (Chain-Fenster 0,15 s) | 5 | X | ROLL |
+| Sprung (Kern) | `kern/policies/jump.onnx` (vom Lehrer trainiert) | | 7 | | HOP |
 | Rollschuh fahren | `roller.onnx` (Action-Scale 0,8) | Twist | W A S D | | |
-| Ducken auf Rollen | `roller_crouch.onnx` (0,8) | Phase, Periode 5 s | 2 | X | PICK |
+| Ducken auf Rollen | `roller_crouch.onnx` (0,8) | Phase, Periode 5 s | 2 | Y | PICK |
 | Schnabel auf / zu | Mund-Servo | | 6 | | BEAK |
 
-- **Schnabel beim Aufheben (Kern extras):** Er bleibt beim Absenken zu, öffnet bei φ = 0,16 und beißt bei
-  φ = 0,24 zu. Auf dem Roboter macht das der Mensch mit dem Trigger.
+- **Schnabel beim Aufheben:** Auf dem Roboter öffnet ihn der Mensch mit dem Trigger. Mit Kern extras
+  und Spiel-Netz entscheidet das Netz (es hat es gelernt); ohne Netz öffnet Kern ihn beim Absenken
+  bei φ = 0,16 und beißt bei φ = 0,24 zu.
 - **Action-Scale und Filter:** Der Daemon fährt den echten Roboter mit Scale 0,9 und einem
   Tiefpass auf den Sollwerten (Kopf 0,5, Beine 0,7). Das ist Sim-to-Real-Tuning für die Hardware.
   - Kern simuliert die Trainingsphysik und fährt deshalb jedes Netz wie trainiert: Scale 1, kein

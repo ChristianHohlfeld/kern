@@ -208,7 +208,7 @@ game::PlayInput Studio::play_input() const {
     in.interact = in.interact || pad_.interact;
     in.boost = in.boost || pad_.boost;
     // Robot on a pad, as the duck's own pad mapping: RT chirps, LT rides the wheee (the beak opens
-    // with them); crouch (B) sits / stands, use (X) picks, reload (Y) rolls.
+    // with them); crouch (B) sits / stands, interact (Y) picks, reload (X) rolls.
     if (pad_.fire) in.robot |= 64;
     if (pad_.aim) in.robot |= 128;
     if (pad_.crouch) in.robot |= 1;

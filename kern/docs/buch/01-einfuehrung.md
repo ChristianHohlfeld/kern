@@ -414,6 +414,14 @@ dann Spiel, Editor und Roboter, zum Schluss die Referenz.
 | [16 Kalibrierung](16-kalibrierung.md) | Servoprofile, Prüfstand, Abgleich mit dem Roboter |
 | [17 Referenz](17-referenz.md) | C-ABI, Kommandozeile von `kern_lehrer`, Dateiformate, Glossar |
 
+Drei Anhänge liefern das Grundlagenwissen, das die Kapitel voraussetzen:
+
+| Anhang | Inhalt |
+|---|---|
+| [A Neuronale Netze und Reinforcement Learning](A-grundlagen-neuronale-netze.md) | Grundlagen zu Kapitel 14 und 15 |
+| [B Echtzeit-Rendering](B-grundlagen-rendering.md) | Grundlagen zu Kapitel 4 und 5 |
+| [C Physiksimulation](C-grundlagen-physik.md) | Grundlagen zu Kapitel 6 |
+
 **Vorschläge für den Einstieg:**
 
 - **Wer Kern bauen und ändern will,** liest Kapitel 2 und 3 und danach das Kapitel der Schicht,

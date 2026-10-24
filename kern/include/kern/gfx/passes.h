@@ -153,8 +153,8 @@ class BloomPass {
 // slices; a depth-aware 4x4 filter integrates exactly that pattern away. The
 // result (RG16F: visibility, view depth) is read by the forward pass with a
 // depth-aware upsample and applied to indirect light only: diffuse through the
-// multi-bounce fit of the paper, reflections through specular occlusion
-// (Lagarde 2014). Presets as XeGTAO: low 1x2, medium 2x2, high 3x3,
+// multi-bounce fit of the paper (one factor for the whole indirect light,
+// reflections included). Presets as XeGTAO: low 1x2, medium 2x2, high 3x3,
 // ultra 9x3 (slices x steps per side).
 
 enum class AoQuality : u8 { low = 0, medium = 1, high = 2, ultra = 3 };

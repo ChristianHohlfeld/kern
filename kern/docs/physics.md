@@ -130,8 +130,8 @@ ein anderes S.
   Sub-Step-Rate begrenzt, Kontakt-Hertz auf 0,125 × (`box3d:src/joint.c:1484-1486`,
   `src/physics_world.c:1127-1129`).
   - `constraintHertz` zu erhöhen hilft also nur zusammen mit mehr Sub-Steps.
-- Federn bleiben **unter der halben Schrittfrequenz** (Nyquist). Kern begrenzt das (`max_hertz` in
-  `create_joints`).
+- Federn bleiben **unter der halben Sub-Step-Frequenz** (Nyquist): `max_hertz = 0,5 × step_hz ×
+  substeps` in `create_joints`.
 
 ## 4. Gelenke
 
@@ -178,7 +178,8 @@ ein anderes S.
   - Zwei Materialien kombiniert Box3D als √(a · b) (Reibung) und max (Restitution).
   - Kontakt-Weichheit (Box3D World Definition): World Settings › Contact stiffness (30 Hz),
     Contact damping ratio (10), Contact push-out speed (3 m/s).
-  - Rollwiderstand wirkt nur auf Kugeln und Kapseln.
+  - Rollwiderstand wirkt auf Kugeln und Kapseln (Radius) und auf konvexe Hüllen (ein Viertel ihres
+    Innenradius, Box3D `contact.c`; auch Quader sind dort Hüllen).
   - Roboterfüße sind breite flache Quader mit hoher Reibung.
 - Einen Körper weich aufrecht halten: Erin nimmt dafür einen **Parallel-Joint** (Hertz, Dämpfung,
   Maximalmoment), keine überschriebenen Geschwindigkeiten (`box3d:shared/human.c:526-605`).

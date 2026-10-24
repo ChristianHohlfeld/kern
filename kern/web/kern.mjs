@@ -966,9 +966,10 @@ export class KernGeoJob {
   commit(index, id, { material = {}, extraKey = null, visible = true } = {}) {
     const r = this.renderer;
     const slot = extraKey ? r.extensionAttributes.findIndex(a => a.key === extraKey) : 0;
+    if (slot < 0) throw new Error(`KernGeoJob.commit: no extension stream "${extraKey}"`);
     const desc = r.materialDescriptor({ material, visible });
     const out = r.resultPtr + 64;
-    r.commitMesh(id, kid => this.kern.exports.kern_geo_commit(this.id, index, kid, desc, Math.max(0, slot), out),
+    r.commitMesh(id, kid => this.kern.exports.kern_geo_commit(this.id, index, kid, desc, slot, out),
       { material, visible, skinned: false, instanceCount: 1 });
     const s = this.kern.f64, o = out >> 3;
     return { bytesBefore: s[o], bytesAfter: s[o + 1] };

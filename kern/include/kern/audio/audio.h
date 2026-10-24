@@ -1,6 +1,6 @@
 // Kern audio: a software mixer in C++ that runs inside the engine module.
 //
-// The host only moves finished PCM to the speakers (kern/web/audio.mjs: an
+// The host only moves finished PCM to the speakers (KernAudio in kern/web/studio/game.mjs: an
 // AudioWorklet where available, a ScriptProcessor elsewhere). Everything else
 // happens here, sample by sample and deterministically:
 //

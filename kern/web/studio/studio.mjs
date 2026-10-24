@@ -713,7 +713,7 @@ class StudioPage {
       if (drag === "fly") hint = `Flying · WASD move · Q/E down/up · wheel speed ${st.camera?.speed ?? ""} · Shift faster · Z/C zoom`;
       else if (drag === "grab") hint = "Grabbing - release to throw";
       else if (active && st.play === "playing" && !st.captured && !s.play.ejected && st.hud?.status === "playing" && st.input?.device !== "touch") hint = "Click the viewport to control the game · Esc stops · F8 ejects";
-      else if (active && st.play === "simulating") hint = s.play.ejected ? "Ejected · free camera · F8 possess · Esc stop" : "Simulating · Ctrl+drag grabs bodies · K keeps poses · Esc stops";
+      else if (active && st.play === "simulating") hint = s.play.ejected ? "Ejected · free camera · F8 possess · Esc stop" : "Simulating · drag grabs bodies · K keeps poses · Esc stops";
       if (hint !== v.hintKey) { v.hintKey = hint; v.hint.textContent = hint; v.hint.hidden = !hint; }
       const gz = active && st.gizmo ? (st.gizmo.delta ? `Δ ${st.gizmo.delta.map(n => n.toFixed(2)).join("  ")} m` : st.gizmo.angle != null ? `${st.gizmo.angle.toFixed(1)}°` : `× ${st.gizmo.factor.map(n => n.toFixed(2)).join("  ")}`) : "";
       if (gz !== v.gizmoKey) { v.gizmoKey = gz; v.gizmo.textContent = gz; v.gizmo.hidden = !gz; }

@@ -37,4 +37,4 @@ Kern ist in [SpawnCity](https://spawncity.de) entstanden, das über Kern rendert
 
 ## CI und Pages
 
-`.github/workflows/ci.yml` baut alle Module, führt die nativen Tests und den Browser-Test aus und hängt `studio.html` sowie die Screenshots als Artefakt an. `.github/workflows/pages.yml` baut bei jedem Push auf `main` Studio und Beispiele und veröffentlicht sie mit der Startseite `site/index.html` auf GitHub Pages.
+`.github/workflows/ci.yml` baut alle Module, führt die nativen Tests und den Browser-Test aus und hängt `studio.html` als Artefakt an (Screenshots des Browser-Tests nur, wenn `KERN_E2E_SHOTS` gesetzt ist). Bei jedem Push auf `main` veröffentlicht der Job `deploy` in derselben Datei Studio und Beispiele mit der Startseite `site/index.html` auf GitHub Pages.
