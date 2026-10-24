@@ -134,6 +134,7 @@
     <div id="meter" title="Output level"><i></i><i></i></div>
     <div id="selInfo" class="dim"></div>
     <div id="buildTag" class="mono dim" title="Version"></div>
+    <div id="legalLinks" class="dim" hidden><a href="../impressum.html" target="_blank" rel="noopener">Impressum</a> · <a href="../datenschutz.html" target="_blank" rel="noopener">Datenschutz</a></div>
   </footer>
 
   <div id="menuLayer"></div>
@@ -158,6 +159,8 @@
   var online = location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1";
   if (online && "serviceWorker" in navigator && mine)
     navigator.serviceWorker.register("./sw.js", {scope: "./", updateViaCache: "none"}).catch(function () {});
+  // The deployed editor (site/editor/) links the site's Impressum and Datenschutz one level up.
+  if (mine) { var legal = document.getElementById("legalLinks"); if (legal) legal.hidden = false; }
   if (!mine) return;  // a local or development build: no version checks
   var pending = null, reloading = false, lastCheck = 0, pill = null;
   function studio() { return window.KernStudio; }
