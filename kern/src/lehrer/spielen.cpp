@@ -476,15 +476,16 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
   }
   const f32 dist = kern::dm::hypot(tx, ty), bearing = kern::dm::atan2(ty, tx);
   const f32 ahead = tx - want_ahead, side = ty - want_left;
-  // Keep it in the picture: the head pitches down the closer it gets.
-  // Keep it in the picture and look at it: the head pitches down (more, the closer it gets) and turns to it.
-  out[4] = clamp(kern::dm::atan2(0.12f, max_of(dist, 0.05f)) - 0.1f, 0.25f, 0.8f) / 1.1f;
+  // Keep it in the picture and look at it: the head pitches down (more, the closer it gets) and turns
+  // to it - a little: bowed far while it walks fast and turns, it tips over.
+  out[4] = clamp(kern::dm::atan2(0.12f, max_of(dist, 0.05f)) - 0.2f, 0.1f, 0.5f) / 1.1f;
   if (dist > 0.25f) {
     out[3] = clamp(0.5f * bearing, -0.3f, 0.3f) / 1.1f;  // not far: turning with the head swung out tips it over
     const f32 vx = std::fabs(bearing) > 0.6f ? 0.0f : clamp(dist * 1.2f, 0.15f, 0.3f);
     out[0] = vx / 0.3f;
     if (vx == 0) out[3] = out[4] = 0;  // turning on the spot: the head at home (else it tips over)
-    out[2] = clamp(bearing * 1.5f, -0.6f, 0.6f);  // not faster than 0.6 rad/s: spinning on the spot tips it over
+    // Not faster than 0.6 rad/s on the spot, 0.4 rad/s while it walks: faster tips it over.
+    out[2] = clamp(bearing * 1.5f, vx > 0 ? -0.4f : -0.6f, vx > 0 ? 0.4f : 0.6f);
     return;
   }
   // Close by, the same for both: the gait can only be stopped, not inched (below about 0.12 m/s from
