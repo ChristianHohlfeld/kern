@@ -47,7 +47,8 @@ das Kommando kommt delay Sekunden nach dem Senden an
 | Streuungen (relativ ±) | Armatur 0,1, Reibung 0,1, sonst 0 | `spreadStiffness`, `spreadDamping`, `spreadFriction`, `spreadTorque`, `spreadArmature` | – |
 | Verzögerungsbereich | 0,015 … 0,030 | `delayMin`, `delayMax` | s |
 
-Das Profil als Datei (`kern_lehrer --beispiele DIR` schreibt `xl330.json`):
+Das Profil als Datei (`kern_lehrer --beispiele DIR` schreibt `xl330.json`; die Werte stehen dort
+als float32 in doppelter Genauigkeit, hier gerundet):
 
 ```json
 {
