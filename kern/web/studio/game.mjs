@@ -26,7 +26,7 @@ function defaultAmbientOcclusion() {
 
 
 /** The networks Kern trained itself (kern/policies/, docs/lehrer.md); all others are Pollen's. */
-const KERN_POLICIES = new Set(["jump.onnx"]);
+const KERN_POLICIES = new Set(["jump.onnx", "play.onnx"]);
 
 /** Networks Kern Lehrer saved on this device: IndexedDB "kern-lehrer", store "policies", key =
  *  file name ("jump.onnx"), value = the ONNX bytes. [[file, Uint8Array], ...]; `only` picks one. */
@@ -116,7 +116,7 @@ export class StudioEngine {
   }
   /** Loads the robot's policy set (microduck/<file>.onnx next to the page; the dev page reads the
    *  repository's copy, so does the repository's single-file build in generated/) and Kern's own
-   *  trained networks (policies/<file>.onnx: jump.onnx, docs/lehrer.md). A file that fails is fetched again later; until then the move it
+   *  trained networks (policies/<file>.onnx: jump.onnx, play.onnx, docs/lehrer.md). A file that fails is fetched again later; until then the move it
    *  drives is unavailable (the duck stands and says why). */
   async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/microduck/", "../../policies/"] : /\/generated\/[^/]*$/.test(location.pathname) ? ["../kern/third_party/microduck/", "../kern/policies/"] : ["microduck/", "policies/"]) {
     if (!this.trainedWatched) { this.trainedWatched = true; this.watchTrainedPolicies(); }

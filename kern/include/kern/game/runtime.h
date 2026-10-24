@@ -413,6 +413,23 @@ class GameWorld {
   /// Its servo joints now (radians, the MJCF angle) with their ranges: the policy's 14, the mouth.
   struct WalkerJoint { std::string name; f32 angle = 0, lower = 0, upper = 0; };
   std::vector<WalkerJoint> walker_joints(ActorId id) const;
+  // ---- Kern's play layer (walker_play.cpp): ball and sock, a learned network (docs/lehrer.md) ------
+  static constexpr i32 kPlayObs = 23, kPlayActions = 9;
+  static constexpr i32 kPlayDecisionTicks = 2;  // control ticks per play decision (25 Hz)
+  /// What the play network of walker `id` sees now (side-effect free; exact between ticks).
+  bool walker_play_observation(ActorId id, f32 out[kPlayObs]) const;
+  /// The Lehrer drives the play layer: at each decision its action replaces play.onnx's, and the
+  /// layer is always engaged.
+  bool set_walker_play_external(ActorId id, bool on);
+  bool set_walker_play_action(ActorId id, const f32 action[kPlayActions]);
+  /// The camera's detector as a device model: position noise (sd = abs + rel x distance, real
+  /// metres) and the share of frames it misses an object.
+  struct DetectorModel { f32 sigma_abs = 0, sigma_rel = 0, dropout = 0; u64 seed = 1; };
+  bool set_walker_detector(ActorId id, const DetectorModel& model);
+  /// True when the next fixed step starts a control tick that is also a play decision (25 Hz).
+  bool walker_play_due(ActorId id) const;
+  /// Whether the play network drives walker `id` now.
+  bool walker_playing(ActorId id) const;
   /// Head camera of walker `id`: is `target` in its picture with nothing in between?
   bool walker_sees(ActorId id, ActorId target, bool& visible, f32& bearing, f32& distance) const;
   /// The current behaviour of walker `id` ("Wander", "Chill"... "" = none).
@@ -445,6 +462,11 @@ class GameWorld {
   void drive_walkers(f32 h);
   void sense_walker(WalkerBrain& w);
   void think_walker(WalkerBrain& w, f32 dt);  // the autonomous behaviour (walker_brain.cpp)
+  // Kern's play layer (walker_play.cpp)
+  void ensure_play(WalkerBrain& w) const;
+  void play_walker(WalkerBrain& w, f32 dt);
+  void sense_play(WalkerBrain& w, f32 dt);
+  bool walker_play_available(const WalkerBrain& w) const;
   struct PolicyStatus { bool ground_pick = false, sit_stand = false, kick_left = false; };
   PolicyStatus walker_abilities(const WalkerBrain& w) const;  // which of its moves are loaded
   void run_controller(WalkerBrain& w, f32 obs[61]);  // robotd's controller: network, scale, low-pass

@@ -106,6 +106,9 @@ struct GameWorld::WalkerBrain {
   // The autonomous brain (walker_brain.cpp).
   struct Brain;
   std::shared_ptr<Brain> brain;
+  // Kern's play layer: the learned network for ball and sock (walker_play.cpp).
+  struct Play;
+  std::shared_ptr<Play> play;
   // The idle look-around (robotd's idle_head.rs, walker_brain.cpp), on top of the head command.
   struct Idle;
   std::shared_ptr<Idle> idle;
@@ -119,6 +122,39 @@ struct GameWorld::WalkerBrain {
   f64 petted_until = -1;                 // walker_pet: a hand on it until this simulation time
   i32 heard = 0;                         // walker_hear: 1 a noise, 2 a voice, this tick
   std::string state = "";
+};
+
+/// Kern's play layer's state (walker_play.cpp).
+struct GameWorld::WalkerBrain::Play {
+  struct Track {
+    bool known = false;
+    ActorId actor = 0;
+    f32 x = 0, y = 0;   // world, real metres
+    f32 age = 99;       // real seconds since the detector last reported it
+  };
+  Track track[2];       // 0 ball, 1 sock
+  std::unordered_map<ActorId, f32> rest;  // habituation: seconds left
+  bool external = false;
+  f32 external_action[GameWorld::kPlayActions] = {};
+  f32 action[GameWorld::kPlayActions] = {};  // the last decision
+  i64 tick = 0;                              // control ticks since start (a decision every kPlayDecisionTicks)
+  bool engaged = false, started_move = false, was_holding = false;
+  f32 carry_from[2] = {0, 0}, carry_time = 0;
+  f32 still = 0;                             // real seconds its walking command has been zero
+  f32 walking = 0;                           // real seconds it has been told forward (+) / back (-)
+  ActorId carried = 0;
+  DetectorModel detector;
+  u64 rng = 1;
+  f32 uniform() {  // the detector's noise: deterministic (xorshift64)
+    rng ^= rng << 13;
+    rng ^= rng >> 7;
+    rng ^= rng << 17;
+    return static_cast<f32>(rng >> 40) * (1.0f / 16777216.0f);
+  }
+  f32 normal() {
+    const f32 a = max_of(1e-7f, uniform()), b = uniform();
+    return std::sqrt(-2 * kern::dm::log(a)) * kern::dm::cos(6.2831853f * b);
+  }
 };
 
 class GameWorld::LogicHost : public logic::Host {

@@ -273,6 +273,7 @@ std::vector<Actor> micro_duck_sock_actors() {
     c.shape = ColliderShape::sphere;
     c.radius = r;
     c.friction = 1;  // cotton on TPU and wood
+    c.rolling_resistance = 0.5f;  // a lump of cloth does not roll (round lumps would, and the heap crawls)
     a.colliders.push_back(c);
     for (int m = 0; m < k; ++m) {
       if (length(lumps[k] - lumps[m]) > 0.025f * S) continue;
@@ -1218,8 +1219,10 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     const PhaseDef& d = w.rollers ? set.crouch : set.pick;
     const f32 before = w.pick_phase;
     w.pick_phase += kControlPeriod / d.period;
-    if (w.kern_extras && !w.rollers && before < kPickOpen && w.pick_phase >= kPickOpen) w.mouth_open = 1;  // open at the bottom
-    if (w.kern_extras && !w.rollers && before < kPickClose && w.pick_phase >= kPickClose) w.mouth_open = 0;  // bite
+    // (With the play network the beak is the network's: it learned when to open and bite.)
+    const bool beak = w.kern_extras && !w.rollers && !walker_play_available(w);
+    if (beak && before < kPickOpen && w.pick_phase >= kPickOpen) w.mouth_open = 1;  // open at the bottom
+    if (beak && before < kPickClose && w.pick_phase >= kPickClose) w.mouth_open = 0;  // bite
     if (w.pick_phase >= d.end_phase) w.pick_phase = -1;
   }
   if (w.skill >= 0) {
@@ -1270,6 +1273,7 @@ void GameWorld::drive_walkers(f32 h) {
       }
       sense_walker(w);
       think_walker(w, kControlPeriod);
+      play_walker(w, kControlPeriod);  // Kern's learned play layer (ball, sock), when engaged
       f32 cmd[3] = {0, 0, 0}, head[4] = {0, 0, 0, 0};
       if (w.manual_left > 0) {
         cmd[0] = clamp(in.move_y, -1.0f, 1.0f) * kMaxForward;
@@ -1304,8 +1308,10 @@ void GameWorld::drive_walkers(f32 h) {
       for (int i = 0; i < 3; ++i) w.body[i] = body_active ? w.body[i] + kCommandAlpha * (body_target[i] - w.body[i]) : 0.0f;
       // Still, as robotd decides it: nothing asks it to move or is moving it, nobody has steered the
       // head lately, it is upright. Then the idle look-around rides on the smoothed head command.
+      if (w.play && w.play->engaged) steered = true;  // the play layer steers the head even when it holds it straight
       w.head_age = steered ? 0.0f : w.head_age + kControlPeriod;
-      bool still = !w.sensors.fallen && cmd[0] == 0 && cmd[1] == 0 && cmd[2] == 0;
+      // A move running (a pick, a kick, sitting) is not standing still.
+      bool still = !w.sensors.fallen && cmd[0] == 0 && cmd[1] == 0 && cmd[2] == 0 && w.pick_phase < 0 && w.skill < 0 && w.sit == WalkerBrain::Sit::up;
       for (f32 v : w.command) still = still && std::fabs(v) < 1e-3f;
       f32 idle[4];
       idle_walker(w, still, kControlPeriod, idle);

@@ -5337,112 +5337,113 @@ TEST(physics_materials_of_meshes_and_the_ground) {
   CHECK(ground_ok);
 }
 
+/// Kern's play network (kern/policies/play.onnx, trained by the Lehrer: docs/lehrer.md, "Spielen").
+bool load_play_policy() {
+  std::string dir = __FILE__;
+  dir = dir.substr(0, dir.find_last_of('/')) + "/../policies/";
+  std::vector<u8> bytes;
+  if (FILE* fp = std::fopen((dir + "play.onnx").c_str(), "rb")) {
+    u8 buf[65536];
+    std::size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, fp)) > 0) bytes.insert(bytes.end(), buf, buf + n);
+    std::fclose(fp);
+  }
+  auto p = std::make_shared<game::WalkerPolicy>();
+  std::string error;
+  if (!game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), *p, &error)) return false;
+  p->file = "play.onnx";
+  game::register_walker_policy(p);
+  return true;
+}
+
 TEST(micro_duck_plays_with_a_ball_on_its_own) {
-  // Autonomous: a ball 30 cm (real) away, a little to the side. The duck sees it with its head
-  // camera, walks up until the ball lies in front of its left foot and kicks it.
+  // Autonomous, with Kern's play network: a ball 30 cm (real) away, a little to the side. The network
+  // sees it through the camera's detector, walks the duck up until the ball lies in front of its
+  // left foot and starts Pollen's kick - nothing in the code decides any of it.
   load_duck_policies();
+  CHECK(load_play_policy());
   const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
   GameFixture f;
   game::Level l = game::basic_level();
   for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
   const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
-    l.find(duck)->controller->kern_extras = true;  // Kern additions
+  l.find(duck)->controller->kern_extras = true;  // Kern's play layer
   game::Actor ball;
   ball.name = "Ball";
-  ball.transform.position = {1.2f, 0.3f, 0.14f};
+  ball.tags = {"ball"};
+  ball.transform.position = {1.2f, 0.3f, 0.16f};
   ball.mesh = game::MeshComponent{};
   ball.mesh->shape = game::Shape::sphere;
-  ball.mesh->radius = 0.14f;
+  ball.mesh->radius = 0.16f;
+  ball.mesh->rolling_resistance = 0.03f;
   ball.body = game::BodyComponent{};
-  ball.body->mass = 0.015f * 64;
+  ball.body->mass = 0.03f * 64;
   const game::ActorId bid = l.add(ball).id;
   f.world->sync(l);
   CHECK(f.world->start(l, game::SimMode::simulate));
-  bool kicked = false, fell = false;
-  std::string last;
-  for (int i = 0; i < 100 * 90 && !kicked; ++i) {
+  Mat4 b0;
+  f.world->actor_matrix(bid, b0);
+  bool kicked = false, played = false, fell = false;
+  for (int i = 0; i < 100 * 60 && !kicked; ++i) {
     f.world->step(1.0f / 100, {});
-    const std::string st = f.world->walker_state(duck);
+    played = played || f.world->walker_state(duck) == "Play";
     kicked = f.world->walker_driving(duck) == "kick_left";
-    fell = fell || st == "GetUp";
-    if (print && (st != last || i % 500 == 0)) {
+    fell = fell || f.world->walker_state(duck) == "GetUp";
+    if (print && i % 200 == 0) {
       Mat4 t, bm;
       f.world->actor_matrix(duck, t);
       f.world->actor_matrix(bid, bm);
-      std::printf("  %6.2f s %-10s trunk %.3f %.3f ball %.3f %.3f\n", i / 100.0, st.c_str(), t.translation().x, t.translation().y, bm.translation().x, bm.translation().y);
+      std::printf("  %6.2f s %-8s trunk %.3f %.3f ball %.3f %.3f\n", i / 100.0, f.world->walker_state(duck).c_str(), t.translation().x, t.translation().y, bm.translation().x, bm.translation().y);
     }
-    last = st;
   }
-  Mat4 bm0, t0;
-  f.world->actor_matrix(bid, bm0);
-  f.world->actor_matrix(duck, t0);
-  {
-    const Vec3 d = bm0.translation() - t0.translation();
-    const f32 h = std::atan2(t0.m[1], t0.m[0]);
-    if (print) std::printf("  at the kick the ball is %.3f ahead, %.3f left (real m)\n", (d.x * std::cos(h) + d.y * std::sin(h)) / 4, (-d.x * std::sin(h) + d.y * std::cos(h)) / 4);
-    for (const game::Actor& a : l.actors)
-      if (print && (a.name == "left_ankle" || a.name == "right_ankle")) {
-        Mat4 am;
-        f.world->actor_matrix(a.id, am);
-        const Vec3 e = am.translation() - t0.translation();
-        std::printf("  %s %.3f ahead, %.3f left\n", a.name.c_str(), (e.x * std::cos(h) + e.y * std::sin(h)) / 4, (-e.x * std::sin(h) + e.y * std::cos(h)) / 4);
-      }
-  }
-  for (int i = 0; i < 300; ++i) {
-    f.world->step(1.0f / 100, {});
-    if (print && i % 10 == 0)
-      for (const game::Actor& a : l.actors)
-        if (a.name == "left_ankle") {
-          Mat4 am, bb;
-          f.world->actor_matrix(a.id, am);
-          f.world->actor_matrix(bid, bb);
-          std::printf("    +%.2f %s ankle %.3f %.3f %.3f ball %.3f %.3f %.3f\n", i / 100.0, f.world->walker_driving(duck).c_str(), am.translation().x, am.translation().y, am.translation().z, bb.translation().x, bb.translation().y, bb.translation().z);
-        }
-  }
-  Mat4 bm1;
-  f.world->actor_matrix(bid, bm1);
-  if (print) std::printf("  ball moved %.3f after the kick\n", length(bm1.translation() - bm0.translation()));
+  for (int i = 0; i < 300; ++i) f.world->step(1.0f / 100, {});
+  Mat4 b1;
+  f.world->actor_matrix(bid, b1);
+  CHECK(played);
   CHECK(kicked);
   CHECK(!fell);
-  CHECK(length(bm1.translation() - bm0.translation()) > 0.2f);  // and the ball rolls
+  CHECK(length(b1.translation() - b0.translation()) > 0.25f * 4);  // and the ball rolls off (25 cm real)
 }
 
 TEST(micro_duck_fetches_a_sock_on_its_own) {
-  // Autonomous: a sock 30 cm (real) away in front. The duck sees it with its head camera, walks up to
-  // it until it lies where the beak bites, picks it up (again when the encoder says it missed),
-  // carries it off and puts it down.
+  // Autonomous, with Kern's play network: a sock 30 cm (real) away in front. The network walks the
+  // duck up, starts Pollen's ground pick, opens and shuts the beak, carries the sock off and spits
+  // it out - learned, not written (docs/lehrer.md, "Spielen").
   load_duck_policies();
+  CHECK(load_play_policy());
   const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
   GameFixture f;
   game::Level l = game::basic_level();
   for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
   const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
-    l.find(duck)->controller->kern_extras = true;  // Kern additions
-  const game::ActorId first = add_sock(l, {1.2f, 0.25f, 0});
+  l.find(duck)->controller->kern_extras = true;  // Kern's play layer
+  const game::ActorId first = add_sock(l, {1.2f, 0.0f, 0});
   f.world->sync(l);
   CHECK(f.world->start(l, game::SimMode::simulate));
-  bool carried = false, fetched = false;
-  std::string last;
-  for (int i = 0; i < 100 * 120 && !carried; ++i) {
-    f.world->step(1.0f / 100, {});
-    const std::string st = f.world->walker_state(duck);
-    fetched = fetched || st == "Fetch";
-    f32 low = 1e9f;
+  auto sock = [&](f32& low) {
+    Vec3 sum{};
+    low = 1e9f;
     for (game::ActorId k = first; k < first + 7; ++k) {
       Mat4 m;
       f.world->actor_matrix(k, m);
+      sum = sum + m.translation();
       low = min_of(low, m.translation().z);
     }
-    carried = st == "Carry" && low > 0.15f && f.world->walker_holding(duck);
-    if (print && (st != last || i % 500 == 0)) {
-      Mat4 t;
-      f.world->actor_matrix(duck, t);
-      std::printf("  %6.2f s %-10s trunk %.3f %.3f sock low z %.3f\n", i / 100.0, st.c_str(), t.translation().x, t.translation().y, low);
-    }
-    last = st;
+    return sum * (1.0f / 7);
+  };
+  bool carried = false, put_down = false;
+  Vec3 picked_at{};
+  for (int i = 0; i < 100 * 120 && !put_down; ++i) {
+    f.world->step(1.0f / 100, {});
+    f32 low = 0;
+    const Vec3 at = sock(low);
+    const bool up = low > 0.15f && f.world->walker_holding(duck);
+    if (up && !carried) { carried = true; picked_at = at; }
+    if (carried && !f.world->walker_holding(duck) && low < 0.05f && length(Vec3{at.x - picked_at.x, at.y - picked_at.y, 0}) > 0.2f * 4) put_down = true;
+    if (print && i % 200 == 0) std::printf("  %6.2f s %-8s sock %.3f %.3f low %.3f holding %d\n", i / 100.0, f.world->walker_state(duck).c_str(), at.x, at.y, low, f.world->walker_holding(duck));
   }
-  CHECK(fetched);
   CHECK(carried);
+  CHECK(put_down);
 }
 
 TEST(micro_duck_roams_on_its_own_with_its_tof) {

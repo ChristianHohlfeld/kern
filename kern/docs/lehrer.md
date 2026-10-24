@@ -23,6 +23,7 @@ exportiert (61 Beobachtungen, 14 Aktionen) und kann wie diese auf den Roboter.
 | 7. Der Sprung: Vorbild → Nachahmen → Üben; als Bewegung im Studio | fertig |
 | 8. Determinismus: Bit für Bit auf jeder Plattform und mit jeder Zahl Worker | fertig |
 | 9. Digitaler Zwilling: Gerätemodelle, Kalibrierung, Abgleich (`docs/kalibrierung.md`) | fertig (ohne echte Messdaten) |
+| 10. Spielen: Ball kicken, Socke aufheben, wegtragen, ausspucken – ein gelerntes Netz (Abschnitt 8) | Ball fertig; Socke gelernt, Erfolgsquote niedrig |
 
 ## 1. Die Umgebung (`src/lehrer`)
 
@@ -141,24 +142,24 @@ Ohne Vorbild folgt der Rumpf zusätzlich einer Referenzhöhe (nur in der Belohnu
 
 ### Ergebnis
 
-`kern/policies/jump.onnx` (Lauf mit 32 Enten auf 2 Kernen, Seed 1, Rezept `recipe_for("jump")`):
+`kern/policies/jump.onnx` (Lauf mit 32 Enten auf 2 Kernen, Seed 1, Rezept `recipe_for("jump")`, 3000 Iterationen Üben):
 
 | | sauberer Roboter (40 Episoden) | volle Variation (40 Episoden) |
 |---|---|---|
-| echte Sprünge | 39 von 40 | 21 von 40 |
-| Steigen in der Luft | 11,3 mm | 7,1 mm |
-| Flugzeit | 120 ms | 107 ms |
-| Neigung (größte, Mittel) | 9° | 12° |
-| Stürze | 0 von 40 (0 %) | 2 von 40 (5 %) |
+| echte Sprünge | 40 von 40 | 36 von 40 |
+| Steigen in der Luft | 11,6 mm | 8,2 mm |
+| Flugzeit | 120 ms | 109 ms |
+| Neigung (größte, Mittel) | 8° | 9° |
+| Stürze | 0 von 40 | 0 von 40 |
 
 „Volle Variation“ ist Pollens Kick-Rezept am Ende seiner Lehrpläne: Rumpfmasse ±5 %, Schwerpunkt
 von Rumpf und Kopf ±15 / ±10 mm, jeder Servo mit eigener Reibung und Rotorträgheit (±10 %), Totzeit
 15–30 ms, IMU 0–20 ms verspätet, Sensorrauschen, Encoder-Versatz, Sohlenreibung 0,7–1,3, ±3°
-Startneigung. Die Ente fällt dort in 5 % der Fälle; wenn sie nicht als echter Sprung zählt, ist es
-meist ein zu flacher (unter 5 mm Steigen), nicht ein Sturz.
+Startneigung. Die Ente fällt dort nicht; wenn ein Sprung nicht als echter zählt, ist es ein zu
+flacher (unter 5 mm Steigen).
 
 Im Studio (Test `micro_duck_jumps_for_real_in_the_studio`, die Bewegung „jump“ im Level, Welt
-Bild für Bild): 3 von 3 echte Sprünge, Steigen 8,7 mm, Flug 120 ms, Neigung 9°, danach steht und
+Bild für Bild): 3 von 3 echte Sprünge, Steigen 9,0 mm, Flug 120 ms, Neigung 8°, danach steht und
 läuft die Ente wieder.
 
 Im Studio springt die Ente mit Taste **7**, dem Touch-Knopf **HOP** oder dem Logik-Knoten Robot Move
@@ -167,16 +168,35 @@ gelerntes Netz ersetzt es.
 
 ### Zeit bis zum ersten echten Sprung
 
-Gemessen auf 2 Kernen (x86, nativ):
+Der Weg (Rezept `recipe_for("jump")`, 32 Enten, Seed 1):
 
-| Schritt | Zeit | Entenschritte | Ergebnis |
+| Schritt | Entenschritte | Ergebnis |
+|---|---|---|
+| Vorbild suchen (einmalig; eingebaut, muss niemand wiederholen) | rund 2 Mio. (18 min auf 2 Kernen) | 16 von 20 sauber, 0 Stürze |
+| Nachahmen, Runde 1–7 | 43 355 | erster echter Sprung des Netzes (5 von 5) |
+| Nachahmen, Runde 8 | 49 936 | 5 von 5 |
+| Üben, 3000 Iterationen | 2,3 Mio. | robust (Tabelle oben) |
+
+Gemessen (alle auf derselben x86-Maschine mit 2 Kernen; weil der Lauf überall Bit für Bit gleich
+ist, gilt die Zahl der Entenschritte für jedes Gerät, nur die Zeit hängt vom Gerät ab):
+
+| Plattform | Erster echter Sprung | Nachahmen fertig | Üben (Entenschritte/s) |
 |---|---|---|---|
-| Vorbild suchen (einmalig, eingebaut) | 18 min | rund 2 Mio. | Vorbild: 16 von 20 sauber, 0 Stürze |
-| Nachahmen, 8 Runden | 2,3 min | 50 000 | ab Runde 7 echte Sprünge (5 von 5) |
-| Üben, 1500 Iterationen | 33 min | 1,15 Mio. | robust (Tabelle oben) |
+| nativ, 2 Threads | 106 s | 133 s | 1431 |
+| nativ, 1 Thread | – | – | 763 |
+| Browser (Chromium, 2 Sammler-Worker + Lerner) | 515 s | 661 s | 391 |
+| Browser, alles auf 1 Kern (1 Sammler + Lerner) | 539 s | 689 s | 336 |
 
-Das eingebaute Vorbild muss niemand neu suchen. Wer den Sprung selbst lernt, braucht also Nachahmen
-(rund 2 min auf 2 Kernen bis zum ersten echten Sprung) und dann Übung für die Robustheit.
+- Der Browser lernt dasselbe Netz: gleiche Beispiele (49 936) und gleicher Nachahmungsfehler
+  (0,0108) wie nativ.
+- Der Browser ist beim Nachahmen rund 5-mal langsamer als nativ, beim Üben knapp 4-mal: WebAssembly
+  ohne SIMD und ohne Threads innerhalb eines Workers; das Verhaltensklonen im Lerner-Worker läuft
+  auf einem Kern. Das ist der nächste Hebel (WASM-SIMD, Threads im Lerner).
+- **Handy:** Chromes CPU-Drosselung (4×, DevTools-Protokoll) bremst nur den Hauptthread, nicht die
+  Worker (gemessen: 542 statt 515 s) und taugt deshalb nicht als Handy-Profil. Gemessen ist
+  stattdessen der Ein-Kern-Fall (oben). Ein Handy mit 2 nutzbaren Kernen braucht etwa
+  „Zeile Browser, 2 Worker“ × (Desktop-Kern / Handy-Kern); die Seite `/lehrer/` zeigt auf dem Gerät
+  selbst die Entenschritte/s.
 
 ## 4. Export (`src/lehrer/onnx_export.cpp`)
 
@@ -206,7 +226,7 @@ Wie Pollens Velocity- und Kick-Rezepte. Der Critic sieht den sauberen Zustand.
 
 ```
 kern/tools/lehrer.sh                      # baut kern/build/kern_lehrer (Linux und macOS, x86 und ARM)
-kern/build/kern_lehrer --task jump --iterations 1500 --out jump.onnx --log jump.csv --checkpoint run.ckpt
+kern/build/kern_lehrer --task jump --iterations 3000 --out jump.onnx --log jump.csv --checkpoint run.ckpt
 kern/build/kern_lehrer --eval jump.onnx --episodes 40      # sauber und mit voller Variation
 kern/build/kern_lehrer --trace jump.onnx                   # eine Episode Takt für Takt
 kern/build/kern_lehrer --vorbild-suchen demo.json          # ein neues Vorbild (CMA-ES)
@@ -230,9 +250,11 @@ kern/build/kern_lehrer --vorbild-suchen demo.json          # ein neues Vorbild (
 
 ### Geschwindigkeit
 
-- **Nativ, x86, 2 Kerne:** rund 1200 Entenschritte/s beim Üben (Sammeln und Lernen zusammen). Ein
-  Schritt sind 4 Weltschritte mit je 16 Box3D-Substeps, wie im Studio. Der Engpass ist der
-  Gelenk-Löser von Box3D.
+- **Physik:** rund 1300 Entenschritte/s je Kern nativ (nur Sammeln). Ein Schritt sind 4
+  Weltschritte mit je 16 Box3D-Substeps, wie im Studio. Der Engpass ist Box3Ds Gelenk-Löser; 8
+  Substeps wären 1,6-mal schneller, verändern aber Gang und Extras messbar und bleiben deshalb aus.
+- **Üben** (Sammeln und Lernen): 763 Schritte/s auf 1 Kern, 1431 auf 2 Kernen nativ; 391 im Browser
+  auf 2 Kernen (siehe die Tabelle beim Sprung).
 
 ## 7. Determinismus: Bit für Bit, auf jeder Plattform
 
@@ -281,7 +303,94 @@ Alles, was die Simulation speist, nutzt `kern::dm::sin` usw. statt `std::sin`. K
 Gleitkomma-Reihenfolge, die von der Zahl der Threads abhängt (Summen in fester Reihenfolge). Keine
 `-ffast-math`-Optionen.
 
-## 8. Die Läufe bis hierher
+## 8. Spielen: Ball und Socke (`spielen.cpp`, `walker_play.cpp`)
+
+Pollens Netze sind die Bewegungen der Ente (Laufen, Aufheben, Kicks); keins davon sieht. Was die
+Ente mit einem Ball oder einer Socke vor der Kamera tut – hinschauen, hingehen, kicken, aufheben,
+wegtragen, ausspucken – entscheidet ein eigenes Netz: `kern/policies/play.onnx`, die Spielschicht.
+Es ersetzt den früheren handgeschriebenen Code im Gehirn (BallPlay, Fetch, Carry), der entfernt ist.
+
+- **Wo es sitzt:** an der Stelle eines Gamepads. 25-mal pro Sekunde liest es, was der Detektor der
+  Kamera meldet und was die Ente spürt, und antwortet mit dem Laufbefehl, dem Kopf, dem Schnabel und
+  welche Bewegung es starten will (`kick_left`, `pick`). Es ist eingeschaltet, solange es ein Objekt
+  kennt, etwas im Schnabel hat oder eine von ihm gestartete Bewegung läuft; sonst läuft Pollens
+  Gehirn wie bisher. Im Level schaltet es `kernExtras` ein (das Beispiel-Level hat es an).
+- **23 Beobachtungen:** Ball und Socke aus dem Detektor (bekannt, voraus, links, Alter), linker
+  Fuß, Schnabel (hält er etwas? wie weit offen?), welche Bewegung läuft und ihre Phase, Schwerkraft,
+  wie weit und wie lange es etwas trägt, wie lange es still steht, wie lange es vor- oder
+  zurückgeht. Keine wahren Positionen.
+- **9 Aktionen:** vor, seitlich, drehen, Kopf gieren, Kopf nicken, Schnabel, Kick, Aufheben, Hals.
+  Der Laufbefehl hat eine Totzone wie ein Gamepad-Stick (unter 20 % steht die Ente).
+- **Der Detektor** ist ein Gerätemodell wie der Servo: was im Bild der Kopfkamera liegt und nicht
+  verdeckt ist, mit Rauschen und Aussetzern, die der Lehrer variiert; ein Tracker behält es, wenn
+  es aus dem Bild ist (unter der Kamera bis 30 s). Eben gekickte Bälle und abgelegte Socken meldet
+  er eine Weile nicht.
+
+### Wie es lernt
+
+Wie der Sprung: ein Vorbild, dann Nachahmen (DAgger). Das Vorbild (`PlayEnv::teacher`) sieht
+dasselbe wie das Netz und hat kein verstecktes Gedächtnis (nur, wo der linke Fuß zu Beginn stand);
+so kann das Netz es genau lernen. Es geht in einer Linie auf das Ziel zu, lenkt statt seitlich zu treten, bleibt kurz davor stehen,
+wartet, bis es steht, und startet dann die Bewegung; liegt das Ziel nicht richtig, geht es zurück
+und kommt neu. Der Wunsch nach Kick oder Aufheben steigt über die letzte halbe Sekunde des
+Stillstehens an (eine Rampe statt eines einzelnen Impulses), damit das Netz ihn aus der
+Stehzeit lernen kann.
+
+Was das Vorbild nicht von Hand weiß, ist gemessen:
+
+- **Wo der Schnabel greift** (`kern_lehrer --biss-fenster`): Sockenmitte 6,3 cm vor dem Rumpf
+  (±8 mm voraus, ±12 mm seitlich), der Schnabel offen von Phase 0,04 bis 0,30 des Aufhebens. Etwa
+  jeder vierte Biss hält die Socke danach noch.
+- **Wie weit die Ente nach „Stopp“ noch geht** (`kern_lehrer --halt-messen`): 0,6 cm aus 0,12 m/s;
+  unter etwa 0,12 m/s setzt Pollens Gang aus dem Stand gar nicht erst an.
+
+Dabei kamen drei Fehler in der Welt ans Licht, die alle behoben sind:
+
+- Die Socke kroch von selbst über den Boden (runde Stoffklumpen rollten). Sie hat jetzt
+  Rollwiderstand und liegt still.
+- Der Ball rollte ewig. Er hat jetzt Rollwiderstand wie ein Gummiball auf Holz.
+- Während des Aufhebens öffnete das Gähnen des Leerlaufs den Schnabel. Eine laufende Bewegung zählt
+  nicht mehr als Stillstehen.
+
+### Ergebnis
+
+`kern/policies/play.onnx` (12 Runden Nachahmen mit je 32 Episoden zu 60 s, halb sauberer Roboter,
+halb volle Variation; ausgewählt ist Runde 10 von 12 mit 328 921 Beispielen, nach 21 min auf 2 Kernen).
+Gemessen über 32 Episoden je Zeile, Ball und Socke 0,35–1,2 m entfernt, meist vor der Ente, manchmal
+daneben oder dahinter:
+
+| | Ball weggekickt | Socke aufgehoben, weggetragen, ausgespuckt | Griffe, die hielten | Stürze |
+|---|---|---|---|---|
+| Netz, sauberer Roboter | 13 von 14 (im Mittel nach 18 s) | 3 von 18 (nach 40 s) | 4 von 25 | 0 von 32 |
+| Netz, volle Variation | 7 von 13 | 0 von 19 | 6 von 32 | 8 von 32 |
+| Vorbild, sauberer Roboter (48 Episoden) | 19 von 21 | 3 von 27 | 15 von 67 | 1 von 48 |
+| Vorbild, volle Variation (48 Episoden) | 9 von 13 | 5 von 35 | 14 von 54 | 12 von 48 |
+
+- **Ball:** gelernt. Das Netz findet den Ball, geht hin, stellt den linken Fuß dahinter und startet
+  Pollens Kick; auf dem sauberen Roboter fast immer.
+- **Socke:** gelernt, aber selten in 60 s erfolgreich. Das Netz geht hin, stellt sich hin, öffnet
+  den Schnabel im richtigen Moment und beißt; danach trägt es die Socke weg und spuckt sie aus. Der
+  Engpass ist der Griff selbst: Pollens Aufheben bringt den Schnabel jedes Mal fast gleich herunter,
+  und nur jeder vierte bis dritte Biss hält die weiche Socke; mancher Griff verliert sie beim
+  Losgehen. Das Netz versucht es so lange, bis es klappt. Im Studio hat es dafür alle Zeit.
+- **Variation:** Pollens Gang selbst setzt mit steiferen Servos und rutschigeren Sohlen bei kleinen
+  Befehlen nicht an und fällt beim Drehen auf der Stelle öfter. Hier ist das nächste Stück Arbeit
+  (Üben mit PPO in der Spielschicht).
+- Tests: `micro_duck_plays_with_a_ball_on_its_own` (Ball 30 cm vor der Ente: gekickt nach 24 s,
+  rollt weg) und `micro_duck_fetches_a_sock_on_its_own` (Socke aufgehoben nach 32 s, 27 cm weit
+  getragen, ausgespuckt) – Studio-Physik, Bild für Bild, nur das Netz entscheidet.
+
+Befehle:
+
+```
+kern_lehrer --spielen [--nachahmen 12] [--episoden 32] [--out play.onnx]
+kern_lehrer --spielen-pruefen vorbild|play.onnx [--episodes 32]
+kern_lehrer --spielen-spur --seed 3 [--randomized] [--netz play.onnx]
+kern_lehrer --biss-fenster      # wo der Schnabel eine Socke greift
+kern_lehrer --halt-messen       # wie weit die Ente nach „Stopp“ noch geht
+```
+
+## 9. Die Läufe bis hierher
 
 - **PPO allein** (Läufe 1–9): erst Ausnutzen der Belohnung (auf dem Schwanz sitzen, Hechtsprung,
   sich abstützen; jeweils durch strengere Regeln beseitigt), dann stabiles Stehen ohne Sprung; mit

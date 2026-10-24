@@ -155,6 +155,10 @@ KERN_EXPORT(kern_studio_pending_policies) const char* kern_studio_pending_polici
   if (robot && json::parse(game::micro_duck_manifest(), m))
     for (const json::Value& p : m["policies"].items())
       if (!game::walker_policy(p["file"].as_string())) list.push(p["file"].as_string());
+  // Kern's own networks (kern/policies/, docs/lehrer.md): the jump and the play layer.
+  if (robot)
+    for (const char* file : {"jump.onnx", "play.onnx"})
+      if (!game::walker_policy(file)) list.push(file);
   return answer(list);
 }
 

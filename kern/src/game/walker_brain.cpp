@@ -10,11 +10,9 @@
 // autod also believes perfect. Its head pitch is "positive up", flipped on the way out as autod's
 // main.rs does.
 //
-// Kern additions, not in Pollen's brain (it has no ball or sock detector): BallPlay (walk up until
-// the ball lies where ball_kick_left's training puts it, kick) and Fetch / Carry (walk up to a sock,
-// ground pick, carry it off, put it down). They use the head camera's picture (walker_sees) as the
-// detector. Kern has no microphone or touch sensor: hearing and petting come from walker_hear /
-// walker_pet.
+// Pollen's brain has no ball or sock detector: playing with a ball or a sock is Kern's play layer, a
+// learned network (walker_play.cpp, docs/lehrer.md), which takes over while it is engaged. Kern has
+// no microphone or touch sensor: hearing and petting come from walker_hear / walker_pet.
 //
 // Everything runs in the policy's control tick (50 Hz real); the random choices come from a
 // generator seeded with the actor id, so a run is deterministic.
@@ -57,12 +55,6 @@ constexpr f64 kPickAckS = 1.5;
 constexpr f64 kMaxLinear = 0.3, kMaxAngular = 1.5;  // robotd_params::drive (the pad's speeds)
 constexpr f64 kSelfAudioS = 1.5;                    // main.rs SELF_AUDIO
 
-// ---- Kern: ball play and sock fetching ------------------------------------------------------------
-constexpr f64 kBiteAhead = 0.0588, kBiteLeft = 0.0075, kBiteTolerance = 0.004;  // where the beak takes a sock (test micro_duck_picks_up_a_sock)
-constexpr f64 kKickAhead = 0.09, kKickLeft = 0.042, kKickTolerance = 0.015;     // microduck_ball_kick_env_cfg.py (left foot, BALL_POS_NOISE_XY +-1.5 cm)
-constexpr f64 kTargetForget = 6.0;   // s: a target not seen this long, while far, is given up
-constexpr f64 kSockRest = 40.0;      // s: a sock put down or missed four times is left alone
-
 constexpr f64 kTau = 6.283185307179586, kPi = 3.141592653589793;
 f64 wrap_angle(f64 a) {
   a = std::fmod(a + kPi, kTau);
@@ -71,8 +63,7 @@ f64 wrap_angle(f64 a) {
 }
 f64 sgn(f64 v) { return v < 0 ? -1.0 : 1.0; }
 
-enum class S : u8 { chill, look_around, wander, turn, zoomies, stretch, ruffle, dance, sneeze, ground_pick, nap, petted,
-                    fetch, act, carry };  // the last three: Kern
+enum class S : u8 { chill, look_around, wander, turn, zoomies, stretch, ruffle, dance, sneeze, ground_pick, nap, petted };
 const char* state_name(S s) {
   switch (s) {
     case S::chill: return "Chill";
@@ -87,9 +78,6 @@ const char* state_name(S s) {
     case S::ground_pick: return "GroundPick";
     case S::nap: return "Nap";
     case S::petted: return "Petted";
-    case S::fetch: return "Fetch";
-    case S::act: return "Kick";
-    case S::carry: return "Carry";
   }
   return "";
 }
@@ -144,14 +132,6 @@ struct GameWorld::WalkerBrain::Brain {
   // what main.rs keeps
   f64 quiet_until = -1;
   bool posing = false;
-  // Kern: the target it plays with (a ball) or fetches (a sock)
-  ActorId target = 0;
-  bool ball = false, acted = false;
-  f64 target_at[2] = {0, 0}, target_seen = 99, settle = 0;
-  i32 tries = 0;
-  std::unordered_map<ActorId, f64> rest;  // targets left alone for a while (s)
-  f64 foot_home[2] = {0, 0};
-  bool has_foot = false;
 
   static i64 cell_key(f64 x, f64 y) {
     const i64 cx = static_cast<i64>(std::floor(x / kCellM)), cy = static_cast<i64>(std::floor(y / kCellM));
@@ -264,9 +244,6 @@ struct GameWorld::WalkerBrain::Brain {
         break;
       }
       case S::ground_pick: state_dur = 60; break;
-      case S::fetch: settle = 0; state_dur = 60; break;  // Kern
-      case S::act: acted = false; state_dur = 12; break;  // Kern
-      case S::carry: state_dur = range(10.0, 20.0); break;  // Kern
     }
   }
   S pick_next_state(bool can_ground_pick, bool can_zoom, bool can_nap) {
@@ -404,13 +381,12 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
 
   if (busy) {
     if (b.pick_pending) b.pick_seen_busy = true;
-    if (b.state == S::act) b.acted = true;  // Kern: its kick / pick is running
     w.auto_cmd[0] = w.auto_cmd[1] = w.auto_cmd[2] = 0;
     std::fill(std::begin(w.auto_head), std::end(w.auto_head), 0.0f);
     w.auto_body_active = false;
     w.auto_mouth = static_cast<f32>(b.mouth_now());
     w.auto_wheee = false;
-    w.state = sn.fallen ? "GetUp" : b.state == S::act ? (b.ball ? "Kick" : "Pick") : state_name(b.state);
+    w.state = sn.fallen ? "GetUp" : state_name(b.state);
     return;
   }
   if (sitting && b.state != S::nap) { b.enter(S::nap); b.nap_sit_sent = true; }
@@ -422,7 +398,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
   f64 de = dt / 240.0;
   switch (b.state) {
     case S::zoomies: de = -dt / 25.0; break;
-    case S::wander: case S::fetch: case S::carry: de = -dt / 110.0; break;
+    case S::wander: de = -dt / 110.0; break;
     case S::turn: de = -dt / 70.0; break;
     case S::nap: de = dt / 40.0; break;
     case S::petted: de = dt / 60.0; break;
@@ -471,64 +447,10 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
     if (b.reply_in <= 0) { b.reply_in = -1; b.start_quack_burst(); sound = "chirp"; }
   }
   // Petting, the best interrupt there is.
-  if (petting && b.state != S::petted && b.state != S::nap && b.state != S::act && b.state != S::carry) {
+  if (petting && b.state != S::petted && b.state != S::nap) {
     b.pet_flavor = b.energy < 0.4 ? 2 : b.energy > 0.65 && b.chance(0.5) ? 1 : 0;
     b.pet_coo_in = 3.0;
     b.enter(S::petted);
-  }
-
-  // ---- Kern: a ball or a sock in the head camera's picture ---------------------------------------
-  for (auto it = b.rest.begin(); it != b.rest.end();) it = (it->second -= dt) <= 0 ? b.rest.erase(it) : std::next(it);
-  b.target_seen += dt;
-  {
-    const physics::Pose ap = physics_.pose(w.bodies[5]);  // the left ankle (links: trunk, left leg 1..5)
-    const f64 fx = (ap.position.x - tp.position.x) / S_, fy = (ap.position.y - tp.position.y) / S_;
-    const f64 a = fx * kern::dm::cos(pose[2]) + fy * kern::dm::sin(pose[2]), l = -fx * kern::dm::sin(pose[2]) + fy * kern::dm::cos(pose[2]);
-    if (!b.has_foot && b.clock > 1.0) { b.foot_home[0] = a; b.foot_home[1] = l; b.has_foot = true; }
-  }
-  const bool engaged = b.state == S::act || b.state == S::carry || b.state == S::nap || b.state == S::petted || b.state == S::ground_pick;
-  if (w.kern_extras && !w.rollers && !engaged) {  // Kern's additions only when asked for
-    f64 best = 1e300;
-    for (const Actor& a : level_.actors) {
-      const bool sock = std::find(a.tags.begin(), a.tags.end(), "sock") != a.tags.end();
-      const bool ball = !sock && a.body && a.body->motion == Motion::dynamic && a.mesh && a.mesh->shape == Shape::sphere &&
-                        (std::find(a.tags.begin(), a.tags.end(), "ball") != a.tags.end() || a.name == "Ball");
-      if (a.parent != 0 || b.rest.count(a.id) || !((ball && abilities.kick_left) || (sock && w.mouth && abilities.ground_pick))) continue;
-      if (b.state == S::fetch && b.target && a.id != b.target) continue;  // it keeps to what it went for
-      Vec3 sum{};
-      int n = 0;
-      bool seen = false;
-      for (const Actor& c : level_.actors) {
-        if (c.id != a.id && c.parent != a.id) continue;
-        Mat4 m;
-        if (!actor_matrix(c.id, m)) continue;
-        sum = sum + m.translation();
-        ++n;
-        bool visible = false;
-        f32 bearing = 0, distance = 0;
-        if (!seen && walker_sees(w.actor, c.id, visible, bearing, distance)) seen = visible;
-      }
-      if (!n) continue;
-      const Vec3 at = sum * (1.0f / static_cast<f32>(n));
-      if (at.z > (ball ? 0.08 : 0.03) * S_) continue;  // not on the floor
-      if (!seen) continue;
-      const f64 d = kern::dm::hypot(at.x / S_ - pose[0], at.y / S_ - pose[1]) * (sock ? 0.7 : 1.0);  // socks first
-      if (d < best) {
-        best = d;
-        if (b.target != a.id) b.tries = 0;
-        b.target = a.id;
-        b.ball = ball;
-        b.target_at[0] = at.x / S_;
-        b.target_at[1] = at.y / S_;
-        b.target_seen = 0;
-      }
-    }
-    // Close up the target is under the camera: it goes by where it saw it (it does not move by
-    // itself), and forgets it only when it was far.
-    const bool near = b.target && kern::dm::hypot(b.target_at[0] - pose[0], b.target_at[1] - pose[1]) < 0.3;
-    if (near && b.state == S::fetch) b.target_seen = std::min(b.target_seen, kTargetForget * 0.5);
-    if (b.target && b.target_seen >= kTargetForget) { b.target = 0; if (b.state == S::fetch) b.enter(S::look_around); }
-    if (b.target && b.target_seen < kTargetForget && b.state != S::fetch && !sitting) b.enter(S::fetch);
   }
 
   const f64 tw = kTau;
@@ -771,110 +693,9 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
         b.enter(S::chill);
       }
       break;
-    case S::fetch: {
-      // Kern: walk up to the target until it lies where the beak bites (a sock) or in front of the
-      // left foot (a ball), head up, then pick / kick.
-      const f64 c = kern::dm::cos(pose[2]), s = kern::dm::sin(pose[2]);
-      f64 want_ahead = b.ball ? kKickAhead : kBiteAhead, want_left = b.ball ? kKickLeft : kBiteLeft;
-      if (b.ball && b.has_foot) {  // the kick is trained from the home stance: measure from the foot
-        const physics::Pose ap = physics_.pose(w.bodies[5]);
-        const f64 fx = (ap.position.x - tp.position.x) / S_, fy = (ap.position.y - tp.position.y) / S_;
-        want_ahead += fx * c + fy * s - b.foot_home[0];
-        want_left += -fx * s + fy * c - b.foot_home[1];
-      }
-      const f64 tol = b.ball ? kKickTolerance : kBiteTolerance, side_tol = b.ball ? tol : tol * 1.5;
-      const f64 dx = b.target_at[0] - pose[0], dy = b.target_at[1] - pose[1];
-      const f64 ahead = dx * c + dy * s - want_ahead, side = -dx * s + dy * c - want_left;
-      const f64 dist = kern::dm::hypot(dx, dy), bearing = wrap_angle(kern::dm::atan2(dy, dx) - pose[2]);
-      b.cmd[0] = b.cmd[1] = b.cmd[2] = 0;
-      std::fill(std::begin(b.head), std::end(b.head), 0.0);
-      // Keep it in the picture: the head pitches down (to the training's 1.1 rad), and close by the
-      // neck bows too - neck -1.1 with head 1.1 points the camera 87 deg down and sees 6-15 cm in
-      // front of the trunk (test micro_duck_camera_sees_the_floor_in_front_when_looking_down).
-      // While it walks the head looks down only so far: bowing the neck shifts its weight forward
-      // and the gait suffers.
-      b.head[1] = -std::clamp(kern::dm::atan2(0.12, std::max(dist, 0.05)) - 0.3, 0.0, 0.8);  // positive up
-      if (dist > 0.25) {
-        // Up to a ball slower the closer it gets, so the gait has died down to small steps when it
-        // arrives (a ball walked into at full speed rolls away).
-        b.cmd[0] = std::fabs(bearing) > 0.6 ? 0.0 : std::clamp(b.ball ? (dist - 0.2) * 1.5 : dist * 1.2, kMinWalkVx, kMaxLinear);
-        b.cmd[2] = std::clamp(bearing * 1.5, -1.0, 1.0);
-        // No obstacle gate here: what the ToF sees ahead is the target itself.
-        b.cmd[0] = b.walkable(b.cmd[0], dt);
-        b.settle = 0;
-      } else if (std::fabs(ahead) > tol || std::fabs(side) > side_tol) {
-        // Small steps; never less than the gait starts walking at from a stand (autonomous.md: 0.25).
-        auto step = [](f64 e, f64 lo, f64 hi) { const f64 v = std::clamp(e * 2.0, -hi, hi); return std::fabs(v) < lo ? (v < 0 ? -lo : lo) : v; };
-        const f64 lo = b.ball ? 0.2 : 0.1, hi = b.ball ? 0.25 : 0.15;  // a sock needs finer steps
-        if (std::fabs(ahead) > tol) b.cmd[0] = step(ahead, lo, hi);
-        if (std::fabs(side) > side_tol) b.cmd[1] = step(side, lo, hi);
-        b.cmd[2] = std::clamp(wrap_angle(kern::dm::atan2(side + want_left, ahead + want_ahead) - kern::dm::atan2(want_left, want_ahead)) * 0.8, -0.3, 0.3);
-        if (std::fabs(b.cmd[2]) < 0.05) b.cmd[2] = 0;
-        b.settle = 0;
-      } else {
-        // There: head up (the kick and the pick were trained with the head at home), let the steps
-        // die out, then go.
-        // (No look down here: bowing neck and head - which would show the target at 6-15 cm - shifts
-        // the weight forward, the feet step, and the spot is lost. It goes by where it saw it.)
-        b.head[1] = 0;
-        b.settle += dt;
-        if (b.settle > (b.ball ? 3.0 : 1.2) && sn.speed / S_ < 0.01) {
-          if (walker_skill(w.actor, b.ball ? "kick_left" : "pick").empty()) { b.enter(S::act); b.tries++; }
-          else b.settle = 0;
-        }
-      }
-      if (b.t_state > 45) { b.rest[b.target] = kSockRest; b.target = 0; b.enter(S::look_around); }
-      break;
-    }
-    case S::act:
-      // Kern: the kick / pick runs on its own network (busy above); after it, the mouth encoder.
-      b.cmd[0] = b.cmd[1] = b.cmd[2] = 0;
-      std::fill(std::begin(b.head), std::end(b.head), 0.0);
-      if (!b.acted && b.t_state < 1.0) break;
-      if (b.ball) {
-        b.rest[b.target] = b.range(2.0, 5.0);
-        b.target = 0;
-        b.start_quack_burst();
-        sound = "chirp";
-        b.enter(S::look_around);
-      } else if (walker_holding(w.actor)) {
-        b.goal[0] = pose[0] + 1.5 * kern::dm::cos(b.pick_heading(kPi));
-        b.goal[1] = pose[1] + 1.5 * kern::dm::sin(b.pick_heading(kPi));
-        b.has_goal = true;
-        b.enter(S::carry);
-      } else {
-        if (b.tries >= 4) { b.rest[b.target] = kSockRest; b.target = 0; }
-        b.enter(S::fetch);  // a step back happens by itself: it walks up again
-        if (!b.target) b.enter(S::look_around);
-      }
-      break;
-    case S::carry: {
-      // Kern: off with the sock toward somewhere new, then put it down.
-      const f64 dx = b.goal[0] - pose[0], dy = b.goal[1] - pose[1];
-      const f64 delta = wrap_angle(kern::dm::atan2(dy, dx) - pose[2]);
-      f64 vx = std::fabs(delta) > 0.7 ? 0.0 : 0.2, wz = std::fabs(delta) > 0.7 ? 0.9 * kMaxAngular * sgn(delta) : std::clamp(1.2 * delta, -0.6, 0.6);
-      b.gate(vx, wz, obstacle);
-      if (b.state != S::carry) { b.enter(S::carry); b.t_state = 0; }
-      b.cmd[0] = b.walkable(vx, dt); b.cmd[1] = 0; b.cmd[2] = wz;
-      b.head[0] = 0; b.head[1] = 0.1; b.head[2] = 0; b.head[3] = 0;  // proud, beak up
-      if (!walker_holding(w.actor)) { b.rest[b.target] = kSockRest * 0.5; b.target = 0; b.enter(S::chill); break; }
-      if (b.t_state > b.state_dur || kern::dm::hypot(dx, dy) < kGoalReachedM) {
-        w.beak_open = 0.6f;  // put it down: the beak opens, the sock drops
-        b.rest[b.target] = kSockRest;
-        b.target = 0;
-        b.enter(S::chill);
-      }
-      break;
-    }
   }
-
-  // Listening: a perked head while a reply brews.
-  if ((b.state == S::chill || b.state == S::look_around) && b.clock < b.perk_until) {
-    b.head[0] = 0.05; b.head[1] = 0.35; b.head[2] = 0; b.head[3] = 0;
-    head_alpha = 0.3;
-  }
-  // The state's time is up (GroundPick, Nap and Kern's own manage their exits).
-  if (b.t_state >= b.state_dur && b.state != S::ground_pick && b.state != S::nap && b.state != S::fetch && b.state != S::act && b.state != S::carry) {
+  // The state's time is up (GroundPick and Nap manage their exits).
+  if (b.t_state >= b.state_dur && b.state != S::ground_pick && b.state != S::nap) {
     const bool can_zoom = obstacle && ob.age_s <= kFreshS && ob.ahead_m > 1.2;
     const bool can_nap = abilities.sit_stand && !sitting;
     b.has_goal = false;
@@ -883,8 +704,9 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
   wheee = b.state == S::zoomies;
 
   // ---- out, as autod's main.rs sends it ------------------------------------------------------------
-  if (ground_pick) walker_skill(w.actor, "pick");
-  if (sit_toggle) walker_skill(w.actor, "sit");
+  const bool playing = w.play && w.play->engaged;  // Kern's play layer drives (walker_play.cpp): no moves of the brain's
+  if (ground_pick && !playing) walker_skill(w.actor, "pick");
+  if (sit_toggle && !playing) walker_skill(w.actor, "sit");
   if (sound) { walker_say(w, sound); b.quiet_until = now + kSelfAudioS; }
   if (wheee) b.quiet_until = now + kSelfAudioS;
   f64 h[4] = {b.head[0], b.head[1], b.head[2], b.head[3]};
@@ -901,9 +723,8 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
   w.auto_body[2] = static_cast<f32>(body[1]);
   w.auto_body_active = body_active;
   w.auto_mouth = static_cast<f32>(std::clamp(std::max(mouth_extra, b.mouth_now()), 0.0, 1.0));
-  if (b.state == S::carry || b.state == S::act) w.auto_mouth = 0;  // Kern: the beak holds what it carries
   w.auto_wheee = wheee;
-  w.state = b.state == S::fetch && b.ball ? "BallPlay" : b.state == S::act ? (b.ball ? "Kick" : "Pick") : state_name(b.state);
+  w.state = state_name(b.state);
 }
 
 // ---- the idle look-around: robotd/src/idle_head.rs (pollen-robotics/microduck), ported ----------

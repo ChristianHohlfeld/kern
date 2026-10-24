@@ -25,6 +25,8 @@
 #include "kern/lehrer/ppo.h"
 #include "kern/lehrer/recipe.h"
 #include "kern/lehrer/vorbild.h"
+#include "kern/lehrer/spielen.h"
+#include "kern/core/json.h"
 
 using namespace kern;
 using namespace kern::lehrer;
@@ -33,8 +35,11 @@ namespace {
 
 struct Options {
   std::string task = "jump", out, eval, log, checkpoint, resume, warm, trace;
-  std::string calibrate, holdout, profile, compare, examples, demo, demo_search, demo_check;
+  std::string calibrate, holdout, profile, compare, examples, demo, demo_search, demo_check, play_eval;
+  i32 play = 0;
+  std::string policies;
   i32 rounds = 0, round_episodes = 0, keep_every = 0, randomized = 0;
+  std::string play_net;
   f32 practice_std = 0, imitate_reward = -1;
   i32 envs = 0, threads = 0, iterations = 600, steps = 0, save_every = 25, episodes = 10;
   i32 substeps = 0, eval_every = 10, stop_after_jump = 0, fingerprint = 0;
@@ -255,6 +260,96 @@ int demo_check(const Options& o) {
   return 0;
 }
 
+void print_play(const char* what, const PlayReport& r) {
+  std::printf("%s: ball kicked away %d of %d (%.1f s), sock picked up %d / carried off and spat out %d of %d (%.1f s; %d of %d picks held), fell %d of %d\n",
+              what, r.kicked, r.ball_episodes, r.ball_seconds, r.picked, r.delivered, r.sock_episodes, r.sock_seconds, r.picks_held, r.pick_attempts,
+              r.falls, r.episodes);
+}
+
+/// --spielen-pruefen vorbild|play.onnx: how the demonstration or a play network does.
+int play_check(const Options& o) {
+  const i32 threads = o.threads > 0 ? o.threads : max_of(1, static_cast<i32>(std::thread::hardware_concurrency()));
+  const ParallelFor pool = thread_pool(threads);
+  if (o.play_eval == "vorbild") {
+    print_play("the demonstration (clean)", evaluate_play(nullptr, nullptr, o.episodes, 1000, false, pool));
+    print_play("the demonstration (randomised)", evaluate_play(nullptr, nullptr, o.episodes, 5000, true, pool));
+    return 0;
+  }
+  game::WalkerPolicy p;
+  std::string err;
+  const std::vector<u8> bytes = read_file(o.play_eval);
+  if (bytes.empty() || !game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), p, &err)) {
+    std::fprintf(stderr, "cannot read %s: %s\n", o.play_eval.c_str(), err.c_str());
+    return 1;
+  }
+  print_play((o.play_eval + " (clean)").c_str(), evaluate_play(act_onnx, &p, o.episodes, 1000, false, pool));
+  print_play((o.play_eval + " (randomised)").c_str(), evaluate_play(act_onnx, &p, o.episodes, 5000, true, pool));
+  return 0;
+}
+
+/// --spielen-spur [--seed N] [--randomized] [--netz play.onnx]: one episode, decision by decision (the
+/// demonstration drives; with --netz the network does, and the line shows both answers).
+int play_trace(const Options& o) {
+  PlayEnv env(1000 + o.seed, o.randomized != 0);
+  env.reset();
+  // --netz play.onnx: the network drives; the line shows the demonstration's answer, then the network's.
+  game::WalkerPolicy net;
+  bool has_net = false;
+  if (!o.play_net.empty()) {
+    std::string err;
+    const std::vector<u8> bytes = read_file(o.play_net);
+    if (bytes.empty() || !game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), net, &err)) {
+      std::fprintf(stderr, "cannot read %s: %s\n", o.play_net.c_str(), err.c_str());
+      return 1;
+    }
+    has_net = true;
+  }
+  for (;;) {
+    f32 a[kPlayActions], n[kPlayActions];
+    env.teacher(a);
+    if (has_net) act_onnx(&net, env.observation(), n);
+    const f32* ob = env.observation();
+    const f32* q = env.critic() + kPlayObs;
+    std::printf("ball %d (%+.2f %+.2f) true (%+.2f %+.2f) | sock %d (%+.2f %+.2f) true (%+.2f %+.2f) | foot %+.3f %+.3f hold %.0f pick %.0f/%.2f kick %.0f carry %.2f | a",
+                static_cast<int>(ob[0]), ob[1], ob[2], q[1], q[2], static_cast<int>(ob[4]), ob[5], ob[6], q[4], q[5], ob[8], ob[9], ob[10], ob[13], ob[15], ob[14], ob[19]);
+    for (f32 v : a) std::printf(" %+.2f", v);
+    if (has_net) {
+      std::printf(" | net");
+      for (f32 v : n) std::printf(" %+.2f", v);
+      std::printf(" still %.2f", env.observation()[21]);
+    }
+    game::GameWorld::WalkerProbe wp;
+    env.world().walker_probe(env.duck(), wp);
+    std::printf(" | moved %.3f body %d %s/%s grav %.2f", env.sock_moved(), wp.body_contact ? 1 : 0, env.world().walker_driving(env.duck()).c_str(), env.world().walker_state(env.duck()).c_str(), wp.gravity.z);
+    std::printf("\n");
+    const Env::Step s = env.step(has_net ? n : a);
+    if (s.terminal || s.timeout) break;
+  }
+  const PlayEnv::Outcome& r = env.outcome();
+  std::printf("ball %d kicked %d | sock %d picked %d delivered %d | fell %d after %.1f s\n", r.has_ball, r.kicked, r.has_sock, r.picked, r.delivered, r.fell, r.seconds);
+  return 0;
+}
+
+/// --spielen [--nachahmen 12] [--episoden 32]: the play network, imitating the demonstration (DAgger).
+int play_train(const Options& o) {
+  const i32 threads = o.threads > 0 ? o.threads : max_of(1, static_cast<i32>(std::thread::hardware_concurrency()));
+  const ParallelFor pool = thread_pool(threads);
+  std::unique_ptr<Ppo> learner = make_play_learner(o.seed);
+  const i32 rounds = o.rounds > 0 ? o.rounds : 8, episodes = o.round_episodes > 0 ? o.round_episodes : 64;
+  const std::string out = o.out.empty() || o.out == "jump.onnx" ? "play.onnx" : o.out;
+  std::printf("the play network: imitating the demonstration, %d rounds of %d episodes, %d threads\n", rounds, episodes, threads);
+  const auto t0 = std::chrono::steady_clock::now();
+  imitate_play(*learner, rounds, episodes, o.seed, pool, [&](i32 round, const PlayImitationReport& r) {
+    std::printf("  round %d (%.0f s): %d samples, error %.5f | ", round, std::chrono::duration<f64>(std::chrono::steady_clock::now() - t0).count(), r.samples, r.mse);
+    print_play("the network (clean robot)", r.student);
+    write_file(out, export_onnx(learner->actor(), learner->actor_normalizer(), play_metadata()));
+    if (!o.checkpoint.empty()) write_file(o.checkpoint, learner->save());
+    std::fflush(stdout);
+  });
+  std::printf("wrote %s\n", out.c_str());
+  return 0;
+}
+
 int examples(const Options& o) {
   const game::ServoProfile p = game::xl330_profile();
   auto bench = [&](const char* name, ServoLoad load, int kind) {
@@ -281,6 +376,28 @@ int examples(const Options& o) {
 }
 
 }  // namespace
+
+/// Pollen's moves beyond velstand (pick, kicks, sit ...): the robot's own ONNX files, from the
+/// repository (third_party/microduck) or --policies DIR.
+void load_pollen_policies(const std::string& dir_in) {
+  std::string dir = dir_in;
+  if (dir.empty()) {
+    dir = __FILE__;
+    dir = dir.substr(0, dir.find_last_of('/')) + "/../third_party/microduck/";
+  }
+  if (!dir.empty() && dir.back() != '/') dir += '/';
+  json::Value m;
+  if (!json::parse(game::micro_duck_manifest(), m)) return;
+  for (const json::Value& p : m["policies"].items()) {
+    const std::string file = p["file"].as_string();
+    if (game::walker_policy(file)) continue;
+    const std::vector<u8> bytes = read_file(dir + file);
+    auto pol = std::make_shared<game::WalkerPolicy>();
+    if (bytes.empty() || !game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), *pol)) continue;
+    pol->file = file;
+    game::register_walker_policy(pol);
+  }
+}
 
 int main(int argc, char** argv) {
   Options o;
@@ -328,6 +445,13 @@ int main(int argc, char** argv) {
     else if (a == "--uebungs-std") o.practice_std = static_cast<f32>(std::atof(next()));
     else if (a == "--keep-every") o.keep_every = std::atoi(next());
     else if (a == "--randomized") o.randomized = 1;
+    else if (a == "--spielen-pruefen") o.play_eval = next();
+    else if (a == "--spielen") o.play = 1;
+    else if (a == "--policies") o.policies = next();
+    else if (a == "--spielen-spur") o.play = 2;
+    else if (a == "--netz") o.play_net = next();
+    else if (a == "--biss-fenster") o.play = 3;
+    else if (a == "--halt-messen") o.play = 4;
     else if (a == "--nachahmungs-lohn") o.imitate_reward = static_cast<f32>(std::atof(next()));
     else {
       std::fprintf(stderr,
@@ -345,10 +469,15 @@ int main(int argc, char** argv) {
                    "       training with --profil servo.json builds the ducks with that servo profile\n"
                    "       kern_lehrer --vorbild-suchen demo.json [--iterations 120]   search the jump's demonstration (CMA-ES)\n"
                    "       kern_lehrer --vorbild-pruefen builtin|demo.json             how the demonstration jumps\n"
-                   "       training with --vorbild builtin|demo.json [--nachahmen 5] [--episoden 64] [--uebungs-std 0.2]: imitate first, then practise\n");
+                   "       training with --vorbild builtin|demo.json [--nachahmen 5] [--episoden 64] [--uebungs-std 0.2]: imitate first, then practise\n"
+                   "       kern_lehrer --spielen [--nachahmen 12] [--episoden 32] [--out play.onnx]   the play network (ball, sock): imitation\n"
+                   "       kern_lehrer --spielen-pruefen vorbild|play.onnx [--episodes 24]   how the demonstration or a network plays\n"
+                   "       kern_lehrer --spielen-spur [--seed N] [--randomized] [--netz play.onnx]   one play episode, decision by decision\n"
+                   "       kern_lehrer --biss-fenster | --halt-messen   where the beak gets a sock / how far the duck goes after stop\n");
       return 2;
     }
   }
+  load_pollen_policies(o.policies);
   if (o.fingerprint > 0) {  // the determinism fingerprint (docs/lehrer.md): one hash per control tick
     const std::vector<u64> h = determinism_fingerprint(o.fingerprint);
     for (std::size_t i = 0; i < h.size(); ++i) std::printf("%zu %016llx\n", i, static_cast<unsigned long long>(h[i]));
@@ -362,6 +491,11 @@ int main(int argc, char** argv) {
   if (!o.examples.empty()) return examples(o);
   if (!o.demo_search.empty()) return demo_search(o);
   if (!o.demo_check.empty()) return demo_check(o);
+  if (!o.play_eval.empty()) return play_check(o);
+  if (o.play == 2) return play_trace(o);
+  if (o.play == 3) { measure_bite(kPlayBeakOpen, kPlayBeakClose); return 0; }
+  if (o.play == 4) { measure_stop(); return 0; }
+  if (o.play) return play_train(o);
   if (o.out.empty()) o.out = o.task + ".onnx";
   const i32 threads = o.threads > 0 ? o.threads : max_of(1, static_cast<i32>(std::thread::hardware_concurrency()));
   if (o.envs <= 0) o.envs = 16 * threads;
