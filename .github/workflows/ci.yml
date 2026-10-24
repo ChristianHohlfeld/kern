@@ -91,8 +91,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p _site/editor _site/generated _site/kern/web/studio _site/kern/examples
-          cp site/index.html _site/
+          # The landing page, Impressum and Datenschutz; self-hosted fonts when site/fonts exists.
+          cp site/*.html _site/
+          if [ -d site/fonts ]; then cp -r site/fonts _site/; fi
           cp LICENSE _site/LICENSE.txt && cp kern/LICENSES.md _site/LICENSES.txt
+          if [ -f LICENSING.md ]; then cp LICENSING.md _site/LICENSING.txt; fi
           # The editor as an installable app: build SHA as the page's first comment, build.json for
           # the update check, the manifest, the service worker and the icons (site/editor).
           { echo "<!--BUILD_SHA:${GITHUB_SHA}-->"; cat generated/studio.html; } > _site/editor/index.html
