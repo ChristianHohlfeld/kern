@@ -323,7 +323,7 @@ builtin:duck_wheee-start_<seed>_<variant>    (ebenso -loop, -end)
 
 `find_builtin` und `render_builtin` erkennen diese Namen. Die Laufzeit sendet sie als `SoundCue` mit `voice = true` auf dem Bus `voice`, mit dem Kopf der Ente als Position (dort sitzt der Lautsprecher). Ein neuer Laut schneidet den laufenden ab – wie ein einzelner Lautsprecher. Während `wheee` werden andere Laute verworfen.
 
-Weil die Synthese auf einem Telefon zehn Millisekunden pro Laut kosten kann (lang genug, um die Audioausgabe auszuhungern), wärmt `GameWorld::warm_walker_voices()` die Laute jeder Ente vorab: eine Synthese pro Frame, häufigste zuerst (`duck_voice_warm`, prozessweit gecacht). Wann die Ente welchen Laut ruft, steht in [Kapitel 13](13-micro-duck.md) und in `docs/walker.md`.
+Weil die Synthese auf einem Telefon einige zehn Millisekunden pro Laut kosten kann (lang genug, um die Audioausgabe auszuhungern), wärmt `GameWorld::warm_walker_voices()` die Laute jeder Ente vorab: eine Synthese pro Frame, häufigste zuerst (`duck_voice_warm`, prozessweit gecacht). Wann die Ente welchen Laut ruft, steht in [Kapitel 13](13-micro-duck.md) und in `docs/walker.md`.
 
 ## 7.7 Klang im Spiel: `SoundBank` und `GameAudio`
 
@@ -432,7 +432,7 @@ Jeder Rigid Body hat `impact_sound` (Standard `builtin:impact`) und `impact_thre
 
 Der Ablauf in `GameWorld` (`src/game/runtime.cpp`):
 
-1. Nur Shapes, die einen Sound haben (oder vom Spieler oder der Logik gebraucht werden), melden Box3D-Hit-Events. Die globale Schwelle von Box3D wird auf die kleinste Schwelle aller klingenden Körper gesetzt, mindestens 0,05 m/s (`kMinImpactThreshold`).
+1. Nur Shapes, die einen Sound haben (oder vom Spieler oder der Logik gebraucht werden), melden Box3D-Hit-Events. Die globale Hit-Schwelle von Box3D startet bei der Schwelle für Spielertreffer (`kHitSpeed`) und wird auf die kleinste Schwelle aller klingenden Körper gesenkt, aber nie unter 0,05 m/s (`kMinImpactThreshold`).
 2. Pro Physikschritt höchstens 6 Aufprallgeräusche – mehr würde der Mixer ohnehin stehlen.
 3. Unter der Schwelle des Körpers bleibt es still.
 4. **Entprellen:** Eine Sohle rollt von der Ferse zur Spitze und setzt sich in kleinen Hüpfern, die Box3D als einzelne Treffer meldet. Ein Schritt (Sound mit „step“ im Namen) klingt deshalb höchstens alle 0,5 s pro Actor, ein Klopfen alle 0,09 s.
