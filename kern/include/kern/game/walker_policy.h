@@ -28,6 +28,27 @@ struct WalkerPolicy {
 /// file is not one.
 bool parse_onnx_policy(Span<const u8> bytes, WalkerPolicy& out, std::string* error = nullptr);
 
+/// robotd's pick-up detector (duck-control pickup.rs, docs/design/robotd-design.md section 2.4.2):
+/// a temporal CNN that reads the last second of the control loop (kPickupWindow rows of
+/// kPickupFeatures) and says how likely it is that a hand holds the robot. The graph Pollen ships:
+/// normalise and mask, drop the current columns (Gather), three Conv1d(k, stride) + ELU, then
+/// Gemm, ELU, Gemm, Sigmoid.
+constexpr i32 kPickupWindow = 50, kPickupFeatures = 63;
+struct PickupDetector {
+  std::vector<f32> mean, stdev, mask;     // per feature
+  std::vector<i32> columns;               // the features the convolutions read (Gather)
+  struct Conv { i32 out = 0, in = 0, kernel = 0, stride = 1; std::vector<f32> w, b; };
+  std::vector<Conv> convs;
+  std::vector<i32> dims;                  // head: flattened, hidden..., 1
+  std::vector<std::vector<f32>> weights, biases;
+  f32 alpha = 1;                          // ELU
+  /// p(held) of a window, oldest row first (kPickupWindow x kPickupFeatures).
+  f32 run(const f32* window) const;
+};
+bool parse_onnx_pickup(Span<const u8> bytes, PickupDetector& out, std::string* error = nullptr);
+/// The detector robotd ships (duck-control/models/pickup_detector.onnx, built in); null if it does not parse.
+const PickupDetector* pickup_detector();
+
 /// The policies this program has: velstand.onnx is built in; the page (or a test) loads the
 /// others of the robot's set (kern_studio_load_policy / register_walker_policy).
 void register_walker_policy(std::shared_ptr<const WalkerPolicy> policy);

@@ -320,6 +320,34 @@ In dieser Reihenfolge, wie beim echten Roboter:
 
 Zufall kommt aus einem Generator mit dem Actor als Seed, daher läuft die Ente deterministisch.
 
+### In der Hand (robotd: Pick-up-Erkennung)
+
+Wie robotd (`[pickup]`, seit dem v2-Modell standardmäßig an; duck-control `pickup.rs`, robotd
+`pickup.rs`, robotd-design §2.4.2). Pollens Klassifikator `pickup_detector.onnx` (temporales CNN,
+8k Parameter) liest jede Regelperiode die letzte Sekunde (50 Zeilen à 63 Merkmale: Gyro,
+Schwerkraft, Gelenke minus Home, Gelenkgeschwindigkeiten, Sollwert des vorigen Ticks minus Home,
+Ströme, Pause-Flag) und gibt p(gehalten). Kern rechnet das Netz selbst (`parse_onnx_pickup`,
+deterministisch, `kern::dm`); Abweichung zu onnxruntime auf Pollens Fixture-Fenstern unter 1e-5
+(Test `micro_duck_pickup_detector_matches_onnxruntime`).
+
+- Pause: p > 0,8 für 5 Ticks. Dann läuft kein Netz, die Sollwerte rampen in 300 ms vom letzten
+  Sollwert auf `PAUSE_POSE` (die mittlere Standhaltung der Lauf-Policy). `walker_driving` meldet
+  `held`.
+- Weiter: p < 0,35 für 4 Ticks, frühestens nach 300 ms Pause. Die Netze starten frisch (letzte
+  Aktion 0, Tiefpass ohne Anker), wie robotd nach einer Pause.
+- Beobachtet wird nur, solange Lauf- oder Stand-Netz die Ente haben: Eine Bewegung, Sitzen,
+  Rollschuhe (das Modell kennt keine Räder) oder der Lernende des Lehrers beenden eine Pause und
+  leeren das Fenster.
+- Ströme: Kern hat keine Servoströme; das ausgelieferte Modell liest diese Spalten nicht (der
+  Graph verwirft sie per Gather), Kern füllt 0.
+
+Hochheben in Kern Studio (Play, Ente am Rumpf greifen): Der Griff hält den Rumpf in seiner
+Ausrichtung wie eine Hand, statt ihn am Punkt pendeln zu lassen.
+
+*[gemessen]* Test `micro_duck_pauses_in_the_hand_and_walks_when_put_down`: 20 s autonom ohne eine
+falsche Pause; 15 cm hochgehoben pausiert sie nach etwa 0,5 s und bleibt pausiert; abgesetzt
+läuft sie weiter und fällt nicht.
+
 *[gemessen]* Test `micro_duck_roams_on_its_own_with_its_tof`: In einem 1,5 × 1,5 m großen Raum
 (echte Größe) mit einer Kiste erkundet die Ente in 45 s die Fläche. Sie wendet vor den Wänden und
 fällt nie.
@@ -441,6 +469,7 @@ nur als Referenz für die Werte.
 | Kopf-Kommando | ±1,10 / ±1,10 / ±1,40 / ±0,31 rad | gleich |
 | Twist | robot.move unbegrenzt, Pad 0,4 / 0,3 / 1,0 | auf 0,4 / 0,3 / 1,0 begrenzt |
 | Sturz | Schwerkraft z > −0,5 für 200 ms | gleich |
+| In der Hand | robotd `[pickup]`: pickup_detector.onnx, Latch 0,8×5 / 0,35×4, 300 ms | gleich; Ströme 0 (vom Modell nicht gelesen) |
 | Mund | −5° … 30°, nicht Teil der Policy | gleich |
 | Idle-Look-around, Stimme | idle_head.rs, sounds | portiert |
 | Autonomie | autod (12 Zustände); Runtime: dazu BallPlay | autod portiert; BallPlay nach Beschreibung nachgebaut (Abschnitt 9); ToF über Kerns Raycast, Hören/Streicheln per API |

@@ -14,6 +14,7 @@ Quellen für Kerns Micro Duck (`src/game/walker.cpp`, Doku: `docs/walker.md`).
 | `roulade.onnx` | huggingface.co/pollen-robotics/microduck-policies, Branch `main`, SHA-256 `3d60da08fc13f29c1b57f41977aa898132c0d60042100149d8e775affcbca32b` | Apache-2.0 |
 | `ball_kick_left.onnx` | huggingface.co/pollen-robotics/microduck-policies, Branch `main`, SHA-256 `d6928284dccd3dd61e08bf2f760effa74309fbefd97b2b31afb2a60f526d196a` | Apache-2.0 |
 | `ball_kick_right.onnx` | huggingface.co/pollen-robotics/microduck-policies, Branch `main`, SHA-256 `147a32c388c6b19111b3ac3b550a9a6dc8b8bf267118af4d8c3712522eedb5af` | Apache-2.0 |
+| `pickup_detector.onnx` | github.com/pollen-robotics/microduck @ `942e58e`, `duck-control/models/` (v2, robotds Pick-up-Erkennung), SHA-256 `d93a33878e028c79deadf3f50fef4602a6b601acb700f81b5a4c0a06cc6c1b75`; als Bytes eingebaut in `pickup_detector.inc` | Apache-2.0 |
 | `manifest.json` | dasselbe Repository: die Liste aller zehn Netze mit Kommando-Kodierung, Phasen und `action_scale` (Kern liest sie zur Laufzeit) | Apache-2.0 |
 | `robot_allcollisions_backlash.xml` | github.com/pollen-robotics/microduck_rl @ `b02fdea`, `src/mjlab_microduck/robot/microduck/`: das MJCF, auf dem die Policy trainiert wurde | Apache-2.0 (`LICENSE`) |
 | `robot_groundcontact_rollers_backlash.xml` | dieselbe Quelle: das Rollen-Modell (Kufen und vier freie Räder), auf dem `roller.onnx` und `roller_crouch.onnx` trainiert wurden | Apache-2.0 (`LICENSE`) |

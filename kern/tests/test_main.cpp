@@ -5473,6 +5473,70 @@ TEST(micro_duck_plays_ball_as_pollens_brain_does) {
   CHECK(length(b1.translation() - b0.translation()) > 0.25f * 4);  // and the ball rolls off (25 cm real)
 }
 
+TEST(micro_duck_pickup_detector_matches_onnxruntime) {
+  // robotd's pick-up detector (duck-control/models/pickup_detector.onnx) in Kern's own inference,
+  // against the probabilities onnxruntime gives Pollen's two fixture windows (pickup_windows.json).
+#include "pickup_windows.inc"
+  const game::PickupDetector* d = game::pickup_detector();
+  CHECK(d != nullptr);
+  if (!d) return;
+  CHECK(d->columns.size() == 49);  // the current columns dropped by the graph
+  CHECK(std::fabs(d->run(kPickup_walking) - kPickup_walking_p) < 1e-5f);
+  CHECK(std::fabs(d->run(kPickup_held) - kPickup_held_p) < 1e-5f);
+}
+
+TEST(micro_duck_pauses_in_the_hand_and_walks_when_put_down) {
+  // robotd's pick-up watch: walking on its own it never pauses; lifted by the trunk it ramps to the
+  // pause pose ("held") instead of stepping in the air; set back down, the policy has it again.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  bool held = false;
+  for (int i = 0; i < 100 * 20; ++i) {
+    f.world->step(1.0f / 100, {});
+    held = held || f.world->walker_driving(duck) == "held";
+  }
+  CHECK(!held);  // no false pause on the floor
+  Mat4 t0;
+  f.world->actor_matrix(duck, t0);
+  CHECK(f.world->begin_grab(duck, t0.translation()));
+  f.world->move_grab(t0.translation() + Vec3{0, 0, 0.6f});  // 15 cm (real) up
+  int held_ticks = 0;
+  for (int i = 0; i < 100 * 6; ++i) {
+    f.world->step(1.0f / 100, {});
+    const bool h = f.world->walker_driving(duck) == "held";
+    held = held || h;
+    held_ticks += h;
+    if (print && i % 50 == 0) {
+      Mat4 t;
+      f.world->actor_matrix(duck, t);
+      std::printf("  lifted %5.2f s z %.3f up %.2f %s\n", i / 100.0, t.translation().z, t.transform_vector({0, 0, 1}).z, f.world->walker_driving(duck).c_str());
+    }
+  }
+  CHECK(held);
+  CHECK(held_ticks > 100 * 3);  // and it stays paused while it is held
+  f.world->move_grab(t0.translation() + Vec3{0, 0, 0.02f});
+  for (int i = 0; i < 100 * 2; ++i) f.world->step(1.0f / 100, {});
+  f.world->end_grab();
+  bool walks = false;
+  for (int i = 0; i < 100 * 6; ++i) {
+    f.world->step(1.0f / 100, {});
+    walks = walks || f.world->walker_driving(duck) != "held";
+    if (print && i % 25 == 0) {
+      Mat4 t;
+      f.world->actor_matrix(duck, t);
+      std::printf("  down %5.2f s z %.3f up %.2f %s %s\n", i / 100.0, t.translation().z, t.transform_vector({0, 0, 1}).z, f.world->walker_driving(duck).c_str(), f.world->walker_state(duck).c_str());
+    }
+  }
+  CHECK(walks);
+  CHECK(f.world->walker_state(duck) != "GetUp");
+}
+
 TEST(micro_duck_fetches_a_sock_on_its_own) {
   // Autonomous, with Kern's play network: a sock 30 cm (real) away in front. The network walks the
   // duck up, starts Pollen's ground pick, opens and shuts the beak, carries the sock off and spits

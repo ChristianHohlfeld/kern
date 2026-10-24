@@ -494,6 +494,14 @@ constexpr f32 kHeadLowpass = 1.0f, kLegsLowpass = 1.0f;            // 1 = pass-t
 constexpr f32 kRobotActionScaleWalk = 0.9f, kRobotHeadLowpass = 0.5f, kRobotLegsLowpass = 0.7f;
 constexpr f32 kStandingThreshold = 0.05f;                          // DEFAULT_STANDING_THRESHOLD (twist)
 constexpr f32 kChainWindow = 0.15f;                                // CHAIN_WINDOW
+// robotd's pick-up watch (duck-control pickup.rs Thresholds::default, PAUSE_POSE, PAUSE_RAMP;
+// robotd-params [pickup], on by default): pause above 0.8 for 5 ticks, resume below 0.35 for 4 ticks
+// once the pause is 300 ms old; a paused robot ramps in 300 ms to the walking policy's own average
+// stance (offsets from home, policy order).
+constexpr f32 kPickupPauseAbove = 0.8f, kPickupResumeBelow = 0.35f, kPickupMinPause = 0.3f, kPickupRamp = 0.3f;
+constexpr i32 kPickupPauseTicks = 5, kPickupResumeTicks = 4;
+constexpr f32 kPickupPausePose[14] = {0.0f, -0.100f, 0.038f, -0.145f, 0.044f, -0.096f, 0.008f, 0.0f, 0.0f,
+                                      0.0f, 0.100f, -0.038f, 0.145f, -0.044f};
 constexpr f32 kActuatorTravel = 3.14159265f;                       // safety.rs ACTUATOR_MIN / MAX (rad)
 // Kern: robotd leaves the beak to the operator's trigger during a ground pick. The controller opens
 // it near the bottom (opened on the way down, the jaw lands on what it should take) and bites while
@@ -1032,6 +1040,7 @@ bool GameWorld::walker_holding(ActorId id) const {
 std::string GameWorld::walker_state(ActorId id) const {
   const WalkerBrain* w = walker_brain(id);
   if (!w) return {};
+  if (w->pickup.paused) return "Held";  // robotd: picked up, the policy paused
   if (w->manual_left > 0) return "Driven";
   if (w->drive_left != 0) return "Logic";
   return w->autonomous ? w->state : "Idle";
@@ -1311,7 +1320,7 @@ void GameWorld::drive_walkers(f32 h) {
       if (w.play && w.play->engaged) steered = true;  // the play layer steers the head even when it holds it straight
       w.head_age = steered ? 0.0f : w.head_age + kControlPeriod;
       // A move running (a pick, a kick, sitting) is not standing still.
-      bool still = !w.sensors.fallen && cmd[0] == 0 && cmd[1] == 0 && cmd[2] == 0 && w.pick_phase < 0 && w.skill < 0 && w.sit == WalkerBrain::Sit::up;
+      bool still = !w.sensors.fallen && !w.pickup.paused && cmd[0] == 0 && cmd[1] == 0 && cmd[2] == 0 && w.pick_phase < 0 && w.skill < 0 && w.sit == WalkerBrain::Sit::up;
       for (f32 v : w.command) still = still && std::fabs(v) < 1e-3f;
       f32 idle[4];
       idle_walker(w, still, kControlPeriod, idle);
@@ -1361,7 +1370,72 @@ void GameWorld::drive_walkers(f32 h) {
       obs[57] = w.body[0];
       obs[58] = w.body[1];
       obs[59] = w.body[2];
-      run_controller(w, obs);
+      // ---- robotd's pick-up watch (robotd pickup.rs Watch::tick): only while the walking and
+      // standing networks have the robot - a move, a sit, roller skates (the model never saw
+      // wheels) or the Lehrer's learner own it outright, end a pause and forget the window.
+      WalkerBrain::Pickup& pk = w.pickup;
+      const PickupDetector* detector = pickup_detector();
+      const bool watching = detector && !w.rollers && !w.external && w.skill < 0 && w.pick_phase < 0 && w.sit == WalkerBrain::Sit::up;
+      if (!watching) {
+        pk.paused = false;
+        pk.run = pk.filled = pk.next = 0;
+        pk.paused_for = 0;
+        pk.has_previous = false;
+        pk.p_held = -1;
+      } else if (pk.has_previous) {
+        // The row (pickup.rs features): gyro, gravity, joints minus home, their speeds, the target
+        // commanded the previous tick minus home, |current| (not read by the shipped model: 0 here),
+        // whether that target was a pause target.
+        f32* row = pk.rows + static_cast<std::size_t>(pk.next * kPickupFeatures);
+        std::memcpy(row, obs, 20 * sizeof(f32));
+        for (i32 j = 0; j < kJoints; ++j) {
+          row[20 + j] = speed[j];
+          row[34 + j] = pk.previous_target[j] - kDuckLinks[j + 1].home;
+          row[48 + j] = 0;
+        }
+        row[62] = pk.previous_paused ? 1.0f : 0.0f;
+        pk.next = (pk.next + 1) % kPickupWindow;
+        pk.filled = std::min(pk.filled + 1, kPickupWindow);
+        if (pk.filled == kPickupWindow) {  // only complete windows: a padded one is out of distribution
+          f32 window[kPickupWindow * kPickupFeatures];
+          for (i32 k = 0; k < kPickupWindow; ++k)
+            std::memcpy(window + k * kPickupFeatures, pk.rows + ((pk.next + k) % kPickupWindow) * kPickupFeatures, kPickupFeatures * sizeof(f32));
+          pk.p_held = detector->run(window);
+          // The latch (pickup.rs Latch::update).
+          if (pk.paused) pk.paused_for += kControlPeriod;
+          const bool toward = pk.paused ? pk.p_held < kPickupResumeBelow && pk.paused_for >= kPickupMinPause - 1e-4f : pk.p_held > kPickupPauseAbove;
+          pk.run = toward ? pk.run + 1 : 0;
+          if (pk.run >= (pk.paused ? kPickupResumeTicks : kPickupPauseTicks)) {
+            pk.run = 0;
+            pk.paused = !pk.paused;
+            pk.paused_for = 0;
+            if (pk.paused) std::memcpy(pk.from, pk.previous_target, sizeof pk.from);
+          }
+        }
+      }
+      if (pk.paused) {
+        // Held: ramp from the last target to the pause pose, at the policy gain; no network runs.
+        const f32 t = clamp(pk.paused_for / kPickupRamp, 0.0f, 1.0f);
+        for (i32 j = 0; j < kJoints; ++j) {
+          const f32 pose = kDuckLinks[j + 1].home + kPickupPausePose[j];
+          w.target[j] = pk.from[j] + (pose - pk.from[j]) * t;
+        }
+        w.driving = "held";
+      } else {
+        if (pk.was_paused) {
+          // Put down: the networks start fresh (robotd: controller.reset after a pause) - no stale
+          // action in the observation, no low-pass anchored where the robot was before.
+          std::fill(std::begin(w.action), std::end(w.action), 0.0f);
+          for (i32 j = 0; j < kJoints; ++j) obs[34 + j] = 0;
+          w.has_previous = false;
+        }
+        run_controller(w, obs);
+      }
+      pk.was_paused = pk.paused;
+      // The next row pairs its reading with this command.
+      std::memcpy(pk.previous_target, w.target, sizeof pk.previous_target);
+      pk.previous_paused = pk.paused;
+      pk.has_previous = watching;
       std::memcpy(w.last_obs, obs, sizeof w.last_obs);
     }
     // ---- every physics step: the servos get the command sent `delay` steps ago ------------------

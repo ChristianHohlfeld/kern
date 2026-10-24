@@ -2529,7 +2529,10 @@ bool GameWorld::begin_grab(ActorId actor, Vec3 point) {
   const ActorId owner = level_.body_owner(actor) ? level_.body_owner(actor) : actor;
   auto it = body_of_actor_.find(owner);
   if (it == body_of_actor_.end() || !it->second->body.valid()) return false;
-  return grab_.begin(physics_, it->second->body, point);
+  // A walker held by its trunk is held like a hand holds the robot: upright, not swinging on a point.
+  bool trunk = false;
+  for (const auto& w : walkers_) trunk = trunk || w->trunk.id == it->second->body.id;
+  return grab_.begin(physics_, it->second->body, point, 7.5f, trunk);
 }
 void GameWorld::move_grab(Vec3 target) { grab_.set_target(target); }
 void GameWorld::end_grab() { grab_.end(); }
