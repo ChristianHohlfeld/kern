@@ -1,5 +1,7 @@
 # Über den Autor
 
+![Christian Heinrich Hohlfeld](bilder/autor.jpg)
+
 **Christian Heinrich Hohlfeld** ist Softwareentwickler in Konstanz. Er programmiert seit 2010 – in
 C++, Java, C#/.NET, TypeScript und Python – und hat an der HTWG Konstanz Software Engineering
 studiert (B.Sc.). Sein Ansatz: erst verstehen, wie eine Arbeit wirklich abläuft, dann das ganze

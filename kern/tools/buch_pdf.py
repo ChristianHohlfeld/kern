@@ -63,7 +63,7 @@ for i, p in enumerate(files):
         if not f.exists():
             print("missing image", path, file=sys.stderr)
             return ""
-        return f"![{alt}]({f}){{width=100%}}"
+        return f"![{alt}]({f}){{width={'45mm' if f.name.startswith('autor') else '100%'}}}"
     t = re.sub(r"!\[([^\]]*)\]\(((?:\.\./buch/)?bilder/[^)\s]+)\)", img, t)
     # Links to other chapters (with or without an anchor) point into the book.
     def link(m):

@@ -1,5 +1,7 @@
 # About the Author
 
+![Christian Heinrich Hohlfeld](../buch/bilder/autor.jpg)
+
 **Christian Heinrich Hohlfeld** is a software engineer in Konstanz, Germany. He has been programming
 since 2010 – in C++, Java, C#/.NET, TypeScript and Python – and holds a B.Sc. in Software Engineering
 from HTWG Konstanz. His approach: first understand how the work is really done, then build the whole
