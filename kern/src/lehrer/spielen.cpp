@@ -505,7 +505,9 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
     out[0] = -1.0f;  // back at full speed: slower, a stiff duck does not step at all
     out[2] = steer;
   };
-  if (backing && ahead <= kBackOffM) return back_off();  // until it has room again
+  // Standing on the spot it goes on standing, then starts the move - whatever its walking command did
+  // a moment ago (a twitch backwards is no reason to back off).
+  if (!(standing && in_place) && backing && ahead <= kBackOffM) return back_off();  // until it has room again
   if (standing) {  // stopped by the spot: stand still, then pick - or, not right, back off and come in again
     out[4] = 0;
     if (!in_place) {
