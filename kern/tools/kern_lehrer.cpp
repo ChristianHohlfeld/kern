@@ -318,8 +318,8 @@ int play_trace(const Options& o) {
     if (has_net) {
       std::printf(" | net");
       for (f32 v : n) std::printf(" %+.2f", v);
-      std::printf(" still %.2f", env.observation()[21]);
     }
+    std::printf(" still %.2f walking %+.2f", env.observation()[21], env.observation()[22]);
     game::GameWorld::WalkerProbe wp;
     env.world().walker_probe(env.duck(), wp);
     std::printf(" | moved %.3f body %d %s/%s grav %.2f", env.sock_moved(), wp.body_contact ? 1 : 0, env.world().walker_driving(env.duck()).c_str(), env.world().walker_state(env.duck()).c_str(), wp.gravity.z);
