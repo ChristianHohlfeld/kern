@@ -23,7 +23,7 @@ Projektgruppe Digitalisierung und die interne KI-Pilotgruppe. Daneben baut und b
 Produkte, darunter digitalisierungsplanung.de, ein Werkzeug, das echte Arbeitsabläufe im Browser
 aufzeichnet und KI-Agenten über einen MCP-Server zugänglich macht.
 
-<https://christianhohlfeld.com> · <https://www.linkedin.com/in/christian-hohlfeld/> ·
+<https://kernengine.de> · <https://christianhohlfeld.com> · <https://www.linkedin.com/in/christian-hohlfeld/> ·
 <https://github.com/ChristianHohlfeld>
 
 ## Wie Kern und dieses Buch entstanden sind

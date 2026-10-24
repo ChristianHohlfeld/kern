@@ -24,7 +24,7 @@ ist. Die Bedienung der einzelnen Panels steht in [Kapitel 11](11-studio.md).
 
 ### Schritt 1: Ein neues Level
 
-1. Studio öffnen (https://christianhohlfeld.github.io/kern/editor/ oder `generated/studio.html`).
+1. Studio öffnen (https://kernengine.de/editor/ oder `generated/studio.html`).
 2. **File › New Level...**, Vorlage **Basic**, **Create**. Das Level hat einen Boden (40 × 40 m), Sonne,
    Himmel und einen Würfel.
 3. In **World Settings** den **Level name** und den **Game title** setzen, etwa „Orb Garden".
@@ -818,7 +818,7 @@ done
 
 Studio landet dabei als `_site/editor/index.html` mit Manifest, Service Worker, Icons, `build.json` und den
 Netzordnern `microduck/` und `policies/`; `kern/web/studio/` mit `play.html` und `generated/kern_studio.wasm`
-kommen ebenfalls auf die Seite. Die veröffentlichte Fassung steht unter https://christianhohlfeld.github.io/kern/.
+kommen ebenfalls auf die Seite. Die veröffentlichte Fassung steht unter https://kernengine.de/.
 
 ### Prüfliste vor dem Veröffentlichen
 

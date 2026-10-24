@@ -507,7 +507,7 @@ x86 and WebAssembly do.
 Downloads the `site` artifact, creates a fresh Git repository in it with the branch `gh-pages`,
 commits everything as `Pages: <sha>` and force-pushes (`-f`) to `gh-pages`. The `pages` group does
 not cancel a push in progress; only the most recent waiting one follows. The site appears at
-<https://christianhohlfeld.github.io/kern/>.
+<https://kernengine.de/>.
 
 Note: `README.md` still mentions a separate `pages.yml`. The repository contains only `ci.yml`;
 publishing is done there by the `deploy` job.

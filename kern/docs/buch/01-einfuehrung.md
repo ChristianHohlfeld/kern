@@ -7,7 +7,7 @@ mit einem JIT, ein **Netzwerk-Stack** und der Editor **Kern Studio**. Dazu komme
 der zweibeinige Roboter von Pollen Robotics, der in Kern mit seinen echten trainierten Netzen läuft,
 und der **Lehrer**, der neue Netze für diesen Roboter in C++ trainiert – nativ und im Browser.
 
-Live: <https://christianhohlfeld.github.io/kern/> – Startseite mit Kern Studio (`/editor/`), dem Lehrer
+Live: <https://kernengine.de/> – Startseite mit Kern Studio (`/editor/`), dem Lehrer
 (`/lehrer/`), spielbaren Levels (`kern/web/studio/play.html?level=orbRun` bzw. `physicsLab`) und den
 C++-Beispielen `orbrun` und `hello`.
 

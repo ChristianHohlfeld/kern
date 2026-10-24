@@ -21,7 +21,7 @@ and the internal AI pilot group. Alongside, he builds and runs his own products,
 digitalisierungsplanung.de, a tool that records real work in the browser and makes it available to
 AI agents through an MCP server.
 
-<https://christianhohlfeld.com> · <https://www.linkedin.com/in/christian-hohlfeld/> ·
+<https://kernengine.de> · <https://christianhohlfeld.com> · <https://www.linkedin.com/in/christian-hohlfeld/> ·
 <https://github.com/ChristianHohlfeld>
 
 ## How Kern and this book were made

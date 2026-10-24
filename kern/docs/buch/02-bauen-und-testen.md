@@ -507,7 +507,7 @@ und WebAssembly bewegen.
 Lädt das Artefakt `site`, legt darin ein frisches Git-Repository mit dem Branch `gh-pages` an,
 committet alles als `Pages: <sha>` und pusht mit `-f` nach `gh-pages`. Die Gruppe `pages` bricht
 einen laufenden Push nicht ab; nur der jüngste wartende folgt. Die Seite erscheint unter
-<https://christianhohlfeld.github.io/kern/>.
+<https://kernengine.de/>.
 
 Hinweis: `README.md` nennt noch eine eigene `pages.yml`. Im Repository gibt es nur `ci.yml`; die
 Veröffentlichung ist dort der Job `deploy`.

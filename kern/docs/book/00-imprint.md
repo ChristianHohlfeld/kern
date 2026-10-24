@@ -20,7 +20,7 @@ the book may be used under the software's licence.
 
 **The software.** Kern (the engine, Kern Studio, the Lehrer ("teacher"), the trained networks, tools
 and examples) is open source under the Apache License 2.0 and available free of charge:
-<https://christianhohlfeld.github.io/kern/>, source code at
+<https://kernengine.de/>, source code at
 <https://github.com/ChristianHohlfeld/kern>. The names "Kern", "Kern Studio", "Kern Lehrer" and the
 Kern logo are excluded from the licence. Also excepted from the Apache licence are the Micro Duck
 3D models by Pollen Robotics contained in Kern Studio (CC BY-NC-SA 4.0, non-commercial); they are

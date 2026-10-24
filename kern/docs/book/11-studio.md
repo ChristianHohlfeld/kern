@@ -28,11 +28,11 @@ There are three ways to open Studio:
 
 | Way | What you do | What for |
 |---|---|---|
-| Live | open https://christianhohlfeld.github.io/kern/editor/ | get started immediately, also on phones and tablets |
+| Live | open https://kernengine.de/editor/ | get started immediately, also on phones and tablets |
 | Single file | build `tools/build_studio.sh`, then open `generated/studio.html` | offline, without a server; the file contains everything |
 | Development | serve the repository statically, open `kern/web/studio/index.html` | working on Studio itself (loads `generated/kern_studio.wasm`) |
 
-The project's home page (https://christianhohlfeld.github.io/kern/) links to Studio, the Lehrer, the
+The project's home page (https://kernengine.de/) links to Studio, the Lehrer, the
 two example games and two levels you can play directly (`kern/web/studio/play.html?level=orbRun` and
 `?level=physicsLab`). Its footer names the owner ("© 2026 Christian Heinrich Hohlfeld") and links the licence
 (`LICENSING.txt`, Apache 2.0), the third-party components (`LICENSES.txt`), the source code, the Studio

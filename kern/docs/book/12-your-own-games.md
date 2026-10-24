@@ -24,7 +24,7 @@ operate the individual panels is described in [Chapter 11](11-studio.md).
 
 ### Step 1: A new level
 
-1. Open Studio (https://christianhohlfeld.github.io/kern/editor/ or `generated/studio.html`).
+1. Open Studio (https://kernengine.de/editor/ or `generated/studio.html`).
 2. **File › New Level...**, template **Basic**, **Create**. The level has a ground (40 × 40 m), sun, sky
    and a cube.
 3. In **World Settings**, set the **Level name** and the **Game title**, for example "Orb Garden".
@@ -819,7 +819,7 @@ done
 In the process, Studio ends up as `_site/editor/index.html` with a manifest, service worker, icons,
 `build.json` and the network folders `microduck/` and `policies/`; `kern/web/studio/` with `play.html`
 and `generated/kern_studio.wasm` are also put on the site. The published version is at
-https://christianhohlfeld.github.io/kern/.
+https://kernengine.de/.
 
 ### Pre-publishing checklist
 

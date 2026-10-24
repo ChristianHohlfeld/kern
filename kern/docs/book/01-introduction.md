@@ -8,7 +8,7 @@ there is the **Micro Duck**, the bipedal robot by Pollen Robotics, which runs in
 trained networks, and the **Lehrer** (German for "teacher"), which trains new networks for this robot
 in C++ – natively and in the browser.
 
-Live: <https://christianhohlfeld.github.io/kern/> – the start page with Kern Studio (`/editor/`), the
+Live: <https://kernengine.de/> – the start page with Kern Studio (`/editor/`), the
 Lehrer (`/lehrer/`), playable levels (`kern/web/studio/play.html?level=orbRun` or `physicsLab`) and
 the C++ examples `orbrun` and `hello`.
 

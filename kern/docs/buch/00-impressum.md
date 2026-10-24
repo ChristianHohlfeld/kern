@@ -21,7 +21,7 @@ werden.
 
 **Die Software.** Kern (Engine, Kern Studio, der Lehrer, die trainierten Netze, Werkzeuge und
 Beispiele) ist Open Source unter der Apache License 2.0 und kostenlos erhältlich:
-<https://christianhohlfeld.github.io/kern/>, Quellcode unter
+<https://kernengine.de/>, Quellcode unter
 <https://github.com/ChristianHohlfeld/kern>. Ausgenommen sind die in Kern Studio enthaltenen
 3D-Modelle der Micro Duck von Pollen Robotics: Sie stehen unter CC BY-NC-SA 4.0 und dürfen nur nicht
 kommerziell genutzt werden. Ein kommerzieller Build (`kern/build.sh --commercial`) lässt sie weg. Die
