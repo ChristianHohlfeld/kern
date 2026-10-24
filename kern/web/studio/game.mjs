@@ -6,7 +6,7 @@
 // full screen: rendering, Box3D physics, controllers and game rules all run in
 // C++ (kern::game::GameWorld). This file sizes the canvas, forwards input and
 // draws the HUD text - nothing else.
-import {loadKern} from "../kern.mjs";
+import {loadKern, KERN_NOTICES} from "../kern.mjs";
 
 export const POINTER = {down: 0, move: 1, up: 2, cancel: 3, wheel: 4, leave: 5};
 
@@ -892,7 +892,8 @@ export function buildGameHtml({sources, wasmBase64, levelText, title}) {
   const code = inlineModules(sources.kern, sources.game).replace(/<\/script/gi, "<\\/script");
   const boot = `\n{const t=id=>document.getElementById(id).textContent;` +
     `startGame({base64:t("kern-wasm").trim(),levelText:t("kern-level")}).catch(e=>{const b=document.getElementById("error");b.style.display="block";b.textContent="Game failed to start: "+e.message;console.error(e);});}`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">` +
+  const notices = typeof KERN_NOTICES === "string" ? `<!--\nMade with Kern (https://github.com/ChristianHohlfeld/kern).\n${KERN_NOTICES.replace(/--/g, "- -")}\n-->\n` : "";
+  return `<!doctype html>\n${notices}<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">` +
     `<meta name="generator" content="Kern Studio"><title>${escHtml(title || "Kern game")}</title><style>${PLAYER_STYLE}</style></head><body>${PLAYER_BODY}` +
     `<script type="application/json" id="kern-level">${levelText.replace(/</g, "\\u003c")}<\/script>` +
     `<script type="text/plain" id="kern-wasm">${wasmBase64}<\/script>` +

@@ -79,6 +79,7 @@ jobs:
           kern/build.sh --app kern/examples/orbrun/orbrun.wasm kern/examples/orbrun/orbrun.cpp
           kern/build.sh --lehrer generated/kern_lehrer.wasm
           for f in kern/web/kern.mjs kern/web/app.mjs kern/web/studio/*.mjs kern/web/lehrer/*.mjs tools/net_relay.mjs; do node --check "$f"; done
+          python3 -I tools/kern_notices.py --check
       - name: Lehrer in WebAssembly (one PPO iteration through the workers' C ABI)
         run: node kern/tests/lehrer_wasm_test.mjs generated/kern_lehrer.wasm
       - name: Logic JIT (graphs compiled to WebAssembly must match the interpreter)
