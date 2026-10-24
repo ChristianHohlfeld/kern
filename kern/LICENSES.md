@@ -1,7 +1,8 @@
 # Third-party code in Kern
 
-Kern itself is proprietary: see `LICENSE` at the repository root (all rights reserved). The
-components below are not covered by it; each stays under its own license.
+Kern itself is licensed under the Apache License 2.0 (`LICENSE`, `LICENSING.md` at the repository
+root). The components below are not Kern's; each stays under its own license. A summary is in
+`NOTICE`.
 
 ## Earcut (C++ port in `kern/src/geo/earcut.cpp`)
 
@@ -90,16 +91,23 @@ commit 942e58e), itself a port of apirrone/microduck_sounds, licensed under the 
 Version 2.0. When the duck speaks is ported from robotd/src/sound.rs and main.rs of the same
 repository. Changes: translated to C++, played through Kern's mixer.
 
-## Micro Duck meshes (`kern/third_party/microduck/micro_duck_meshes.inc`)
+## Micro Duck model, policies and pick-up detector (`kern/third_party/microduck`)
 
-The Micro Duck's 3D model (STL meshes from https://github.com/pollen-robotics/microduck_rl,
-`src/mjlab_microduck/robot/microduck/assets`), Copyright Pollen Robotics, licensed under the
-Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0,
-https://creativecommons.org/licenses/by-nc-sa/4.0/). Modified: simplified, merged per link, posed,
-normals recomputed, quantised (tools/micro_duck_import.py). This adaptation is licensed under
-CC BY-NC-SA 4.0 as well. Not for commercial use.
+The robot description (MJCF: `robot_allcollisions_backlash.xml`,
+`robot_groundcontact_rollers_backlash.xml`, from https://github.com/pollen-robotics/microduck_rl),
+the control policies (`*.onnx`, from https://huggingface.co/pollen-robotics/microduck-policies),
+their `manifest.json` and the pick-up detector (`pickup_detector.onnx`, embedded as
+`pickup_detector.inc`, from https://github.com/pollen-robotics/microduck), Copyright Pollen
+Robotics, licensed under the Apache License, Version 2.0; the full text is in
+`kern/third_party/microduck/LICENSE`. Kern reads the MJCF's bodies, joints, masses and inertias
+(converted by `tools/micro_duck_import.py` into `kern/src/game/micro_duck_model.inc` and
+`micro_duck_velstand.inc`) and runs the policies unchanged. Details and checksums:
+`kern/third_party/microduck/README.md`.
 
-## Test data
+## The Micro Duck's look and colliders
 
-`tests/fixtures/konstanz-osm-sample.json` contains OpenStreetMap data,
-© OpenStreetMap contributors, available under the Open Database License (ODbL 1.0).
+The look is Kern's own design (`tools/kern_duck.py` → `kern/src/game/duck_meshes.inc`), licensed
+like Kern. The colliders (`kern/src/game/duck_colliders.inc`) come from measurement data in
+`tools/kern_duck_envelopes.json`: coarse convex hulls (11–40 points each) of how far the real
+robot's colliding parts reach, so that the duck touches the world as in training. Kern does not
+contain Pollen Robotics' 3D model files (CC BY-NC-SA 4.0) or meshes derived from them.

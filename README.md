@@ -8,7 +8,7 @@ Kern ist eine 3D-Engine in **C++20**, die mit wasi-sdk nach **WebAssembly** komp
 |---|---|
 | Engine, Renderer, Geometrie, App-Laufzeit | [`kern/README.md`](kern/README.md) |
 | Kern Studio, Steuerung, Komponenten, Sound, `.klevel`-Format, Protokoll | [`kern/docs/studio.md`](kern/docs/studio.md) |
-| Lizenz von Kern (proprietär, alle Rechte vorbehalten) | [`LICENSE`](LICENSE) |
+| Lizenz: Open Source unter Apache 2.0 (Buch, Kurse, Integrationslizenzen gesondert) | [`LICENSING.md`](LICENSING.md), [`LICENSE`](LICENSE) |
 | Lizenzen der Bestandteile Dritter | [`kern/LICENSES.md`](kern/LICENSES.md) |
 
 ## Schnellstart
@@ -42,4 +42,8 @@ Kern ist in [SpawnCity](https://spawncity.de) entstanden, das über Kern rendert
 
 ## Lizenz
 
-© 2026 Christian Heinrich Hohlfeld (ORCID [0009-0003-6634-9045](https://orcid.org/0009-0003-6634-9045)). Alle Rechte vorbehalten. Kern ist proprietär; Nutzung, Weitergabe und Bearbeitung nur mit schriftlicher Zustimmung, siehe [`LICENSE`](LICENSE). Bestandteile Dritter behalten ihre eigenen Lizenzen ([`kern/LICENSES.md`](kern/LICENSES.md)).
+© 2026 Christian Heinrich Hohlfeld (ORCID [0009-0003-6634-9045](https://orcid.org/0009-0003-6634-9045)).
+
+Kern ist **Open Source unter der Apache License 2.0** ([`LICENSE`](LICENSE)): frei nutzbar, veränderbar und weitergebbar, auch kommerziell. Dazu gibt es das Buch, Kurse und **Integrationslizenzen für Schulen und Unternehmen** (Name und Logo, Gewährleistung, Support, Schulung, Anpassungen) – Einzelheiten in [`LICENSING.md`](LICENSING.md). Name und Logo sind nicht mitlizenziert ([`TRADEMARKS.md`](TRADEMARKS.md)), Beiträge nach [`CONTRIBUTING.md`](CONTRIBUTING.md). Das Buch (`kern/docs/buch`, `kern/docs/book`) steht nicht unter der Apache-Lizenz: alle Rechte vorbehalten. Bestandteile Dritter behalten ihre eigenen Lizenzen ([`kern/LICENSES.md`](kern/LICENSES.md), [`NOTICE`](NOTICE)).
+
+Kern ist mit Pollen Robotics nicht verbunden; „Micro Duck" bezeichnet deren Roboter, den Kern simuliert. Das Aussehen der Ente in Kern ist eigene Gestaltung ([`tools/kern_duck.py`](tools/kern_duck.py)); Pollens 3D-Modelle sind nicht enthalten.

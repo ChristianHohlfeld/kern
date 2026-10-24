@@ -3,3 +3,4 @@ kern/examples/*/*.wasm
 node_modules/
 __pycache__/
 kern/build/
+.claude/

@@ -175,4 +175,4 @@ Der Renderer hat dafür Linien-Materialien (`Material.lines`), Ebenenmasken (`Me
 
 ## Lizenzen
 
-Siehe `kern/LICENSES.md` (Earcut: ISC, Mapbox; Box3D: MIT, Erin Catto).
+Kern: Apache License 2.0, siehe `LICENSE` und `LICENSING.md` im Wurzelverzeichnis. Bestandteile Dritter: `kern/LICENSES.md` (Earcut: ISC, Mapbox; Box3D: MIT, Erin Catto; musl: MIT; Micro-Duck-MJCF, -Policies und Portierungen: Apache 2.0, Pollen Robotics).
