@@ -38,7 +38,7 @@ def data(name):
     if not p.exists(): p = img_dir / "studio.png"
     return "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
 
-logo = (img_dir / "kern-logo.svg").read_text()
+logo = f'<img src="{data("kern-logo.png")}" alt="Kern">'  # sRGB raster: the same in every viewer
 de = not a.en
 t = {
     "book": "Das Buch" if de else "The Book",
@@ -73,7 +73,7 @@ body {{ width: {TW}in; height: {TH}in; position: relative; overflow: hidden;
 .back {{ left: {M}in; width: {W}in }}
 .spine {{ left: {M + W + HINGE}in; width: {S}in }}
 .front {{ left: {M + W + HINGE + S + HINGE}in; width: {W}in }}
-.front .logo svg {{ width: 1.15in; height: 1.15in }}
+.front .logo img {{ width: 1.15in; height: 1.15in }}
 .front .logo {{ position: absolute; left: 0.75in; top: 0.85in }}
 .front h1 {{ position: absolute; left: 0.75in; top: 2.05in; margin: 0; font-size: 92pt; letter-spacing: -2pt; font-weight: bold; color: #fff }}
 .front .book {{ position: absolute; left: 0.8in; top: 3.45in; font-size: 24pt; color: #9cc4ff }}
@@ -87,8 +87,8 @@ body {{ width: {TW}in; height: {TH}in; position: relative; overflow: hidden;
   white-space: nowrap; font-size: {min(16, S * 72 * 0.42):.1f}pt; display: flex; align-items: center; gap: 0.25in }}
 .spine .inner b {{ color: #fff }} .spine .inner span {{ color: #9cc4ff }}
 .spine .mark {{ position: absolute; left: 50%; bottom: 0.45in; transform: translateX(-50%) }}
-.spine .mark svg {{ width: {min(0.6, S * 0.7):.2f}in; height: {min(0.6, S * 0.7):.2f}in }}
-.back .logo svg {{ width: 0.55in; height: 0.55in }}
+.spine .mark img {{ width: {min(0.6, S * 0.7):.2f}in; height: {min(0.6, S * 0.7):.2f}in }}
+.back .logo img {{ width: 0.55in; height: 0.55in }}
 .back .logo {{ position: absolute; left: 0.75in; top: 0.85in }}
 .back .title {{ position: absolute; left: 1.45in; top: 0.9in; font-size: 20pt; font-weight: bold }}
 .back .title span {{ font-weight: normal; color: #9cc4ff }}

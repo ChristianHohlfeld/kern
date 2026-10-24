@@ -95,6 +95,8 @@ for i, p in enumerate(files):
 (work / "buch.md").write_text("\n\n".join(parts))
 lang = "en" if a.en else "de"
 header = work / "header.tex"
+logo_tex = work / "kern_logo.tex"
+logo_tex.write_text((here / "kern_logo.tex").read_text().replace("KERNLOGO", (docs / "buch" / "bilder" / "kern-logo.png").as_posix()))
 header.write_text(r"""
 \usepackage{polyglossia}
 \setmainlanguage%s
@@ -114,7 +116,7 @@ header.write_text(r"""
 \let\kernmainmatter\mainmatter
 \renewcommand{\mainmatter}{}  %%%% pandoc says it before the body; the book says it after the contents
 \frontmatter
-""" % ("[variant=british]{english}" if a.en else "[spelling=new]{german}", (here / "kern_logo.tex").as_posix()))
+""" % ("[variant=british]{english}" if a.en else "[spelling=new]{german}", logo_tex.as_posix()))
 title = "Kern – The Book" if a.en else "Kern – Das Buch"
 titlepage = work / "titlepage.tex"
 sub = ("The engine, Kern Studio, the Micro Duck and the Lehrer" if a.en
