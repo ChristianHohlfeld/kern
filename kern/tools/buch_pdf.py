@@ -58,7 +58,7 @@ for i, p in enumerate(files):
             print("missing image", path, file=sys.stderr)
             return ""
         return f"![{alt}]({f}){{width=100%}}"
-    t = re.sub(r"!\[([^\]]*)\]\((bilder/[^)\s]+|images/[^)\s]+)\)", img, t)
+    t = re.sub(r"!\[([^\]]*)\]\(((?:\.\./buch/)?bilder/[^)\s]+)\)", img, t)
     # Links to other chapters (with or without an anchor) point into the book.
     def link(m):
         text, target, anchor = m.group(1), m.group(2), m.group(3)
