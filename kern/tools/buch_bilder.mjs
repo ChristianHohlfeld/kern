@@ -37,9 +37,9 @@ if (want("duck-level.png") || want("duck-play.png")) {
   await cmd({cmd: "new", template: "microDuck"});
   await wait(8000);
   if (want("duck-level.png")) await shot(page, "duck-level.png");
-  if (want("duck-play.png")) {
-    await cmd({cmd: "play", mode: "play"});
-    await playing(page);
+  if (want("duck-play.png")) {  // simulated: the duck is autonomous and plays on its own
+    await cmd({cmd: "play", mode: "simulate"});
+    await page.waitForFunction(() => window.KernStudio.state.play.state === "simulating", null, {timeout: 600000});
     await wait(45000);  // the duck walks up to the ball
     await shot(page, "duck-play.png");
   }
