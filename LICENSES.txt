@@ -1,0 +1,140 @@
+# Third-party code in Kern
+
+Kern itself is licensed under the Apache License 2.0 (`LICENSE`, `LICENSING.md` at the repository
+root). The components below are not Kern's; each stays under its own license. A summary is in
+`NOTICE`.
+
+## Earcut (C++ port in `kern/src/geo/earcut.cpp`)
+
+Port of Mapbox Earcut v3.0.2 (https://github.com/mapbox/earcut).
+
+```
+ISC License
+
+Copyright (c) 2024, Mapbox
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
+```
+
+## Box3D (`kern/third_party/box3d`)
+
+Box3D by Erin Catto (https://github.com/erincatto/box3d), vendored at commit
+51f056e0 and compiled unchanged as C17 into modules built with `--physics`,
+`--game`, `--studio` or `--lehrer`.
+
+```
+MIT License
+
+Copyright (c) 2026 Erin Catto
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Intel XeGTAO (adapted in `kern/src/gfx/gtao.cpp`)
+
+Kern's ground-truth ambient occlusion follows Intel's XeGTAO (https://github.com/GameTechDev/XeGTAO):
+the slice and horizon math, the falloff, the sample distribution and the quality presets, rewritten
+for WebGL2. Copyright (C) 2016-2021, Intel Corporation, MIT License; the text is in
+`kern/third_party/xegtao/LICENSE`.
+
+## three.js (adapted in `kern/src/gfx/standard_shader.cpp`)
+
+The ACES filmic tone-mapping fit and the exponential fog are applied as three.js applies them
+(https://github.com/mrdoob/three.js). Copyright (c) 2010-2026 three.js authors, MIT License; the text
+is in `kern/third_party/threejs/LICENSE`.
+
+## musl math (`kern/third_party/musl_math`)
+
+The deterministic libm functions (sin, cos, exp, log, pow, atan2, ...) are taken from musl
+(https://musl.libc.org), Copyright © 2005-2020 Rich Felker, et al., MIT License; the full text and
+the per-file notices are in `kern/third_party/musl_math/COPYRIGHT`.
+
+## Micro Duck idle look-around (port in `kern/src/game/walker_brain.cpp`)
+
+The idle look-around (`GameWorld::WalkerBrain::Idle`) is a C++ port of `robotd/src/idle_head.rs`
+and the `[idle]` defaults of `robotd-params` from Pollen Robotics' microduck
+(https://github.com/pollen-robotics/microduck, commit 942e58e), licensed under the Apache License,
+Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Changes: translated to C++, ticked from
+Kern's control step instead of the wall clock, seeded from the actor id, the beak and the breath
+computed but not applied.
+
+## Micro Duck autonomous brain (port in `kern/src/game/walker_brain.cpp`)
+
+The autonomous behaviour (`GameWorld::think_walker`, `GameWorld::WalkerBrain::Brain`) is a C++ port
+of `autod/src/brain.rs` and `autod/src/obstacle.rs` from Pollen Robotics' microduck
+(https://github.com/pollen-robotics/microduck, branch `autonomous-mode`, commit df9a750, author
+Antoine Pirrone, 2026-10-01), Copyright Pollen Robotics, licensed under the Apache License,
+Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Changes: translated to C++, ticked from
+Kern's control step, seeded from the actor id; the obstacle model reads Kern's simulated ToF frame
+instead of `kinematics::tof::Reprojector`; hearing and petting come from API calls (Kern has no
+microphone or touch sensor). Added by Kern, not part of the original: BallPlay (approach, line up,
+kick), rebuilt from the description of Pollen's original runtime, whose code is not public, and the
+learned play layer for ball and sock (`walker_play.cpp`).
+
+## Micro Duck voice (port in `kern/src/audio/duck_voice.cpp`)
+
+The duck's voice synthesiser is a C++ port of the `sounds` crate (lib.rs, personality.rs, rng.rs,
+synth.rs, voices.rs) of Pollen Robotics' microduck (https://github.com/pollen-robotics/microduck,
+commit 942e58e), itself a port of apirrone/microduck_sounds, licensed under the Apache License,
+Version 2.0. When the duck speaks is ported from robotd/src/sound.rs and main.rs of the same
+repository. Changes: translated to C++, played through Kern's mixer.
+
+## Micro Duck model, policies and pick-up detector (`kern/third_party/microduck`)
+
+The robot description (MJCF: `robot_allcollisions_backlash.xml`,
+`robot_groundcontact_rollers_backlash.xml`, from https://github.com/pollen-robotics/microduck_rl),
+the control policies (`*.onnx`, from https://huggingface.co/pollen-robotics/microduck-policies),
+their `manifest.json` and the pick-up detector (`pickup_detector.onnx`, embedded as
+`pickup_detector.inc`, from https://github.com/pollen-robotics/microduck), Copyright Pollen
+Robotics, licensed under the Apache License, Version 2.0; the full text is in
+`kern/third_party/microduck/LICENSE`. Kern reads the MJCF's bodies, joints, masses and inertias
+(converted by `tools/micro_duck_import.py` into `kern/src/game/micro_duck_model.inc` and
+`micro_duck_velstand.inc`) and runs the policies unchanged. Details and checksums:
+`kern/third_party/microduck/README.md`.
+
+## The Micro Duck's look (CC BY-NC-SA 4.0)
+
+The Micro Duck's meshes (`kern/third_party/microduck/micro_duck_meshes.inc`) are derived from the
+STL models of https://github.com/pollen-robotics/microduck_rl (`src/mjlab_microduck/robot/microduck/assets`),
+Copyright Pollen Robotics, licensed under the Creative Commons Attribution-NonCommercial-ShareAlike
+4.0 International licence (https://creativecommons.org/licenses/by-nc-sa/4.0/, the repository's
+`LICENSE-MODELS.md`). `tools/micro_duck_import.py` simplified them (vertex clustering, about 8 % of
+the triangles), merged them per link, took the colours from the MJCF materials and quantised them;
+this adaptation is shared under the same licence. The meshes are not covered by the Apache License:
+they may not be used commercially. Kern Studio's module and every game exported from it contain
+them. A commercial build leaves them out: `kern/build.sh --commercial` (or
+`KERN_COMMERCIAL=1 tools/build_studio.sh`) compiles without them, and the duck's links then have no
+look. The colliders come from the same import: 40-point convex hulls of the colliding parts
+(`micro_duck_model.inc`), functional collision data that keeps the physics as in training.
+
+## Kern's trained networks (`kern/policies`)
+
+`jump.onnx` and `play.onnx` were trained by Kern's Lehrer. `jump.onnx` starts from Pollen Robotics'
+`velstand.onnx` (warm start, Apache License 2.0) and is a modification of it; both networks run on
+Pollen's robot model. Copyright Christian Heinrich Hohlfeld and Pollen Robotics, Apache License 2.0.

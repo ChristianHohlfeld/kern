@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Impressum · Kern Engine</title>
+<meta name="description" content="Impressum der Website der Kern Engine.">
+<style>
+/* Same tokens as index.html; no web fonts from third-party hosts. */
+:root {
+  --bg: #f3f4f1; --surface: #ffffff; --ink: #161a1d; --muted: #5b646b; --line: #d7dbd6;
+  --accent: #1f6f5c; --accent-ink: #ffffff;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #101315; --surface: #171b1e; --ink: #e8ecea; --muted: #97a19c; --line: #2a3033; --accent: #4fbf9f; --accent-ink: #0d1412; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #101315; --surface: #171b1e; --ink: #e8ecea; --muted: #97a19c; --line: #2a3033; --accent: #4fbf9f; --accent-ink: #0d1412; color-scheme: dark; }
+* { box-sizing: border-box; }
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+.wrap { max-width: 760px; margin: 0 auto; padding-block: 56px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 36px; }
+header { display: grid; gap: 14px; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.eyebrow a { color: inherit; text-decoration: none; }
+.eyebrow a:hover { color: var(--accent); }
+h1 { margin: 0; font: 800 clamp(40px, 8vw, 72px)/.95 var(--display); font-stretch: 112%; letter-spacing: -.02em; }
+h2 { margin: 0 0 10px; font: 600 20px/1.25 var(--display); font-stretch: 112%; }
+section { border-top: 1px solid var(--line); padding-top: 20px; }
+p, address { margin: 0 0 12px; max-width: 68ch; font-style: normal; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+footer { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow"><a href="./">Kern Engine</a> · Anbieterkennzeichnung</div>
+    <h1>Impressum</h1>
+  </header>
+
+  <section aria-labelledby="anbieter">
+    <h2 id="anbieter">Angaben gemäß § 5 DDG</h2>
+    <address>
+      Christian Heinrich Hohlfeld<br>
+      Gerhart-Hauptmann-Weg 5<br>
+      78464 Konstanz<br>
+      Deutschland
+    </address>
+    <!-- Kontakt (§ 5 Abs. 1 Nr. 2 DDG, vor der Veröffentlichung zu ergänzen):
+    <p>E-Mail: kontakt@… (vom Inhaber einzutragen)</p>
+    -->
+  </section>
+
+  <section aria-labelledby="mstv">
+    <h2 id="mstv">Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2>
+    <address>
+      Christian Heinrich Hohlfeld<br>
+      Gerhart-Hauptmann-Weg 5<br>
+      78464 Konstanz<br>
+      Deutschland
+    </address>
+  </section>
+
+  <section aria-labelledby="inhalte">
+    <h2 id="inhalte">Haftung für Inhalte</h2>
+    <p>Die Inhalte dieser Seiten werden mit Sorgfalt erstellt. Für die Richtigkeit, Vollständigkeit und Aktualität der Inhalte kann jedoch keine Gewähr übernommen werden. Als Diensteanbieter bin ich nach den allgemeinen Gesetzen für eigene Inhalte auf diesen Seiten verantwortlich; nach §§ 7 bis 10 DDG bin ich jedoch nicht verpflichtet, übermittelte oder gespeicherte fremde Informationen zu überwachen oder nach Umständen zu forschen, die auf eine rechtswidrige Tätigkeit hinweisen. Verpflichtungen zur Entfernung oder Sperrung der Nutzung von Informationen nach den allgemeinen Gesetzen bleiben unberührt. Sobald mir eine Rechtsverletzung bekannt wird, entferne ich den betreffenden Inhalt umgehend.</p>
+  </section>
+
+  <section aria-labelledby="links">
+    <h2 id="links">Haftung für Links</h2>
+    <p>Diese Website enthält Links zu externen Websites Dritter (zum Beispiel zu GitHub), auf deren Inhalte ich keinen Einfluss habe. Für diese fremden Inhalte ist stets der jeweilige Anbieter oder Betreiber der verlinkten Seiten verantwortlich. Die verlinkten Seiten wurden zum Zeitpunkt der Verlinkung auf mögliche Rechtsverstöße überprüft; rechtswidrige Inhalte waren nicht erkennbar. Eine dauernde inhaltliche Kontrolle der verlinkten Seiten ist ohne konkrete Anhaltspunkte einer Rechtsverletzung nicht zumutbar. Bei Bekanntwerden von Rechtsverletzungen entferne ich derartige Links umgehend.</p>
+  </section>
+
+  <section aria-labelledby="lizenz">
+    <h2 id="lizenz">Lizenz</h2>
+    <p>Die Kern Engine ist Open Source unter der Apache License 2.0; Buch, Kurse und Integrationslizenzen für Schulen und Unternehmen gibt es gesondert. Einzelheiten unter <a href="LICENSING.txt">Lizenz</a>, Bestandteile Dritter und ihre Lizenzen unter <a href="LICENSES.txt">Bestandteile Dritter</a>.</p>
+  </section>
+
+  <footer>
+    <span>© 2026 Christian Heinrich Hohlfeld</span>
+    <a href="./">Startseite</a>
+    <a href="impressum.html" aria-current="page">Impressum</a>
+    <a href="datenschutz.html">Datenschutz</a>
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kern hello</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1018; color: #e8eef6; font: 14px system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #status { position: fixed; left: 12px; bottom: 12px; padding: 6px 10px; background: rgba(0,0,0,.45); border-radius: 6px; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="status">loading...</div>
+<script type="module">
+  import {runKernApp} from "../../web/app.mjs";
+  const status = document.getElementById("status");
+  runKernApp({canvas: document.getElementById("game"), url: "./hello.wasm", onStatus: text => (status.textContent = text)})
+    .then(app => (window.__kernApp = app))
+    .catch(error => { status.textContent = String(error); window.__kernError = String(error); });
+</script>
+</body>
+</html>

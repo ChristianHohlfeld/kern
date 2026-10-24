@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#151516">
+<meta name="description" content="Kern Lehrer: bringt dem Micro Duck auf diesem Gerät neue Bewegungen bei, in Kerns eigener Engine und Physik.">
+<title>Kern Lehrer</title>
+<style>
+:root {
+  --bg1: #151516; --bg2: #1c1c1e; --bg3: #242427; --bg4: #2e2e32; --line2: #2b2b2f;
+  --text: #c8c8cc; --text-hi: #f0f0f2; --dim: #85858c; --faint: #5a5a60;
+  --accent: #2f7de1; --play: #3fb950; --warn: #e3b341; --err: #f0624f;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg1); color: var(--text); font: 14px/1.45 var(--font); }
+main { max-width: 980px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px 32px; }
+header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+h1 { font-size: 20px; margin: 0; color: var(--text-hi); font-weight: 650; letter-spacing: .01em; }
+header p { margin: 0; color: var(--dim); }
+header a { color: var(--dim); margin-left: auto; }
+.panel { background: var(--bg2); border: 1px solid var(--line2); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; }
+label { display: grid; gap: 4px; color: var(--dim); font-size: 12px; }
+select, input { font: inherit; color: var(--text-hi); background: var(--bg3); border: 1px solid var(--line2); border-radius: 6px; padding: 7px 8px; min-height: 36px; width: 100%; }
+.buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+button { font: inherit; font-weight: 600; color: var(--text-hi); background: var(--bg4); border: 1px solid var(--line2); border-radius: 6px; padding: 8px 16px; min-height: 38px; cursor: pointer; }
+button.go { background: var(--play); border-color: var(--play); color: #06140a; }
+button:disabled { opacity: .45; cursor: default; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.stat { background: var(--bg3); border-radius: 6px; padding: 8px 10px; }
+.stat b { display: block; font: 600 18px var(--mono); color: var(--text-hi); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--dim); font-size: 12px; }
+canvas { width: 100%; height: 240px; display: block; }
+#status { color: var(--dim); min-height: 1.4em; margin-top: 10px; }
+#status.err { color: var(--err); }
+.saved { color: var(--play); font-size: 12px; min-height: 1.2em; }
+.legend { display: flex; gap: 14px; color: var(--dim); font-size: 12px; margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 5px; }
+details { color: var(--dim); }
+details p { margin: 6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Kern Lehrer</h1>
+    <p>Bringt dem Micro Duck auf diesem Gerät neue Bewegungen bei: Kerns Engine und Box3D, PPO in C++.</p>
+    <a href="../editor/">Kern Studio</a>
+  </header>
+  <section class="panel">
+    <div class="controls">
+      <label>Bewegung
+        <select id="task">
+          <option value="jump">Sprung</option>
+          <option value="stand">Stehen (Schnelltest)</option>
+        </select>
+      </label>
+      <label>Worker <input id="workers" type="number" min="1" max="64"></label>
+      <label>Enten je Worker <input id="envs" type="number" min="1" max="256" value="8"></label>
+      <label>Iterationen <input id="iterations" type="number" min="1" max="100000" value="1500"></label>
+      <label>Seed <input id="seed" type="number" min="1" value="1"></label>
+      <label>Aktionsrauschen am Anfang <input id="initstd" type="number" min="0.05" max="2" step="0.05" placeholder="Rezept"></label>
+      <label>Lernrate <input id="lr" type="number" min="0.00001" max="0.01" step="0.0001" placeholder="Rezept"></label>
+    </div>
+    <div class="buttons">
+      <button id="start" class="go">Start</button>
+      <button id="pause" disabled>Pause</button>
+      <button id="download" disabled>.onnx herunterladen</button>
+    </div>
+    <div id="status">Die Engine lädt ...</div>
+    <div id="saved" class="saved"></div>
+  </section>
+  <section class="panel stats">
+    <div class="stat"><b id="s-it">0</b><span>Iteration</span></div>
+    <div class="stat"><b id="s-steps">0</b><span>Entenschritte</span></div>
+    <div class="stat"><b id="s-sps">-</b><span>Schritte / s</span></div>
+    <div class="stat"><b id="s-ret">-</b><span>mittlere Episoden-Rückgabe</span></div>
+    <div class="stat"><b id="s-len">-</b><span>Episodenlänge (s)</span></div>
+    <div class="stat"><b id="s-std">-</b><span>Aktionsrauschen (std)</span></div>
+    <div class="stat"><b id="s-jump">-</b><span>echte Sprünge (sauberer Roboter)</span></div>
+    <div class="stat"><b id="s-height">-</b><span>Sprunghöhe (mm)</span></div>
+    <div class="stat"><b id="s-flight">-</b><span>Flugzeit (ms)</span></div>
+  </section>
+  <section class="panel">
+    <canvas id="chart"></canvas>
+    <div class="legend"><span><i style="background:var(--play)"></i>Episoden-Rückgabe</span><span><i style="background:var(--accent)"></i>Episodenlänge</span></div>
+  </section>
+  <details class="panel">
+    <summary>Wie es funktioniert</summary>
+    <p>Der Sprung lernt in zwei Schritten: Zuerst ahmt das Netz ein Vorbild nach, einen Sprung, den eine Suche (CMA-ES) in derselben Physik gefunden hat. Danach übt es mit PPO und allen Variationen (Massen, Schwerpunkte, Servos, Sensoren), bis es den Sprung selbst sicher kann. Zur Laufzeit gibt es nur das Netz.</p>
+    <p>Jeder Worker führt seine eigenen Enten in Kerns Engine (dieselben Servos, Sensoren und derselbe 50-Hz-Regler wie im Kern Studio) und handelt mit der aktuellen Policy. Der Lerner sammelt ihre Schritte und verbessert die Policy mit PPO, dem Rezept, mit dem Pollen Robotics die Netze des Roboters trainiert. Heraus kommt eine ONNX-Datei im Format von Pollens Netzen; Kern Studio und der Roboter selbst können sie laden.</p>
+    <p>Diesen Tab offen lassen, solange er lernt; ein Handy ans Ladekabel. Mehr Worker nutzen mehr Kerne. Gleicher Seed und gleich viele Enten ergeben Bit für Bit dasselbe Netz, auf jedem Gerät.</p>
+    <p>Alle 25 Iterationen wird das Netz auf diesem Gerät für Kern Studio gespeichert: Die Bewegung „jump“ des Micro Duck (Logik-Knoten Robot Move, Bewegung „jump“) nutzt dann das neueste Sprung-Netz, in offenen Studio-Tabs sofort.</p>
+  </details>
+</main>
+<script type="module" src="../kern/web/lehrer/lehrer.mjs"></script>
+</body>
+</html>

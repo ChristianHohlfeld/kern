@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Orb Run - a Kern engine game</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05080e; color: #e8f4ff; font: 600 14px/1.3 system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; outline: none; }
+  #status { position: fixed; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%); padding: 8px 14px;
+    background: rgba(4, 10, 18, .62); border: 1px solid rgba(90, 255, 230, .35); border-radius: 10px; white-space: nowrap;
+    font-variant-numeric: tabular-nums; letter-spacing: .04em; pointer-events: none; text-shadow: 0 0 8px rgba(80, 255, 220, .5); }
+  #help { position: fixed; left: 12px; bottom: max(12px, env(safe-area-inset-bottom)); opacity: .75; font-weight: 500; font-size: 12px; pointer-events: none; }
+  @media (max-width: 640px) { #status { font-size: 11px; } }
+</style>
+</head>
+<body>
+<canvas id="game" tabindex="0"></canvas>
+<div id="status">loading...</div>
+<div id="help">W/S or arrows drive &middot; A/D steer &middot; Space boost &middot; N fast time &middot; Enter new city &middot; Touch: left steer, right boost</div>
+<script type="module">
+  import {runKernApp} from "../../web/app.mjs";
+  const status = document.getElementById("status"), canvas = document.getElementById("game");
+  canvas.focus();
+  runKernApp({canvas, url: "./orbrun.wasm", onStatus: text => (status.textContent = text)})
+    .then(app => (window.__kernApp = app))
+    .catch(error => { status.textContent = String(error); window.__kernError = String(error); });
+</script>
+</body>
+</html>
