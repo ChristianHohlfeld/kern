@@ -4,8 +4,8 @@
 
 ## Imprint and Rights
 
-**Author and rights holder:** Christian Heinrich Hohlfeld
-Gerhart-Hauptmann-Weg 5, 78464 Konstanz, Germany
+**Author, publisher and rights holder (self-published):** Christian Heinrich Hohlfeld\
+Gerhart-Hauptmann-Weg 5, 78464 Konstanz, Germany\
 ORCID: [0009-0003-6634-9045](https://orcid.org/0009-0003-6634-9045)
 
 © 2026 Christian Heinrich Hohlfeld. All rights reserved.

@@ -192,6 +192,8 @@ mit Vertexfarben. Pollens 3D-Modelle (CC BY-NC-SA 4.0, nicht kommerziell) sind n
 übernommen sind nur Messdaten (die Gliedrahmen und die groben Kollisionshüllen), damit Sohlen,
 Servos und Schnabel dort sitzen, wo sie beim echten Roboter sitzen.
 
+![Die Micro Duck in Kerns eigener Gestaltung](bilder/duck-close.png)
+
 ### Rollschuhe
 
 `micro_duck_actors(true)` baut die Rollen-Variante aus `robot_groundcontact_rollers_backlash.xml`

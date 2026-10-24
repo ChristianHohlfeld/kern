@@ -190,6 +190,8 @@ models (CC BY-NC-SA 4.0, non-commercial) are not included; only measurement data
 frames and the coarse collision hulls), so that soles, servos and beak sit where they sit on the
 real robot.
 
+![The Micro Duck in Kern's own design](../buch/bilder/duck-close.png)
+
 ### Roller skates
 
 `micro_duck_actors(true)` builds the roller variant from `robot_groundcontact_rollers_backlash.xml`

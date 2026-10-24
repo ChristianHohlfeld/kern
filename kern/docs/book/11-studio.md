@@ -816,7 +816,7 @@ covers the viewports.
 
 | Area | Content |
 |---|---|
-| Toolbar | **Viewport** (back, Esc), **Compile** (F7, with status ✓ / ⚠ / ✖), **Save**, **Find** (Ctrl+F), Blueprint selector (level or actor), **Templates**, **C++** (export), marquee selection (touch), help |
+| Toolbar | **Viewport** (back, Esc), **Compile** (F7, with a status of OK / warning / error), **Save**, **Find** (Ctrl+F), Blueprint selector (level or actor), **Templates**, **C++** (export), marquee selection (touch), help |
 | My Blueprint | graphs (Event Graph, state machines), variables with type color and live value while playing, events |
 | Graph | tabs, zoom levels as in Unreal, nodes and wires |
 | Details | selected node, variable, comment, state or transition |
@@ -931,7 +931,7 @@ used one (`InputArbiter` in `kern/src/game/touch.cpp`, following SpawnCity's rul
 ### 11.12.2 Play on touch devices
 
 Play on a touch device fills the whole screen and switches to a single viewport. At the top left are
-**⟵ EXIT** (Stop) and **❚❚ PAUSE** or **▶ RESUME**.
+**⟵ EXIT** (Stop) and **‖ PAUSE** or **▶ RESUME**.
 
 The engine creates the controls itself (`TouchControls`); the page merely draws them:
 

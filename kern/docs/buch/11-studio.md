@@ -813,7 +813,7 @@ Editor deckt dann die Viewports ab.
 
 | Bereich | Inhalt |
 |---|---|
-| Toolbar | **Viewport** (zurück, Esc), **Compile** (F7, mit Status ✓ / ⚠ / ✖), **Save**, **Find** (Ctrl+F), Auswahl des Blueprints (Level oder Actor), **Templates**, **C++** (Export), Rechteckauswahl (Touch), Hilfe |
+| Toolbar | **Viewport** (zurück, Esc), **Compile** (F7, mit Statusanzeige OK / Warnung / Fehler), **Save**, **Find** (Ctrl+F), Auswahl des Blueprints (Level oder Actor), **Templates**, **C++** (Export), Rechteckauswahl (Touch), Hilfe |
 | My Blueprint | Graphen (Event Graph, State Machines), Variablen mit Typfarbe und Live-Wert beim Spielen, Events |
 | Graph | Tabs, Zoomstufen wie in Unreal, Knoten und Drähte |
 | Details | ausgewählter Knoten, Variable, Kommentar, State oder Transition |
@@ -927,7 +927,7 @@ Die Engine erkennt Touch, Maus mit Tastatur und Gamepad selbst und schaltet auf 
 ### 11.12.2 Play auf Touch-Geräten
 
 Play auf einem Touch-Gerät füllt den ganzen Bildschirm und schaltet auf einen Viewport. Oben links stehen
-**⟵ EXIT** (Stop) und **❚❚ PAUSE** bzw. **▶ RESUME**.
+**⟵ EXIT** (Stop) und **‖ PAUSE** bzw. **▶ RESUME**.
 
 Die Engine legt die Bedienelemente selbst an (`TouchControls`), die Seite zeichnet sie nur:
 

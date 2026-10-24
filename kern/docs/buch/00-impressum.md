@@ -4,8 +4,8 @@
 
 ## Impressum und Rechte
 
-**Autor und Rechteinhaber:** Christian Heinrich Hohlfeld
-Gerhart-Hauptmann-Weg 5, 78464 Konstanz, Deutschland
+**Autor, Herausgeber und Rechteinhaber (Selbstverlag):** Christian Heinrich Hohlfeld\
+Gerhart-Hauptmann-Weg 5, 78464 Konstanz, Deutschland\
 ORCID: [0009-0003-6634-9045](https://orcid.org/0009-0003-6634-9045)
 
 © 2026 Christian Heinrich Hohlfeld. Alle Rechte vorbehalten.

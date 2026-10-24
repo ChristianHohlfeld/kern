@@ -23,7 +23,7 @@ ap.add_argument("--en", action="store_true")
 ap.add_argument("--out", default=None)
 ap.add_argument("--trim", default="7x10", help="trim size in inches")
 ap.add_argument("--spine", type=float, default=0, help="spine width in inches (default: from the page count)")
-ap.add_argument("--image", default="duck-level.png", help="the front picture (in kern/docs/buch/bilder)")
+ap.add_argument("--image", default="duck-close.png", help="the front picture (in kern/docs/buch/bilder)")
 a = ap.parse_args()
 
 W, H = (float(x) for x in a.trim.split("x"))
@@ -80,9 +80,9 @@ body {{ width: {TW}in; height: {TH}in; position: relative; overflow: hidden;
 .front h1 {{ position: absolute; left: 0.75in; top: 2.05in; margin: 0; font-size: 92pt; letter-spacing: -2pt; font-weight: bold; color: #fff }}
 .front .book {{ position: absolute; left: 0.8in; top: 3.45in; font-size: 24pt; color: #9cc4ff }}
 .front .sub {{ position: absolute; left: 0.8in; right: 0.6in; top: 4.0in; font-size: 14pt; line-height: 1.35; color: #d5e2f5 }}
-.front .shot {{ position: absolute; left: 0.75in; right: 0.55in; top: 5.05in; border-radius: 10px; overflow: hidden;
+.front .shot {{ position: absolute; left: 0.75in; right: 0.55in; top: 5.05in; height: 3.45in; border-radius: 10px; overflow: hidden;
   box-shadow: 0 0 0 1.5px #3d8bff, 0 10px 40px rgba(0,0,0,.6) }}
-.front .shot img {{ display: block; width: 100% }}
+.front .shot img {{ display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 60% }}
 .front .author {{ position: absolute; left: 0.8in; bottom: 0.75in; font-size: 17pt; color: #fff }}
 .front .tag {{ position: absolute; left: 0.8in; bottom: 0.45in; font-size: 10pt; color: #9cc4ff; letter-spacing: .5pt }}
 .spine .inner {{ position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(90deg);
