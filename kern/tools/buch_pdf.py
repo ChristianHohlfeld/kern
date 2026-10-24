@@ -72,10 +72,11 @@ for i, p in enumerate(files):
         return m.group(0)
     t = re.sub(r"\[([^\]]+)\]\(([0-9A-Z][^)#\s]*\.md)(#[^)\s]+)?\)", link, t)
     if p.name.startswith("00"):  # in print: the imprint alone (the title page and the table of contents are the book's)
-        t = re.sub(r"\A.*?^## ", "# ", t, count=1, flags=re.S | re.M)
+        t = re.sub(r"\A.*?^## ", lambda m: "```{=latex}\n\\thispagestyle{empty}\\footnotesize\n```\n\n## ", t, count=1, flags=re.S | re.M)
+        t = re.sub(r"^## (.+)$", r"## \1 {.unnumbered}", t, flags=re.M)
         t = re.sub(r"^## (Inhalt|Contents)\b.*\Z", "", t, flags=re.S | re.M)
     # The chapter's first heading carries its id; the imprint and the appendices are not numbered.
-    first = re.search(r"^# (.+)$", t, flags=re.M)
+    first = None if p.name.startswith("00") else re.search(r"^# (.+)$", t, flags=re.M)
     if first:
         attrs = "{#" + ids[p.name] + (" .unnumbered" if p.name.startswith("00") else "") + "}"
         head = first.group(1)
@@ -88,7 +89,7 @@ for i, p in enumerate(files):
     if p.name[0].isalpha() and (i == 0 or files[i - 1].name[0].isdigit()):
         t = "```{=latex}\n\\appendix\n```\n\n" + t
     if p.name.startswith("00"):
-        t = t + "\n\n```{=latex}\n\\tableofcontents\n\\mainmatter\n```\n"
+        t = t + "\n\n```{=latex}\n\\normalsize\n\\tableofcontents\n\\kernmainmatter\n```\n"
     parts.append(t)
 
 (work / "buch.md").write_text("\n\n".join(parts))
@@ -110,6 +111,8 @@ header.write_text(r"""
 \renewcommand{\arraystretch}{1.15}
 \setlength{\emergencystretch}{3em}
 \input{%s}
+\let\kernmainmatter\mainmatter
+\renewcommand{\mainmatter}{}  %%%% pandoc says it before the body; the book says it after the contents
 \frontmatter
 """ % ("[variant=british]{english}" if a.en else "[spelling=new]{german}", (here / "kern_logo.tex").as_posix()))
 title = "Kern – The Book" if a.en else "Kern – Das Buch"
@@ -117,8 +120,8 @@ titlepage = work / "titlepage.tex"
 sub = ("The engine, Kern Studio, the Micro Duck and the Lehrer" if a.en
        else "Die Engine, Kern Studio, die Micro Duck und der Lehrer")
 titlepage.write_text(r"""
-\begin{titlepage}
-\centering
+\thispagestyle{empty}
+\begin{center}
 \vspace*{18mm}
 \kernlogo{34mm}\par
 \vspace{14mm}
@@ -132,8 +135,8 @@ titlepage.write_text(r"""
 \vspace{2mm}
 {\small ORCID 0009-0003-6634-9045\par}
 \vspace{12mm}
-\end{titlepage}
-\cleardoublepage
+\end{center}
+\newpage
 """ % ("The Book" if a.en else "Das Buch", sub))
 cmd = ["pandoc", str(work / "buch.md"), "-o", str(out),
        "-f", "markdown+pipe_tables+tex_math_dollars+raw_attribute+autolink_bare_uris-yaml_metadata_block-implicit_figures",
