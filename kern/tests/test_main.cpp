@@ -5422,6 +5422,57 @@ TEST(micro_duck_plays_with_a_ball_on_its_own) {
   CHECK(length(b1.translation() - b0.translation()) > 0.25f * 4);  // and the ball rolls off (25 cm real)
 }
 
+TEST(micro_duck_plays_ball_as_pollens_brain_does) {
+  // Pollen's software only (no Kern extras): BallPlay of the original runtime - it sees the ball in its
+  // head camera's picture, walks up, lines it up in front of its left foot and kicks it with Pollen's
+  // kick network.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+  CHECK(!l.find(duck)->controller->kern_extras);
+  game::Actor ball;
+  ball.name = "Ball";
+  ball.tags = {"ball"};
+  ball.transform.position = {1.2f, 0.3f, 0.16f};
+  ball.mesh = game::MeshComponent{};
+  ball.mesh->shape = game::Shape::sphere;
+  ball.mesh->radius = 0.16f;
+  ball.mesh->rolling_resistance = 0.03f;
+  ball.body = game::BodyComponent{};
+  ball.body->mass = 0.03f * 64;
+  const game::ActorId bid = l.add(ball).id;
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  Mat4 b0;
+  f.world->actor_matrix(bid, b0);
+  bool kicked = false, played = false, fell = false;
+  std::string last;
+  for (int i = 0; i < 100 * 90 && !kicked; ++i) {
+    f.world->step(1.0f / 100, {});
+    const std::string st = f.world->walker_state(duck);
+    played = played || st == "BallPlay";
+    kicked = f.world->walker_driving(duck) == "kick_left";
+    fell = fell || st == "GetUp";
+    if (print && (st != last || i % 500 == 0)) {
+      Mat4 t, bm;
+      f.world->actor_matrix(duck, t);
+      f.world->actor_matrix(bid, bm);
+      std::printf("  %6.2f s %-10s trunk %.3f %.3f ball %.3f %.3f\n", i / 100.0, st.c_str(), t.translation().x, t.translation().y, bm.translation().x, bm.translation().y);
+    }
+    last = st;
+  }
+  for (int i = 0; i < 300; ++i) f.world->step(1.0f / 100, {});
+  Mat4 b1;
+  f.world->actor_matrix(bid, b1);
+  CHECK(played);
+  CHECK(kicked);
+  CHECK(!fell);
+  CHECK(length(b1.translation() - b0.translation()) > 0.25f * 4);  // and the ball rolls off (25 cm real)
+}
+
 TEST(micro_duck_fetches_a_sock_on_its_own) {
   // Autonomous, with Kern's play network: a sock 30 cm (real) away in front. The network walks the
   // duck up, starts Pollen's ground pick, opens and shuts the beak, carries the sock off and spits

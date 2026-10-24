@@ -10,8 +10,13 @@
 // autod also believes perfect. Its head pitch is "positive up", flipped on the way out as autod's
 // main.rs does.
 //
-// Pollen's brain has no ball or sock detector: playing with a ball or a sock is Kern's play layer, a
-// learned network (walker_play.cpp, docs/lehrer.md), which takes over while it is engaged. Kern has
+// BallPlay is the original runtime's (apirrone/microduck_runtime autonomous.rs: "ball play - approach /
+// line up / kick"); Pollen's autod left it out only because the daemon has no ball detector yet
+// (docs/design/autonomous.md section 4). The runtime's code is not public: Kern rebuilds it from that
+// description with Pollen's own kick network (ball_kick_left.onnx) and the spot its training puts the
+// ball (microduck_ball_kick_env_cfg.py); the detector is the head camera's picture (walker_sees).
+// Deviations in docs/walker.md sections 9 and 13. Where Kern's play layer is on (kern extras, play.onnx), it
+// plays with balls and socks instead (walker_play.cpp, docs/lehrer.md). Kern has
 // no microphone or touch sensor: hearing and petting come from walker_hear / walker_pet.
 //
 // Everything runs in the policy's control tick (50 Hz real); the random choices come from a
@@ -55,6 +60,10 @@ constexpr f64 kPickAckS = 1.5;
 constexpr f64 kMaxLinear = 0.3, kMaxAngular = 1.5;  // robotd_params::drive (the pad's speeds)
 constexpr f64 kSelfAudioS = 1.5;                    // main.rs SELF_AUDIO
 
+// ---- BallPlay (the original runtime's; rebuilt, see above) ------------------------------------
+constexpr f64 kKickAhead = 0.09, kKickLeft = 0.042, kKickTolerance = 0.015;  // microduck_ball_kick_env_cfg.py (left foot, BALL_POS_NOISE_XY +-1.5 cm)
+constexpr f64 kBallForget = 6.0;  // s: a ball not seen this long, while far, is given up
+
 constexpr f64 kTau = 6.283185307179586, kPi = 3.141592653589793;
 f64 wrap_angle(f64 a) {
   a = std::fmod(a + kPi, kTau);
@@ -63,7 +72,8 @@ f64 wrap_angle(f64 a) {
 }
 f64 sgn(f64 v) { return v < 0 ? -1.0 : 1.0; }
 
-enum class S : u8 { chill, look_around, wander, turn, zoomies, stretch, ruffle, dance, sneeze, ground_pick, nap, petted };
+enum class S : u8 { chill, look_around, wander, turn, zoomies, stretch, ruffle, dance, sneeze, ground_pick, nap, petted,
+                    ball_play, kick };
 const char* state_name(S s) {
   switch (s) {
     case S::chill: return "Chill";
@@ -78,6 +88,8 @@ const char* state_name(S s) {
     case S::ground_pick: return "GroundPick";
     case S::nap: return "Nap";
     case S::petted: return "Petted";
+    case S::ball_play: return "BallPlay";
+    case S::kick: return "Kick";
   }
   return "";
 }
@@ -132,6 +144,13 @@ struct GameWorld::WalkerBrain::Brain {
   // what main.rs keeps
   f64 quiet_until = -1;
   bool posing = false;
+  // BallPlay: the ball it plays with, where it saw it last (real metres), when; balls left alone a while
+  ActorId ball = 0;
+  bool kicked = false;
+  f64 ball_at[2] = {0, 0}, ball_seen = 99, settle = 0;
+  std::unordered_map<ActorId, f64> ball_rest;
+  f64 foot_home[2] = {0, 0};
+  bool has_foot = false;
 
   static i64 cell_key(f64 x, f64 y) {
     const i64 cx = static_cast<i64>(std::floor(x / kCellM)), cy = static_cast<i64>(std::floor(y / kCellM));
@@ -244,6 +263,8 @@ struct GameWorld::WalkerBrain::Brain {
         break;
       }
       case S::ground_pick: state_dur = 60; break;
+      case S::ball_play: settle = 0; state_dur = 60; break;
+      case S::kick: kicked = false; state_dur = 12; break;
     }
   }
   S pick_next_state(bool can_ground_pick, bool can_zoom, bool can_nap) {
@@ -381,6 +402,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
 
   if (busy) {
     if (b.pick_pending) b.pick_seen_busy = true;
+    if (b.state == S::kick) b.kicked = true;  // its kick is running
     w.auto_cmd[0] = w.auto_cmd[1] = w.auto_cmd[2] = 0;
     std::fill(std::begin(w.auto_head), std::end(w.auto_head), 0.0f);
     w.auto_body_active = false;
@@ -398,7 +420,7 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
   f64 de = dt / 240.0;
   switch (b.state) {
     case S::zoomies: de = -dt / 25.0; break;
-    case S::wander: de = -dt / 110.0; break;
+    case S::wander: case S::ball_play: de = -dt / 110.0; break;
     case S::turn: de = -dt / 70.0; break;
     case S::nap: de = dt / 40.0; break;
     case S::petted: de = dt / 60.0; break;
@@ -447,14 +469,58 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
     if (b.reply_in <= 0) { b.reply_in = -1; b.start_quack_burst(); sound = "chirp"; }
   }
   // Petting, the best interrupt there is.
-  if (petting && b.state != S::petted && b.state != S::nap) {
+  if (petting && b.state != S::petted && b.state != S::nap && b.state != S::kick) {
     b.pet_flavor = b.energy < 0.4 ? 2 : b.energy > 0.65 && b.chance(0.5) ? 1 : 0;
     b.pet_coo_in = 3.0;
     b.enter(S::petted);
   }
 
+  // ---- BallPlay: a ball in the head camera's picture ---------------------------------------------
+  for (auto it = b.ball_rest.begin(); it != b.ball_rest.end();) it = (it->second -= dt) <= 0 ? b.ball_rest.erase(it) : std::next(it);
+  b.ball_seen += dt;
+  {
+    const physics::Pose ap = physics_.pose(w.bodies[5]);  // the left ankle (links: trunk, left leg 1..5)
+    const f64 fx = (ap.position.x - tp.position.x) / S_, fy = (ap.position.y - tp.position.y) / S_;
+    const f64 a = fx * kern::dm::cos(pose[2]) + fy * kern::dm::sin(pose[2]), l = -fx * kern::dm::sin(pose[2]) + fy * kern::dm::cos(pose[2]);
+    if (!b.has_foot && b.clock > 1.0) { b.foot_home[0] = a; b.foot_home[1] = l; b.has_foot = true; }
+  }
+  const bool ball_free = b.state != S::kick && b.state != S::nap && b.state != S::petted && b.state != S::ground_pick && !sitting;
+  if (!w.rollers && abilities.kick_left && !walker_play_available(w) && ball_free) {
+    f64 best = 1e300;
+    for (const Actor& a : level_.actors) {
+      const bool sock = std::find(a.tags.begin(), a.tags.end(), "sock") != a.tags.end();
+      const bool ball = !sock && a.body && a.body->motion == Motion::dynamic && a.mesh && a.mesh->shape == Shape::sphere &&
+                        (std::find(a.tags.begin(), a.tags.end(), "ball") != a.tags.end() || a.name == "Ball");
+      if (!ball || a.parent != 0 || b.ball_rest.count(a.id)) continue;
+      if (b.state == S::ball_play && b.ball && a.id != b.ball) continue;  // it keeps to the ball it went for
+      Mat4 m;
+      if (!actor_matrix(a.id, m)) continue;
+      const Vec3 at = m.translation();
+      if (at.z > 0.08 * S_) continue;  // not on the floor
+      bool visible = false;
+      f32 bearing = 0, distance = 0;
+      if (!walker_sees(w.actor, a.id, visible, bearing, distance) || !visible) continue;
+      const f64 d = kern::dm::hypot(at.x / S_ - pose[0], at.y / S_ - pose[1]);
+      if (d < best) {
+        best = d;
+        b.ball = a.id;
+        b.ball_at[0] = at.x / S_;
+        b.ball_at[1] = at.y / S_;
+        b.ball_seen = 0;
+      }
+    }
+    // Close up the ball is under the camera: it goes by where it saw it, and gives it up only when far.
+    const bool near = b.ball && kern::dm::hypot(b.ball_at[0] - pose[0], b.ball_at[1] - pose[1]) < 0.4;
+    if (near && b.state == S::ball_play) b.ball_seen = std::min(b.ball_seen, kBallForget * 0.5);
+    if (b.ball && b.ball_seen >= kBallForget) { b.ball = 0; if (b.state == S::ball_play) b.enter(S::look_around); }
+    if (b.ball && b.ball_seen < kBallForget && b.state != S::ball_play) b.enter(S::ball_play);
+  }
+
   const f64 tw = kTau;
   switch (b.state) {
+    case S::ball_play:
+    case S::kick:
+      break;  // below
     case S::chill:
       std::fill(std::begin(b.cmd), std::end(b.cmd), 0.0);
       mouth_extra = std::max(0.03 + 0.03 * kern::dm::sin(tw * 0.45 * b.t_state), 0.0);
@@ -694,8 +760,74 @@ void GameWorld::think_walker(WalkerBrain& w, f32 dt_f) {
       }
       break;
   }
-  // The state's time is up (GroundPick and Nap manage their exits).
-  if (b.t_state >= b.state_dur && b.state != S::ground_pick && b.state != S::nap) {
+  // ---- BallPlay: approach, line up, kick -------------------------------------------------------
+  if (b.state == S::ball_play) {
+    // Walk up until the ball lies where ball_kick_left's training puts it - in front of the left foot,
+    // measured from the foot - then head up (the kick was trained with the head at home), let the
+    // steps die out, kick.
+    const f64 c = kern::dm::cos(pose[2]), s = kern::dm::sin(pose[2]);
+    f64 want_ahead = kKickAhead, want_left = kKickLeft;
+    if (b.has_foot) {
+      const physics::Pose ap = physics_.pose(w.bodies[5]);
+      const f64 fx = (ap.position.x - tp.position.x) / S_, fy = (ap.position.y - tp.position.y) / S_;
+      want_ahead += fx * c + fy * s - b.foot_home[0];
+      want_left += -fx * s + fy * c - b.foot_home[1];
+    }
+    const f64 dx = b.ball_at[0] - pose[0], dy = b.ball_at[1] - pose[1];
+    const f64 ahead = dx * c + dy * s - want_ahead, side = -dx * s + dy * c - want_left;
+    const f64 dist = kern::dm::hypot(dx, dy), bearing = wrap_angle(kern::dm::atan2(dy, dx) - pose[2]);
+    b.cmd[0] = b.cmd[1] = b.cmd[2] = 0;
+    std::fill(std::begin(b.head), std::end(b.head), 0.0);
+    // Keep it in the picture: the head pitches down while it walks up (not the neck: bowing it shifts
+    // the weight forward and the gait suffers).
+    b.head[1] = -std::clamp(kern::dm::atan2(0.12, std::max(dist, 0.05)) - 0.3, 0.0, 0.8);  // positive up
+    if (dist > 0.35) {
+      // Slower the closer it gets, so the gait has died down to small steps when it arrives (a ball
+      // walked into rolls away). No obstacle gate: what the ToF sees ahead is the ball.
+      b.cmd[0] = std::fabs(bearing) > 0.6 ? 0.0 : std::clamp((dist - 0.3) * 1.5, kMinWalkVx, kMaxLinear);
+      b.cmd[2] = std::clamp(bearing * 1.5, -1.0, 1.0);
+      b.cmd[0] = b.walkable(b.cmd[0], dt);
+      b.settle = 0;
+    } else if (b.ball_seen > 1.0 && b.settle <= 0) {  // (settling, head up, it goes by where it saw it last)
+      // Lost it close by (nudged, or under the camera): a step back and the head down until it is
+      // in the picture again - it does not kick where the ball was.
+      b.head[1] = -1.1;
+      b.cmd[0] = -0.2;
+      b.settle = 0;
+    } else if (std::fabs(ahead) > kKickTolerance || std::fabs(side) > kKickTolerance) {
+      // Line up in small steps, never below what the gait starts walking at from a stand, the head
+      // down on the ball (the camera then sees 10-30 cm in front, docs/walker.md section 12).
+      b.head[1] = -1.1;
+      auto step = [](f64 e) { const f64 v = std::clamp(e * 2.0, -0.25, 0.25); return std::fabs(v) < 0.2 ? (v < 0 ? -0.2 : 0.2) : v; };
+      if (std::fabs(ahead) > kKickTolerance) b.cmd[0] = step(ahead);
+      if (std::fabs(side) > kKickTolerance) b.cmd[1] = step(side);
+      b.cmd[2] = std::clamp(wrap_angle(kern::dm::atan2(side + want_left, ahead + want_ahead) - kern::dm::atan2(want_left, want_ahead)) * 0.8, -0.3, 0.3);
+      if (std::fabs(b.cmd[2]) < 0.05) b.cmd[2] = 0;
+      b.settle = 0;
+    } else {
+      b.head[1] = 0;
+      b.settle += dt;
+      if (b.settle > 3.0 && sn.speed / S_ < 0.01) {
+        if (walker_skill(w.actor, "kick_left").empty()) b.enter(S::kick);
+        else b.settle = 0;
+      }
+    }
+    if (b.t_state > 45) { b.ball_rest[b.ball] = 20; b.ball = 0; b.enter(S::look_around); }
+  } else if (b.state == S::kick) {
+    // The kick runs on its own network (busy above); then a happy quack burst and a look around.
+    b.cmd[0] = b.cmd[1] = b.cmd[2] = 0;
+    std::fill(std::begin(b.head), std::end(b.head), 0.0);
+    if (b.kicked || b.t_state >= 1.0) {
+      b.ball_rest[b.ball] = b.range(2.0, 5.0);
+      b.ball = 0;
+      b.start_quack_burst();
+      sound = "chirp";
+      b.enter(S::look_around);
+    }
+  }
+
+  // The state's time is up (GroundPick, Nap and BallPlay manage their exits).
+  if (b.t_state >= b.state_dur && b.state != S::ground_pick && b.state != S::nap && b.state != S::ball_play && b.state != S::kick) {
     const bool can_zoom = obstacle && ob.age_s <= kFreshS && ob.ahead_m > 1.2;
     const bool can_nap = abilities.sit_stand && !sitting;
     b.has_goal = false;

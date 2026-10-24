@@ -255,20 +255,35 @@ Darüber, wie im Original:
 kommen deshalb über `walker_hear` und `walker_pet`. Die Odometrie ist die Rumpfpose; `autod` hält
 seine Odometrie ebenfalls für perfekt.
 
-**Kern-Verhalten, nicht im Original, standardmäßig aus** (Details › Controller › „Kern extras“,
-`kernExtras`; aus läuft nur Pollens Software). Pollens Gehirn hat keinen Ball- oder Sockendetektor;
-hier ist der Detektor das Bild der Kopfkamera, `walker_sees`:
+**BallPlay, aus Pollens ursprünglicher Runtime, standardmäßig an.** Pollens Runtime
+(`apirrone/microduck_runtime`, `autonomous.rs`) hatte 16 Zustände, darunter BallPlay: „approach /
+line up / kick“ (`docs/ideas/autonomous_behavior.md`). `autod` hat es nur weggelassen, weil der Daemon
+noch keinen Balldetektor hat (`docs/design/autonomous.md` §4; Pollen plant die Ballerkennung im
+`mediad`, M5). Der Code der Runtime ist nicht öffentlich (der öffentliche Spiegel
+`TommyZihao/microduck_runtime` stammt von März 2026, vor der Autonomie). Kern baut BallPlay deshalb
+nach dieser Beschreibung nach, mit Pollens eigenem Kick-Netz (`ball_kick_left.onnx`) und der
+Ballposition aus dessen Training:
 
-- **BallPlay:** Sieht sie einen Ball, läuft sie hin, bis er dort liegt, wo das Kick-Training ihn
-  hinlegt (`microduck_ball_kick_env_cfg.py`: 9 cm vor, 4,2 cm neben dem Kickfuß, ±1,5 cm),
-  hebt den Kopf (der Kick wurde mit dem Kopf in Grundstellung trainiert) und kickt mit links.
-  Der rechte Kick kippt sie in Kern um (Abschnitt 12).
-- **Fetch / Carry:** Sieht sie eine Socke, läuft sie hin, bis die Socke 5,9 cm vor dem Rumpf liegt,
-  hebt den Kopf, hebt die Socke auf (Ground Pick, der Mund-Encoder sagt, ob sie sie hat; sonst
-  bis zu vier Versuche), trägt sie 1,5 m weit und legt sie ab.
+- **Sehen:** Ein Ball im Bild der Kopfkamera (`walker_sees`: im Sichtfeld der IMX219-Optik und nicht
+  verdeckt) startet BallPlay.
+- **Anlaufen:** mit gesenktem Kopf, langsamer je näher, bis 35 cm.
+- **Ausrichten:** in kleinen Schritten, den Kopf auf dem Ball, bis er dort liegt, wo das Kick-Training
+  ihn hinlegt (`microduck_ball_kick_env_cfg.py`: 9 cm vor, 4,2 cm neben dem linken Fuß, ±1,5 cm,
+  gemessen vom Fuß). Verliert sie ihn aus dem Bild, tritt sie zurück, bis sie ihn wieder sieht.
+- **Kicken:** Kopf hoch (der Kick wurde mit dem Kopf in Grundstellung trainiert), 3 s ruhig, dann der
+  Kick; danach eine Quak-Salve, und der Ball ist 2–5 s uninteressant.
 
-*[gemessen]* Tests `micro_duck_roams_on_its_own_with_its_tof`, `micro_duck_plays_with_a_ball_on_its_own`
-(der Ball rollt danach 4,5 m in Weltmaß), `micro_duck_fetches_a_sock_on_its_own`.
+Abweichungen vom Original, soweit bekannt: Der Detektor ist ein geometrischer Sichttest statt eines
+neuronalen Detektors im Kamerabild. Gekickt wird nur links, weil der rechte Kick sie in Kern umkippt
+(Abschnitt 12). Anlauf- und Ausrichtwerte sind Kerns, weil die Runtime-Werte nicht lesbar sind.
+
+**Kern-Verhalten, nicht im Original** (Details › Controller › „Kern extras“, `kernExtras`): Kerns
+gelerntes Spielnetz (`play.onnx`, `docs/lehrer.md`, „Spielen“) spielt mit Ball und Socke und übernimmt
+dann statt BallPlay. Das Beispiel-Level schaltet es ein.
+
+*[gemessen]* Tests `micro_duck_roams_on_its_own_with_its_tof`, `micro_duck_plays_ball_as_pollens_brain_does`
+(nur Pollens Software: sieht, läuft an, richtet aus, kickt; der Ball rollt weg),
+`micro_duck_plays_with_a_ball_on_its_own` und `micro_duck_fetches_a_sock_on_its_own` (Spielnetz).
 
 ### Blick in die Runde (Idle-Look-around)
 
@@ -428,10 +443,10 @@ nur als Referenz für die Werte.
 | Sturz | Schwerkraft z > −0,5 für 200 ms | gleich |
 | Mund | −5° … 30°, nicht Teil der Policy | gleich |
 | Idle-Look-around, Stimme | idle_head.rs, sounds | portiert |
-| Autonomie | autod (12 Zustände) | portiert; ToF über Kerns Raycast, Hören/Streicheln per API |
+| Autonomie | autod (12 Zustände); Runtime: dazu BallPlay | autod portiert; BallPlay nach Beschreibung nachgebaut (Abschnitt 9); ToF über Kerns Raycast, Hören/Streicheln per API |
 | Policy umgangen? | – | nein: kein Pose-Setzen, kein Teleport, keine Zusatzkräfte, kein Blending |
 
-**Kern-eigen (nicht im Original, nur mit „Kern extras“):** Ball spielen und Socken holen
+**Kern-eigen (nicht im Original, nur mit „Kern extras“):** das Spielnetz für Ball und Socke
 (Abschnitt 9), Schnabel-Timing beim Ground Pick. Immer an, weil reiner Klang: Kunststoff- und Schritt-Geräusche, Servo-Geräusch aus der Last.
 
 **Kopf nach unten:** Nacken negativ und Kopf-Pitch positiv neigen nach unten. Nur Kopf 1,1: Kamera
