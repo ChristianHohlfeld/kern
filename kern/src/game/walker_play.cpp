@@ -39,6 +39,7 @@ constexpr f32 kNearForgetS = 30;     // ... unless it was close (below the camer
 constexpr f32 kBallRestS = 15, kSockRestS = 40;  // habituation after a kick / after putting a sock down
 constexpr f32 kPutDownM = 0.25f;                // carried at least this far, letting go is putting it down
 constexpr f32 kStillCapS = 4;                   // standing still / walking: reported up to this long
+constexpr f32 kStartKickS = 0.6f, kMinWalkVx = 0.15f;  // autod's (walker_brain.cpp kStartKickS, kMinWalkVx)
 constexpr f32 kDeadBand = 0.2f;  // of the walking command's range (0.06 m/s, 0.04 m/s, 0.2 rad/s), like a gamepad stick's
 // The action's ranges (the pad's: robotd_params::drive; the head's training ranges).
 constexpr f32 kVx = 0.3f, kVy = 0.2f, kWz = 1.0f, kYaw = 1.1f, kPitch = 1.1f, kNeck = 1.1f;
@@ -250,7 +251,13 @@ void GameWorld::play_walker(WalkerBrain& w, f32 dt) {
   if (!p.engaged) return;
   // Engaged: the network's walking command, head and beak replace the roaming brain's.
   const f32* a = p.action;
-  w.auto_cmd[0] = forward(a[0]) * kVx;
+  // Backwards as Pollen's autod starts the gait (walker_brain.cpp, walkable): 0.6 s at full speed,
+  // then never slower than 0.15 m/s - from a stand a slower step back does not step at all. Forwards
+  // the network sets the pace itself (it learnt to give the gait a firm push from a stand).
+  {
+    const f32 v = forward(a[0]) * kVx;
+    w.auto_cmd[0] = v >= 0 ? v : -(-p.walking < kStartKickS ? kVx : max_of(-v, kMinWalkVx));
+  }
   w.auto_cmd[1] = walk(a[1]) * kVy;
   w.auto_cmd[2] = walk(a[2]) * kWz;
   w.auto_head[0] = -max_of(0.0f, clamp(a[8], -1.0f, 1.0f)) * kNeck;  // bows the neck (0 .. -1.1)
