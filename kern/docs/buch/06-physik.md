@@ -370,8 +370,9 @@ Der Micro Duck nutzt alle drei ([Kapitel 13](13-micro-duck.md)):
 
 - Die Klumpen der Socke (`micro_duck_sock_actors`) sind `cloth`.
 - Die gedruckten Pads des Schnabels (Hull-Collider mit Reibung > 0, die keine Sohlen sind) sind `tpu`.
-- Im Beispiel-Level Micro Duck sind der Boden (`floor.mesh->surface`) und der endlose Boden
-  (`ground_surface`) `floor`.
+- Im Beispiel-Level Micro Duck ist der Holzboden (`floor.mesh->surface`) `floor`. Das Level setzt
+  auch `ground_surface = "floor"`, schaltet den endlosen Boden aber ab (`ground = false`) – der
+  Holzboden ist dort der Boden.
 
 Die Sohlen und Gehäuse der Ente haben **keine** Oberfläche: Sie behalten die Reibwerte, mit denen
 die Policy trainiert wurde (Sohlen 1,0 auf einem Boden mit 1,0 ergibt √(1 · 1) = 1).

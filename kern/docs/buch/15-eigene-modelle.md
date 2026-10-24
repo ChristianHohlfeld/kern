@@ -201,6 +201,30 @@ ohne Sturz ([Kapitel 14.9](14-lehrer.md#149-ergebnisse-des-sprungs)).
 
 ## 15.6 Hyperparameter wählen
 
+### Eine Iteration in Zahlen
+
+Um zu sehen, was ein Schalter bewirkt, hilft es, eine Iteration des Sprung-Rezepts mit 32 Enten
+durchzurechnen (alle Schritte in [Kapitel 14.5](14-lehrer.md#145-ppo-schritt-für-schritt-ppocpp)):
+
+| Schritt | Rechnung |
+|---|---|
+| Sammeln | 32 Enten × 48 Takte = 1536 Zeilen; je Zeile a = μ + σ·ε mit σ = 0,1 nach der Nachahmung |
+| Normalisierer | der Kritiker-Normalisierer nimmt die 1536 Zeilen auf; der Actor-Normalisierer ist eingefroren (Warmstart) |
+| GAE | je Ente rückwärts über 48 Takte mit γ = 0,99, λ = 0,95; danach Vorteile auf Mittel 0, Std 1 |
+| Minibatches | 1536 / 4 = 384 Zeilen je Minibatch, jede in 8 feste Teilstücke à 48 Zeilen |
+| Updates | 5 Epochen × 4 Minibatches = 20 Adam-Schritte für Actor (mit σ) und Kritiker |
+| Lernrate | vor jedem der 20 Schritte: KL messen, bei KL > 0,02 durch 1,5, bei KL < 0,005 mal 1,5 |
+
+`--steps` und `--envs` ändern die Zahl der Zeilen und damit die Minibatch-Größe; `--epochs` und
+`--minibatches` die Zahl der Schritte je Iteration; `--kl` die Größe, die jeder Schritt höchstens
+erreichen soll. Die Nachahmung rechnet dagegen überwacht: 8 Runden à 96 Episoden zu höchstens
+100 Takten ergeben beim Sprung höchstens 76 800 beschriftete Beispiele; gemessen waren es 49 936,
+weil eine Episode früher endet, sobald die Ente fällt oder ein anderes Teil als die Sohlen den Boden
+berührt. Nach jeder Runde wird der Actor in 10 Epochen mit Minibatches zu 256 an alle bisherigen
+Beispiele angepasst.
+
+### Die Schalter
+
 Alle PPO-Werte stehen im Rezept; die Kommandozeile überschreibt sie einzeln.
 
 | Option | Feld | Sprung-Rezept | Wirkung (Kapitel 14.5) |
