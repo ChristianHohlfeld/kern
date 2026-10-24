@@ -956,7 +956,7 @@ i32 World::awake_body_count() const { return valid() ? b3World_GetAwakeBodyCount
 // ---------------------------------------------------------------------------
 // mouse grab
 
-bool MouseGrab::begin(World& world, Body body, Vec3 point, f32 stiffness_hertz, bool hold_rotation) {
+bool MouseGrab::begin(World& world, Body body, Vec3 point, f32 stiffness_hertz) {
   end();
   if (!world.body_valid(body) || world.body_type(body) != BodyType::dynamic || !finite_vec(point)) return false;
   BodySettings ms;
@@ -976,14 +976,6 @@ bool MouseGrab::begin(World& world, Body body, Vec3 point, f32 stiffness_hertz, 
   js.max_spring_force = 100 * max_of(0.001f, world.mass(body)) * max_of(g, 1.0f);
   js.angular_hertz = 0;
   js.max_spring_torque = 0;
-  if (hold_rotation) {
-    // The mouse body stays unrotated: the joint holds the body at the orientation it had.
-    const Quat q = world.pose(body).rotation;
-    js.frame_b.rotation = Quat{-q.x, -q.y, -q.z, q.w};
-    js.angular_hertz = stiffness_hertz * 0.5f;
-    js.angular_damping_ratio = 1;
-    js.max_spring_torque = 0.25f * js.max_spring_force;  // N*m: the hand's grip, a quarter metre lever
-  }
   const Joint joint = world.create_joint(js);
   if (!joint.valid()) { world.destroy_body(mouse); return false; }
   world_ = &world;

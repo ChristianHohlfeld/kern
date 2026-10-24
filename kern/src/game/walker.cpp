@@ -87,8 +87,14 @@ constexpr f32 kServoStiffness = 0.554f;   // N*m/rad
 constexpr f32 kServoDamping = 0.053f;     // N*m*s/rad
 constexpr f32 kServoFriction = 0.0048f;   // N*m
 constexpr f32 kServoTorque = 0.963f;     // N*m
+// The motor behind it (BAM xl330 m6.json): torque constant and winding resistance. The present
+// current the servo reports is the motor torque over kt (microduck_rl pickup_datagen.py:
+// actuator_force / kt), the back-EMF part of the damping included, the friction not.
+constexpr f32 kMotorKt = 0.36601349688984386f;  // N*m/A
+constexpr f32 kMotorR = 2.8113923539223227f;    // ohm
+constexpr f32 kBackEmf = kMotorKt * kMotorKt / kMotorR;  // N*m*s/rad: the part of kServoDamping the motor makes
 constexpr f32 kArmature = 0.0018f;       // kg*m^2: rotor inertia through the gearbox (MJCF chosen_actuator)
-constexpr f32 kDuckImpactThreshold = 0.12f;  // m/s: from here a touch sounds (plastic tap, footstep)
+constexpr f32 kDuckImpactThreshold = 0.03f;  // m/s (walker scale): from here a touch sounds - a sole set down gently is still heard
 constexpr f32 kWheelArmature = 0.0001f;  // kg*m^2: a roller wheel's bearing (MJCF passive_joint)
 
 // Timing in real (unscaled) seconds; Kern's simulation runs sqrt(S) slower.
@@ -1005,6 +1011,22 @@ bool GameWorld::walker_servo_load(ActorId id, f32& strain, f32& drive, f32& spee
   return true;
 }
 
+bool GameWorld::walker_servos(ActorId id, f32 joint_speed[14], f32 current_a[14]) const {
+  const WalkerBrain* w = walker_brain(id);
+  if (!w) return false;
+  for (i32 j = 0; j < kJoints; ++j) {
+    joint_speed[j] = w->joint_speed[j];
+    current_a[j] = w->current_ma[j] * 0.001f;
+  }
+  return true;
+}
+
+std::vector<ActorId> GameWorld::walker_ids() const {
+  std::vector<ActorId> out;
+  for (const auto& w : walkers_) out.push_back(w->actor);
+  return out;
+}
+
 GameWorld::PolicyStatus GameWorld::walker_abilities(const WalkerBrain& w) const {
   const PolicySet& set = policy_set();
   PolicyStatus out;
@@ -1363,6 +1385,10 @@ void GameWorld::drive_walkers(f32 h) {
         w.servo_strain += share / kJoints;
         w.servo_drive += share * std::fabs(speed[j]);
         w.servo_speed += std::fabs(speed[j]);
+        // Present current (XL330 register, 1 mA): the motor's torque, the voltage-limited spring
+        // minus the back-EMF, in real N*m (sj's values are the walker-scale ones), over kt.
+        const f32 motor = clamp(sj.servo_stiffness * err, -tmax, tmax) - sj.servo_damping * (kBackEmf / kServoDamping) * physics_.joint_speed(sj.joint);
+        w.current_ma[j] = std::round(std::fabs(motor * (kServoTorque / tmax)) / kMotorKt * 1000.0f);
       }
       for (int i = 0; i < 3; ++i) obs[48 + i] = w.command[i];
       for (int i = 0; i < 4; ++i) obs[51 + i] = head_cmd[i];
@@ -1384,14 +1410,14 @@ void GameWorld::drive_walkers(f32 h) {
         pk.p_held = -1;
       } else if (pk.has_previous) {
         // The row (pickup.rs features): gyro, gravity, joints minus home, their speeds, the target
-        // commanded the previous tick minus home, |current| (not read by the shipped model: 0 here),
-        // whether that target was a pause target.
+        // commanded the previous tick minus home, |current| in amperes, whether that target was a
+        // pause target.
         f32* row = pk.rows + static_cast<std::size_t>(pk.next * kPickupFeatures);
         std::memcpy(row, obs, 20 * sizeof(f32));
         for (i32 j = 0; j < kJoints; ++j) {
           row[20 + j] = speed[j];
           row[34 + j] = pk.previous_target[j] - kDuckLinks[j + 1].home;
-          row[48 + j] = 0;
+          row[48 + j] = w.current_ma[j] / 1000.0f;  // amperes (not read by the shipped model)
         }
         row[62] = pk.previous_paused ? 1.0f : 0.0f;
         pk.next = (pk.next + 1) % kPickupWindow;

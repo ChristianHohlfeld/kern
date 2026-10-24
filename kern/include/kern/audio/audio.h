@@ -21,6 +21,7 @@
 // helpers convert decibels.
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -102,6 +103,15 @@ struct Listener {
   Vec3 velocity;
 };
 
+/// A sound computed while it plays (a source whose signal follows live parameters: a servo's
+/// whine from its speed and current). The mixer asks for mono blocks at its rate, on the thread
+/// that calls Mixer::render.
+class Generator {
+ public:
+  virtual ~Generator() = default;
+  virtual void render(f32* mono, u32 frames, u32 rate) = 0;
+};
+
 /// The mixer. One instance per module is typical (Kern Studio owns one).
 class Mixer {
  public:
@@ -128,6 +138,9 @@ class Mixer {
 
   // ---- voices ----
   VoiceId play(ClipId clip, const PlayParams& params);
+  /// A voice whose samples `generator` computes as it plays (pitch and loop do not apply; it plays
+  /// until stopped). The mixer keeps the generator alive while the voice lasts.
+  VoiceId play_generator(std::shared_ptr<Generator> generator, const PlayParams& params);
   /// Stops with a short fade (seconds; 0 = 5 ms click guard).
   void stop(VoiceId voice, f32 fade = 0);
   void stop_all(Bus bus = Bus::master, f32 fade = 0);  // master = every bus
@@ -179,7 +192,7 @@ class Mixer {
   Reverb* reverb_ = nullptr;
   Limiter* limiter_ = nullptr;
   std::vector<f32> bus_mix_;     // count * frames * 2
-  std::vector<f32> reverb_in_, scratch_;
+  std::vector<f32> reverb_in_, scratch_, generated_;
   Stats stats_;
   u32 generation_ = 1;
   u64 play_serial_ = 0;

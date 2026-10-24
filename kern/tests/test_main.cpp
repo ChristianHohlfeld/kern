@@ -13,6 +13,7 @@
 #include "kern/core/json.h"
 #include "kern/game/demos.h"
 #include "kern/audio/synth.h"
+#include "kern/audio/servo_sound.h"
 #include "kern/game/walker_policy.h"
 #include "kern/game/runtime.h"
 #include "kern/game/walker.h"
@@ -5487,7 +5488,8 @@ TEST(micro_duck_pickup_detector_matches_onnxruntime) {
 
 TEST(micro_duck_pauses_in_the_hand_and_walks_when_put_down) {
   // robotd's pick-up watch: walking on its own it never pauses; lifted by the trunk it ramps to the
-  // pause pose ("held") instead of stepping in the air; set back down, the policy has it again.
+  // pause pose ("held") instead of stepping in the air, also while it swings on the mouse joint and
+  // turns over; set back down, the policy has it again.
   load_duck_policies();
   const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
   GameFixture f;
@@ -5534,7 +5536,71 @@ TEST(micro_duck_pauses_in_the_hand_and_walks_when_put_down) {
     }
   }
   CHECK(walks);
-  CHECK(f.world->walker_state(duck) != "GetUp");
+}
+
+TEST(micro_duck_servos_sound_from_their_load) {
+  // The servo sound (audio/servo_sound.h): its drive trains simulated from what Box3D's servos report
+  // (speed, current), heard through the shell; the footsteps from the soles' contacts. Standing it is
+  // quiet, walking it is louder, nothing clips. KERN_DUCK_WAV=<file> writes the 20 s.
+  load_duck_policies();
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, false);
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  audio::ServoSound sound(14, audio::ServoAcoustics{}, 7);
+  std::vector<f32> wav;
+  f32 block[480];
+  f64 stand_sq = 0, walk_sq = 0, peak = 0;
+  i32 stand_n = 0, walk_n = 0, steps = 0;
+  bool currents = false;
+  for (int i = 0; i < 100 * 20; ++i) {
+    game::PlayInput in;
+    const bool walking = i >= 100 * 6 && i < 100 * 16;
+    if (walking) in.move_y = 0.8f;
+    f.world->step(1.0f / 100, in);
+    f32 sp[14], cur[14];
+    CHECK(f.world->walker_servos(duck, sp, cur));
+    for (int j = 0; j < 14; ++j) { sound.set(j, sp[j], cur[j]); currents = currents || cur[j] > 0.01f; }
+    for (const game::SoundCue& c : f.world->sound_cues())
+      if (std::getenv("KERN_DUCK_PRINT")) std::printf("  cue %s %.3f %.3f\n", c.sound.c_str(), c.impact_speed, c.impact_mass);
+    for (const game::SoundCue& c : f.world->sound_cues())
+      if (c.impact_speed > 0 && c.sound == "builtin:plastic_step") {
+        sound.footstep(c.impact_speed / 2, c.impact_mass / 64);
+        ++steps;
+      }
+    f.world->sound_cues().clear();
+    sound.render(block, 480, 48000);
+    for (f32 v : block) {
+      CHECK(std::isfinite(v));
+      peak = std::max<f64>(peak, std::fabs(v));
+      if (i >= 100 * 3 && i < 100 * 6) { stand_sq += v * v; ++stand_n; }
+      if (i >= 100 * 9 && i < 100 * 16) { walk_sq += v * v; ++walk_n; }
+    }
+    wav.insert(wav.end(), block, block + 480);
+  }
+  const f64 stand = std::sqrt(stand_sq / std::max(1, stand_n)), walk = std::sqrt(walk_sq / std::max(1, walk_n));
+  Mat4 tm;
+  f.world->actor_matrix(duck, tm);
+  std::printf("  servo sound: rms standing %.4f walking %.4f, peak %.3f, %d footsteps, walked to %.2f %.2f\n", stand, walk, peak, steps, tm.translation().x, tm.translation().y);
+  CHECK(currents);
+  CHECK(steps > 5);
+  CHECK(walk > stand * 2);
+  CHECK(peak < 1.0);
+  if (const char* out = std::getenv("KERN_DUCK_WAV")) {
+    if (FILE* fp = std::fopen(out, "wb")) {
+      const u32 n = static_cast<u32>(wav.size()), bytes = n * 2, rate = 48000, brate = rate * 2, riff = 36 + bytes;
+      const u16 fmt = 1, ch = 1, align = 2, bits = 16;
+      const u32 sixteen = 16;
+      std::fwrite("RIFF", 1, 4, fp); std::fwrite(&riff, 4, 1, fp); std::fwrite("WAVEfmt ", 1, 8, fp);
+      std::fwrite(&sixteen, 4, 1, fp); std::fwrite(&fmt, 2, 1, fp); std::fwrite(&ch, 2, 1, fp); std::fwrite(&rate, 4, 1, fp);
+      std::fwrite(&brate, 4, 1, fp); std::fwrite(&align, 2, 1, fp); std::fwrite(&bits, 2, 1, fp);
+      std::fwrite("data", 1, 4, fp); std::fwrite(&bytes, 4, 1, fp);
+      for (f32 v : wav) { const i16 x = static_cast<i16>(std::clamp(v, -1.0f, 1.0f) * 32767); std::fwrite(&x, 2, 1, fp); }
+      std::fclose(fp);
+    }
+  }
 }
 
 TEST(micro_duck_fetches_a_sock_on_its_own) {

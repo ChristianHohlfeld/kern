@@ -341,12 +341,10 @@ deterministisch, `kern::dm`); Abweichung zu onnxruntime auf Pollens Fixture-Fens
 - Ströme: Kern hat keine Servoströme; das ausgelieferte Modell liest diese Spalten nicht (der
   Graph verwirft sie per Gather), Kern füllt 0.
 
-Hochheben in Kern Studio (Play, Ente am Rumpf greifen): Der Griff hält den Rumpf in seiner
-Ausrichtung wie eine Hand, statt ihn am Punkt pendeln zu lassen.
-
 *[gemessen]* Test `micro_duck_pauses_in_the_hand_and_walks_when_put_down`: 20 s autonom ohne eine
-falsche Pause; 15 cm hochgehoben pausiert sie nach etwa 0,5 s und bleibt pausiert; abgesetzt
-läuft sie weiter und fällt nicht.
+falsche Pause; 15 cm am Rumpf hochgehoben (Maus-Joint, sie pendelt
+und dreht sich dabei) pausiert sie nach etwa 0,5 s und bleibt pausiert, auch kopfüber; abgesetzt
+übernimmt die Policy wieder.
 
 *[gemessen]* Test `micro_duck_roams_on_its_own_with_its_tof`: In einem 1,5 × 1,5 m großen Raum
 (echte Größe) mit einer Kiste erkundet die Ente in 45 s die Fläche. Sie wendet vor den Wänden und

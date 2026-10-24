@@ -19,7 +19,7 @@ namespace {
 
 constexpr f32 kDeg = kPi / 180.0f;
 constexpr f32 kHitSpeed = 2;              // m/s: a hit for logic ("game.hit") and camera shake
-constexpr f32 kMinImpactThreshold = 0.05f;  // m/s: the softest touch an impact sound can ask for
+constexpr f32 kMinImpactThreshold = 0.02f;  // m/s: the softest touch an impact sound can ask for (a small robot setting a sole down)
 
 f32 smoothstep(f32 a, f32 b, f32 x) {
   const f32 t = clamp((x - a) / (b - a), 0.0f, 1.0f);
@@ -1947,6 +1947,7 @@ void GameWorld::handle_events() {
       if ((h.body_a == pb || h.body_b == pb) && h.approach_speed >= kHitSpeed) shake_ = max_of(shake_, clamp(h.approach_speed / 30.0f, 0.15f, 0.8f));
     }
     if (impacts >= 6) continue;  // at most a handful per step; the mixer would steal them anyway
+    if (std::getenv("KERN_HIT_PRINT")) std::printf("  hit %.3f %d %d\n", h.approach_speed, (int)shape_sound_.count(h.shape_a.id), (int)shape_sound_.count(h.shape_b.id));
     for (const auto& [hs, hb] : {std::pair{h.shape_a, h.body_a}, std::pair{h.shape_b, h.body_b}}) {
       const ActorId id = actor_for_body(hb);
       const Actor* a = id ? level_.find(id) : nullptr;
@@ -1967,6 +1968,10 @@ void GameWorld::handle_events() {
       // Heavier sounds lower; light things only a little higher (pitched far up, taps turn glassy).
       const f32 pitch = clamp(1.05f - kern::dm::log10(max_of(0.1f, mass)) * 0.1f, 0.7f, 1.15f);
       cue(sound, h.point, strength, pitch, true, audio::Bus::sfx, id);
+      if (!cues_.empty() && cues_.back().actor == id) {
+        cues_.back().impact_speed = h.approach_speed;
+        cues_.back().impact_mass = mass;
+      }
       ++impacts;
       break;
     }
@@ -2529,10 +2534,7 @@ bool GameWorld::begin_grab(ActorId actor, Vec3 point) {
   const ActorId owner = level_.body_owner(actor) ? level_.body_owner(actor) : actor;
   auto it = body_of_actor_.find(owner);
   if (it == body_of_actor_.end() || !it->second->body.valid()) return false;
-  // A walker held by its trunk is held like a hand holds the robot: upright, not swinging on a point.
-  bool trunk = false;
-  for (const auto& w : walkers_) trunk = trunk || w->trunk.id == it->second->body.id;
-  return grab_.begin(physics_, it->second->body, point, 7.5f, trunk);
+  return grab_.begin(physics_, it->second->body, point);
 }
 void GameWorld::move_grab(Vec3 target) { grab_.set_target(target); }
 void GameWorld::end_grab() { grab_.end(); }

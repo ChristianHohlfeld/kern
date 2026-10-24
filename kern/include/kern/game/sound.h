@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "kern/audio/audio.h"
+#include "kern/audio/servo_sound.h"
 #include "kern/audio/synth.h"
 #include "kern/game/level.h"
 #include "kern/game/runtime.h"
@@ -132,6 +133,9 @@ class GameAudio {
   std::unordered_map<ActorId, audio::VoiceId> voices_;  // each actor's voice (SoundCue::voice)
   std::string music_ref_, ambience_ref_, engine_ref_;
   audio::VoiceId music_ = 0, ambience_ = 0, engine_ = 0;
+  struct WalkerServos { audio::VoiceId voice = 0; std::shared_ptr<audio::ServoSound> sound; };
+  std::unordered_map<ActorId, WalkerServos> servos_;  // each robot's servo sound
+  const Level* level_ = nullptr;                       // the running level (update .. play_cue)
   f32 engine_volume_ = 0;
   Vec3 last_eye_;
   bool has_eye_ = false;

@@ -282,9 +282,7 @@ class World {
 /// joint (the same technique as the Box3D samples).
 class MouseGrab {
  public:
-  /// `hold_rotation`: the grab also keeps the body's orientation, as a hand holding it does (a
-  /// point grab lets it swing and turn over).
-  bool begin(World& world, Body body, Vec3 point, f32 stiffness_hertz = 7.5f, bool hold_rotation = false);
+  bool begin(World& world, Body body, Vec3 point, f32 stiffness_hertz = 7.5f);
   void set_target(Vec3 target) { target_ = target; }
   Vec3 target() const { return target_; }
   void update(f32 dt);  // call before World::step

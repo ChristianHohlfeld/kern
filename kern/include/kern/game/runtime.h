@@ -145,6 +145,9 @@ struct SoundCue {
   // The actor's voice (one at a time, like a robot's one speaker): `voice` cuts whatever it was
   // saying; `silence` only stops it.
   bool voice = false, silence = false;
+  // An impact's physics (Box3D hit): approach speed and the mass of the body that hit (world units),
+  // for sounds computed from it (a robot's footsteps, audio/servo_sound.h).
+  f32 impact_speed = 0, impact_mass = 0;
 };
 
 /// What a network client needs to show its own soldier's HUD (sent by the server per client).
@@ -373,6 +376,11 @@ class GameWorld {
   /// stall torque (0 idle .. 1 stalled), drive = sum of share x speed (rad/s real, the mechanical
   /// work), speed = sum of joint speeds (rad/s real). Its servo sound follows these.
   bool walker_servo_load(ActorId id, f32& strain, f32& drive, f32& speed) const;
+  /// Each servo of walker `id` as it reports itself (each control tick): joint speed (rad/s real)
+  /// and |present current| (A). Its servo sound is computed from these (audio/servo_sound.h).
+  bool walker_servos(ActorId id, f32 joint_speed[14], f32 current_a[14]) const;
+  /// The walkers of the running level (their actors).
+  std::vector<ActorId> walker_ids() const;
   /// The network driving the robot now: "walk", "stand", "sit", "rise", "ground_pick", a skill.
   std::string walker_driving(ActorId id) const;
 

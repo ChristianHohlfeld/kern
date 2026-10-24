@@ -1,4 +1,5 @@
 #include "kern/game/sound.h"
+#include "kern/game/walker.h"
 #include "kern/core/dmath.h"
 
 #include <algorithm>
@@ -15,6 +16,9 @@ f32 damp(f32 current, f32 target, f32 rate, f32 dt) { return target + (current -
 }  // namespace
 
 std::string engine_sound_for(const ControllerComponent& c) {
+  // A walker's servos are computed from what they do (audio/servo_sound.h); "builtin:servo" was the
+  // loop that stood in for them.
+  if (c.mode == ControlMode::walker && c.engine_sound == "builtin:servo") return "";
   if (c.engine_sound != "auto") return is_silent(c.engine_sound) ? std::string() : c.engine_sound;
   switch (c.mode) {
     case ControlMode::hovercar: return "builtin:hover";
@@ -23,7 +27,7 @@ std::string engine_sound_for(const ControllerComponent& c) {
     case ControlMode::rolling:
     case ControlMode::character:
     case ControlMode::soldier: return "";
-    case ControlMode::walker: return "builtin:servo";
+    case ControlMode::walker: return "";  // computed from its servos (GameAudio, audio/servo_sound.h)
   }
   return "";
 }
@@ -297,6 +301,8 @@ void GameAudio::end(f32 fade) {
   sources_.clear();
   for (audio::VoiceId* v : {&music_, &ambience_, &engine_})
     if (*v) { mixer_.stop(*v, fade); *v = 0; }
+  for (auto& [id, s] : servos_) mixer_.stop(s.voice, fade);
+  servos_.clear();
   waiting_.clear();
   if (paused_) mixer_.set_all_paused(false);
   paused_ = false;
@@ -311,6 +317,22 @@ void GameAudio::play_cue(const SoundCue& cue) {
     }
     if (cue.silence) return;
   }
+  // A robot's sole set down: its footstep is computed with its servos, from the contact
+  // (audio/servo_sound.h), not played from a clip.
+  if (cue.impact_speed > 0 && cue.sound == "builtin:plastic_step" && level_) {
+    ActorId root = cue.actor;
+    for (int i = 0; i < 32 && root; ++i) {
+      if (servos_.count(root)) break;
+      const Actor* a = level_->find(root);
+      root = a ? a->parent : 0;
+    }
+    if (const auto it = servos_.find(root); root && it != servos_.end() && it->second.sound) {
+      const f32 s = kWalkerScale;
+      it->second.sound->footstep(cue.impact_speed / std::sqrt(s), cue.impact_mass / (s * s * s));
+      ++cues_played_;
+      return;
+    }
+  }
   const audio::ClipId c = bank_.clip(cue.sound);
   audio::PlayParams p;
   p.volume = cue.volume;
@@ -321,6 +343,7 @@ void GameAudio::play_cue(const SoundCue& cue) {
   p.min_distance = 3;
   p.max_distance = 80;
   p.priority = cue.bus == audio::Bus::ui ? 50 : 10;
+  if (cue.voice) p.doppler = 0;  // a robot's speaker: it moves at walking pace, the camera's flight is no Doppler
   if (const audio::VoiceId v = mixer_.play(c, p)) {
     ++cues_played_;
     if (cue.voice) voices_[cue.actor] = v;
@@ -336,6 +359,7 @@ void GameAudio::update(GameWorld& world, const Camera& cam, f32 dt) {
   }
   if (!active_ || session_ != world.session()) begin(world);
   const Level& level = world.level();
+  level_ = &level;
   apply_settings(level.world);
   dt = clamp(dt, 0.0f, 0.25f);
   // Pause follows the world (Pause in Play / Simulate).
@@ -405,6 +429,33 @@ void GameAudio::update(GameWorld& world, const Camera& cam, f32 dt) {
       Mat4 m;
       if (world.actor_matrix(player, m)) mixer_.set_position(engine_, m.translation(), {});
     }
+  }
+
+  // Robots' servos: each walker's motors and gears, from what its servos report, through its shell.
+  for (const ActorId id : world.walker_ids()) {
+    const Actor* a = level.find(id);
+    if (!a || !a->controller || (a->controller->engine_sound != "auto" && a->controller->engine_sound != "builtin:servo")) continue;
+    WalkerServos& s = servos_[id];
+    if (!s.sound) {
+      s.sound = std::make_shared<audio::ServoSound>(14, audio::ServoAcoustics{}, id);
+      audio::PlayParams p;
+      p.spatial = true;
+      p.bus = audio::Bus::sfx;
+      p.volume = 0.9f;
+      p.min_distance = 2;
+      p.max_distance = 60;
+      p.fade_in = 0.2f;
+      p.priority = 60;
+      Mat4 m;
+      if (world.actor_matrix(id, m)) p.position = m.translation();
+      s.voice = mixer_.play_generator(s.sound, p);
+    }
+    f32 speed[14], current[14];
+    const bool live = world.hud().status == GameStatus::playing || world.mode() == SimMode::simulate;
+    if (world.walker_servos(id, speed, current))
+      for (i32 j = 0; j < 14; ++j) s.sound->set(j, live ? speed[j] : 0.0f, live ? current[j] : 0.0f);
+    Mat4 m;
+    if (s.voice && world.actor_matrix(id, m)) mixer_.set_position(s.voice, m.translation(), {});
   }
 
   // Audio sources follow their actors.

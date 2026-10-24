@@ -650,17 +650,23 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
         out[k] = p1 + 0.5f * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
       }
     }
-    // The robot's speaker rolls off below about 300 Hz (robotd SPEAKER_ROLLOFF_HZ): heard through
-    // it, the voice has no lows - a second-order high-pass there, as the cone does.
-    const f64 w = 2 * 3.14159265358979 * 300.0 / rate, q = 0.7071;
-    const f64 alpha = std::sin(w) / (2 * q), cw = std::cos(w), a0 = 1 + alpha;
-    const f64 b0 = (1 + cw) / 2 / a0, b1 = -(1 + cw) / a0, b2 = (1 + cw) / 2 / a0, a1 = -2 * cw / a0, a2 = (1 - alpha) / a0;
-    f64 x1 = 0, x2 = 0, y1 = 0, y2 = 0;
-    for (f32& v : out) {
-      const f64 x = v, y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-      x2 = x1; x1 = x; y2 = y1; y1 = y;
-      v = static_cast<f32>(y);
-    }
+    // Heard through the robot's small speaker in its head: it rolls off below about 300 Hz
+    // (robotd SPEAKER_ROLLOFF_HZ) - a second-order high-pass there, as the cone does - and a driver
+    // of that size behind the head's plastic gives up above a few kHz (a second-order low-pass at
+    // 6.5 kHz): the synth's buzz is rounded, not sharp.
+    auto biquad = [&](bool high, f64 hz) {
+      const f64 w = 2 * 3.14159265358979 * hz / rate, q = 0.7071;
+      const f64 alpha = std::sin(w) / (2 * q), cw = std::cos(w), a0 = 1 + alpha;
+      const f64 b0 = (high ? (1 + cw) : (1 - cw)) / 2 / a0, b1 = (high ? -(1 + cw) : (1 - cw)) / a0, b2 = b0, a1 = -2 * cw / a0, a2 = (1 - alpha) / a0;
+      f64 x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+      for (f32& v : out) {
+        const f64 x = v, y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+        x2 = x1; x1 = x; y2 = y1; y1 = y;
+        v = static_cast<f32>(y);
+      }
+    };
+    biquad(true, 300.0);
+    if (rate > 14000) biquad(false, 6500.0);
     return !out.empty();
   }
   if (name == "pickup") {
@@ -825,11 +831,13 @@ bool render_builtin(std::string_view name, u32 rate, std::vector<f32>& out, u32&
     // "tock". A solid part rings neither low nor long - a low partial with a long decay is what
     // reads as a hollow box - so the modes sit mid-range and die within a few milliseconds, and the
     // contact itself carries most of it; no glassy highs.
-    out = struck(rate, {{760, 0.007f, 0.45f}, {1650, 0.004f, 0.28f}, {3100, 0.002f, 0.12f}}, 0.55f, 1.8f, 2600, 0.06f, 0.26f, 71);
+    out = struck(rate, {{540, 0.006f, 0.45f}, {1180, 0.004f, 0.25f}, {2300, 0.002f, 0.07f}}, 0.55f, 2.5f, 1600, 0.06f, 0.24f, 71);
   } else if (name == "plastic_step") {
-    // A small sole set down: a soft, dull, solid tap, quiet. Soft is the muffled contact (low-passed),
-    // solid is that nothing rings on: the modes are short, so there is no boom of a cavity.
-    out = struck(rate, {{320, 0.006f, 0.4f}, {820, 0.004f, 0.25f}, {1700, 0.002f, 0.08f}}, 0.6f, 4, 1200, 0.05f, 0.13f, 73);
+    // A small printed sole set down on a floor: a dull, soft thud. The sole lands over several
+    // milliseconds (heel to toe, its rubbery pad), so the contact is long and low-passed - nothing
+    // clicks; the floor answers low (a short thump), the leg and shell a little above it, and
+    // nothing rings: every mode dies within a few milliseconds. No partial over 1 kHz.
+    out = struck(rate, {{110, 0.012f, 0.5f}, {240, 0.008f, 0.4f}, {520, 0.005f, 0.18f}, {900, 0.003f, 0.05f}}, 0.45f, 7, 450, 0.07f, 0.14f, 73);
   } else if (name == "step") {
     SynthPatch n = patch(Wave::noise, 2400, 0.001f, 0.004f, 0.055f, 0.45f);
     n.lowpass = 900;

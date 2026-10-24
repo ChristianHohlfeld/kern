@@ -88,6 +88,7 @@ struct Mixer::Voice {
   bool active = false;
   u32 generation = 0;
   ClipId clip = 0;
+  std::shared_ptr<Generator> generator;  // a computed voice instead of a clip
   PlayParams p;
   f64 position = 0;          // frames (fractional)
   f32 gain_l = 0, gain_r = 0;  // gains applied at the end of the last block
@@ -241,6 +242,7 @@ bool Mixer::init(u32 sample_rate, u32 max_voices) {
   limiter_->init(rate_);
   bus_mix_.assign(static_cast<std::size_t>(kBusCount) * kBlock * 2, 0.0f);
   reverb_in_.assign(kBlock * 2, 0.0f);
+  generated_.assign(kBlock, 0.0f);
   scratch_.assign(kBlock * 2, 0.0f);
   for (BusSettings& b : buses_) b = BusSettings{};
   buses_[static_cast<u32>(Bus::music)].volume = 0.7f;
@@ -372,6 +374,47 @@ VoiceId Mixer::play(ClipId clip, const PlayParams& params) {
   return (static_cast<u64>(v.generation) << 32) | slot;
 }
 
+VoiceId Mixer::play_generator(std::shared_ptr<Generator> generator, const PlayParams& params) {
+  if (!rate_) { fail("audio: mixer not initialised"); return 0; }
+  if (!generator) { fail("audio: no generator"); return 0; }
+  // A placeholder clip is not needed: take a slot as play() does, then swap the source.
+  PlayParams p = params;
+  p.loop = true;
+  p.pitch = 1;
+  p.start = 0;
+  u32 slot = ~0u;
+  for (u32 i = 0; i < voices_.size(); ++i)
+    if (!voices_[i]->active) { slot = i; break; }
+  if (slot == ~0u) {
+    for (u32 i = 0; i < voices_.size(); ++i) {
+      const Voice& v = *voices_[i];
+      if (v.p.priority > p.priority) continue;
+      if (slot == ~0u || v.audibility < voices_[slot]->audibility) slot = i;
+    }
+    if (slot == ~0u) { fail("audio: all voices busy with higher priority"); return 0; }
+    stats_.stolen++;
+  }
+  p.volume = clamp(finite_or(p.volume, 1), 0.0f, 16.0f);
+  p.min_distance = std::max(0.01f, finite_or(p.min_distance, 1));
+  p.max_distance = std::max(p.min_distance + 0.01f, finite_or(p.max_distance, 50));
+  p.spread = clamp(finite_or(p.spread, 0), 0.0f, 1.0f);
+  p.doppler = 0;  // computed at the mixer rate: no resampling, so no Doppler shift
+  if (!finite(p.position)) p.position = {};
+  if (static_cast<u32>(p.bus) >= kBusCount || p.bus == Bus::master) p.bus = Bus::sfx;
+  Voice& v = *voices_[slot];
+  v = Voice{};
+  v.active = true;
+  v.generation = generation_++;
+  if (!generation_) generation_ = 1;
+  v.generator = std::move(generator);
+  v.p = p;
+  v.volume = v.volume_target = p.volume;
+  v.envelope = p.fade_in > 0 ? 0.0f : 1.0f;
+  v.envelope_step = p.fade_in > 0 ? 1.0f / (p.fade_in * static_cast<f32>(rate_)) : 0.0f;
+  v.order = ++play_serial_;
+  return (static_cast<u64>(v.generation) << 32) | slot;
+}
+
 void Mixer::stop(VoiceId id, f32 fade) {
   Voice* v = voice(id);
   if (!v) return;
@@ -474,10 +517,10 @@ void Mixer::spatialize(Voice& v, f32& left, f32& right, f32& pitch_factor, f32& 
 }
 
 void Mixer::mix_voice(Voice& v, u32 frames) {
-  const Clip* clip = clips_[v.clip - 1];
-  if (!clip) { v.active = false; return; }
-  const u32 total = clip->info.frames, ch = clip->info.channels;
-  const f32* data = clip->data.data();
+  const Clip* clip = v.generator ? nullptr : clips_[v.clip - 1];
+  if (!clip && !v.generator) { v.active = false; return; }
+  const u32 total = clip ? clip->info.frames : 1, ch = clip ? clip->info.channels : 1;
+  const f32* data = clip ? clip->data.data() : nullptr;
   const BusSettings& bus = buses_[static_cast<u32>(v.p.bus)];
   f32 target_l = 0, target_r = 0, doppler = 1, cutoff = 0;
   spatialize(v, target_l, target_r, doppler, cutoff);
@@ -487,8 +530,10 @@ void Mixer::mix_voice(Voice& v, u32 frames) {
   // Virtual voice: inaudible spatial voices keep their place without being mixed.
   const f32 loudness = std::max(target_l, target_r) * v.volume * (bus.muted ? 0.0f : 1.0f);
   v.audibility = loudness;
+  if (v.generator && (paused > 0 || v.stopping)) v.generator->render(generated_.data(), frames, rate_);  // it runs on, heard or not
   if (v.p.spatial && loudness < kSilence && !v.stopping) {
     stats_.virtual_voices++;
+    if (v.generator) { v.gain_l = v.gain_r = 0; return; }
     if (paused > 0) {
       v.position += static_cast<f64>(v.p.pitch) * frames;
       if (v.p.loop) v.position = std::fmod(v.position, static_cast<f64>(total));
@@ -528,7 +573,8 @@ void Mixer::mix_voice(Voice& v, u32 frames) {
       return data[static_cast<std::size_t>(i) * ch + c];
     };
     f32 s[2];
-    for (u32 c = 0; c < ch; ++c) s[c] = hermite(at(i1 - 1, c), at(i1, c), at(i1 + 1, c), at(i1 + 2, c), t);
+    if (v.generator) s[0] = generated_[f];
+    else for (u32 c = 0; c < ch; ++c) s[c] = hermite(at(i1 - 1, c), at(i1, c), at(i1 + 1, c), at(i1 + 2, c), t);
     if (ch == 1) s[1] = s[0];
     const f32 g = v.envelope * v.volume;
     for (u32 c = 0; c < 2; ++c) {
@@ -537,6 +583,7 @@ void Mixer::mix_voice(Voice& v, u32 frames) {
     }
     out[f * 2] += s[0] * g * gl;
     out[f * 2 + 1] += s[1] * g * gr;
+    if (v.generator) continue;
     v.position += step;
     if (v.position >= total) {
       if (v.p.loop) v.position = std::fmod(v.position, static_cast<f64>(total));

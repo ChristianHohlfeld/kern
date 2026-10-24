@@ -72,6 +72,7 @@ struct GameWorld::WalkerBrain {
   SimJoint* mouth = nullptr;       // the mouth servo (robotd: not part of any policy)
   f32 mouth_open = 0;              // 0 closed (pressed shut) .. 1 open
   f32 servo_strain = 0, servo_drive = 0, servo_speed = 0;  // walker_servo_load, each control tick
+  f32 current_ma[14] = {};         // each servo's |present current| (mA, as the XL330 reports it), each control tick
   f32 idle_mouth = 0;              // the idle look-around's yawn
   // robotd's controller (walker.cpp): which network drives and its windows; real seconds.
   bool rollers = false;            // roller skates: roller.onnx walks, the crouch is the pick
