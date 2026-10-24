@@ -27,6 +27,8 @@
 #include "kern/lehrer/vorbild.h"
 #include "kern/lehrer/spielen.h"
 #include "kern/core/json.h"
+#include "kern/game/demos.h"
+#include "kern/gfx/renderer.h"
 
 using namespace kern;
 using namespace kern::lehrer;
@@ -375,6 +377,45 @@ int examples(const Options& o) {
   return 0;
 }
 
+/// --demo-spur [--netz play.onnx] [--seed SECONDS]: the Studio's Micro Duck example level, played
+/// as the Studio plays it (60 Hz frames); once a second what the duck does.
+int demo_trace(const Options& o) {
+  // Kern's networks as the Studio loads them: kern/policies/ (or --netz for the play network).
+  std::string dir = __FILE__;
+  dir = dir.substr(0, dir.find_last_of('/')) + "/../policies/";
+  for (const char* file : {"jump.onnx", "play.onnx"}) {
+    const std::string path = std::string(file) == "play.onnx" && !o.play_net.empty() ? o.play_net : dir + file;
+    auto p = std::make_shared<game::WalkerPolicy>();
+    std::string err;
+    const std::vector<u8> bytes = read_file(path);
+    if (bytes.empty() || !game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), *p, &err)) { std::fprintf(stderr, "%s: %s\n", path.c_str(), err.c_str()); return 1; }
+    p->file = file;
+    game::register_walker_policy(p);
+  }
+  Renderer renderer;
+  renderer.set_headless();
+  game::GameWorld w(renderer);
+  game::Level l = game::micro_duck_level();
+  w.sync(l);
+  if (!w.start(l, game::SimMode::play)) return 1;
+  const game::ActorId duck = l.world.player;
+  const i32 secs = o.seed > 0 ? static_cast<i32>(o.seed) : 120;
+  for (i32 i = 0; i < 60 * secs; ++i) {
+    game::PlayInput in;
+    if (std::getenv("KERN_JUMP_AT") && i / 60 == std::atoi(std::getenv("KERN_JUMP_AT")) && i % 60 < 3) in.robot = 256;  // key 7
+    w.step(1.0f / 60, in);
+    if (i % 60) continue;
+    Mat4 m;
+    w.actor_matrix(duck, m);
+    f32 ob[game::GameWorld::kPlayObs] = {};
+    w.walker_play_observation(duck, ob);
+    std::printf("t %3d pos %+.2f %+.2f %-10s %-12s ball %d (%+.2f %+.2f) sock %d (%+.2f %+.2f) hold %d still %.1f walk %+.1f\n", i / 60,
+                m.translation().x, m.translation().y, w.walker_state(duck).c_str(), w.walker_driving(duck).c_str(), static_cast<int>(ob[0]), ob[1], ob[2],
+                static_cast<int>(ob[4]), ob[5], ob[6], static_cast<int>(ob[10]), ob[21], ob[22]);
+  }
+  return 0;
+}
+
 }  // namespace
 
 /// Pollen's moves beyond velstand (pick, kicks, sit ...): the robot's own ONNX files, from the
@@ -452,6 +493,7 @@ int main(int argc, char** argv) {
     else if (a == "--netz") o.play_net = next();
     else if (a == "--biss-fenster") o.play = 3;
     else if (a == "--halt-messen") o.play = 4;
+    else if (a == "--demo-spur") o.play = 6;
     else if (a == "--nachahmungs-lohn") o.imitate_reward = static_cast<f32>(std::atof(next()));
     else {
       std::fprintf(stderr,
@@ -495,6 +537,7 @@ int main(int argc, char** argv) {
   if (o.play == 2) return play_trace(o);
   if (o.play == 3) { measure_bite(kPlayBeakOpen, kPlayBeakClose); return 0; }
   if (o.play == 4) { measure_stop(); return 0; }
+  if (o.play == 6) return demo_trace(o);
   if (o.play) return play_train(o);
   if (o.out.empty()) o.out = o.task + ".onnx";
   const i32 threads = o.threads > 0 ? o.threads : max_of(1, static_cast<i32>(std::thread::hardware_concurrency()));

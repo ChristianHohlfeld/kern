@@ -43,11 +43,12 @@ struct PlayEnv::Impl {
   std::unique_ptr<game::GameWorld> world;
   game::Level base;
   game::ActorId duck = 0, ball = 0, sock = 0;
-  std::vector<game::ActorId> sock_parts;
+  std::vector<game::ActorId> sock_parts, other_socks;  // other_socks: a second sock's parts, if any
   f32 ball_radius = 0.035f;
   Vec3 ball_start, sock_start;  // real metres
   bool kick_seen = false, was_holding = false, carrying = false;
   Vec3 carry_from;  // where the sock was picked up
+  bool carry_other = false;  // it is the second sock it carries
   bool was_picking = false;  // the pick was running at the last decision
   f32 progress_distance = -1;
   // The demonstration's own memory.
@@ -96,23 +97,61 @@ void PlayEnv::reset() {
   game::Actor* trunk = l.find(m.duck);
   const f32 yaw = m.forced ? 0.0f : rng_.uniform(-180, 180);
   trunk->transform.rotation = m.forced ? Vec3{0, 0, 0} : Vec3{rng_.uniform(-2, 2), rng_.uniform(-2, 2), yaw};
-  // What lies on the floor: a ball (40 %), a sock (40 %) or both; 0.35 .. 1.2 m away, mostly in
-  // front (the camera sees it at once), now and then beside or behind it (it has to look).
+  // What lies on the floor: a ball (30 %), a sock (30 %) or both (40 %, as in the example level,
+  // where they lie close together and the ball now and then on the way to the sock or behind it);
+  // 0.35 .. 1.2 m away, now and then right by it (it starts standing in front of it), mostly in front
+  // (the camera sees it at once), now and then beside or behind it (it has to look). Now and then a
+  // second sock lies about (the example level has two).
   const f32 kind = rng_.uniform();
   outcome_ = Outcome{};
-  outcome_.has_ball = !m.forced && (kind < 0.4f || kind >= 0.8f);
-  outcome_.has_sock = m.forced || kind >= 0.4f;
+  outcome_.has_ball = !m.forced && (kind < 0.3f || kind >= 0.6f);
+  outcome_.has_sock = m.forced || kind >= 0.3f;
   auto place = [&](f32 min_d) {
-    const f32 d = rng_.uniform(min_d, 1.2f);
+    const f32 d = rng_.uniform() < 0.2f ? rng_.uniform(0.12f, 0.35f) : rng_.uniform(min_d, 1.2f);
     const f32 spread = rng_.uniform() < 0.8f ? 0.9f : kPi;
     const f32 a = yaw * kPi / 180 + rng_.uniform(-spread, spread);
     return Vec3{d * kern::dm::cos(a), d * kern::dm::sin(a), 0};
   };
   m.ball = m.sock = 0;
   m.sock_parts.clear();
+  m.other_socks.clear();
+  auto add_sock = [&](Vec3 at, std::vector<game::ActorId>& ids) {
+    std::vector<game::Actor> parts = game::micro_duck_sock_actors();
+    const game::ActorId first = l.next_id;
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+      game::Actor a = parts[i];
+      a.id = first + static_cast<game::ActorId>(i);
+      if (i == 0) a.transform.position = a.transform.position + at * kS;
+      if (a.parent) a.parent = first + a.parent - 1;
+      for (game::JointComponent& j : a.joints)
+        if (j.target) j.target = first + j.target - 1;
+      ids.push_back(a.id);
+      l.add(std::move(a));
+    }
+    return first;
+  };
+  Vec3 sock_at{};
+  if (outcome_.has_sock) {
+    sock_at = place(0.35f);
+    if (m.forced) sock_at = {m.forced_at[0], m.forced_at[1], 0};
+    m.sock = add_sock(sock_at, m.sock_parts);
+  }
   if (outcome_.has_ball) {
     m.ball_radius = rng_.uniform(0.035f, 0.06f);
-    const Vec3 at = place(0.35f);
+    Vec3 at = place(0.35f);
+    if (outcome_.has_sock) {
+      const f32 u = rng_.uniform();
+      if (u < 0.4f) {  // on the way to the sock
+        const f32 f = rng_.uniform(0.3f, 0.8f), off = rng_.uniform(-0.12f, 0.12f);
+        const f32 n = max_of(kern::dm::hypot(sock_at.x, sock_at.y), 1e-3f);
+        at = Vec3{sock_at.x * f - sock_at.y / n * off, sock_at.y * f + sock_at.x / n * off, 0};
+      } else if (u < 0.7f) {  // close by the sock, any side
+        const f32 a = rng_.uniform(-kPi, kPi), d = rng_.uniform(0.15f, 0.4f);
+        at = Vec3{sock_at.x + d * kern::dm::cos(a), sock_at.y + d * kern::dm::sin(a), 0};
+      }
+      if (kern::dm::hypot(at.x - sock_at.x, at.y - sock_at.y) < 0.12f) at = Vec3{-sock_at.x, -sock_at.y, 0};
+    }
+    if (kern::dm::hypot(at.x, at.y) < 0.12f) at = Vec3{-sock_at.x, -sock_at.y, 0};  // not under its feet
     game::Actor ball;
     ball.name = "Ball";
     ball.tags = {"ball"};
@@ -126,23 +165,13 @@ void PlayEnv::reset() {
     m.ball = l.add(ball).id;
     m.ball_start = {at.x, at.y, m.ball_radius};
   }
-  if (outcome_.has_sock) {
-    Vec3 at = place(0.35f);
-    if (m.forced) at = {m.forced_at[0], m.forced_at[1], 0};
-    if (outcome_.has_ball && kern::dm::hypot(at.x - m.ball_start.x, at.y - m.ball_start.y) < 0.3f) at = Vec3{-at.x, -at.y, 0};
-    std::vector<game::Actor> parts = game::micro_duck_sock_actors();
-    const game::ActorId first = l.next_id;
-    for (std::size_t i = 0; i < parts.size(); ++i) {
-      game::Actor a = parts[i];
-      a.id = first + static_cast<game::ActorId>(i);
-      if (i == 0) a.transform.position = a.transform.position + at * kS;
-      if (a.parent) a.parent = first + a.parent - 1;
-      for (game::JointComponent& j : a.joints)
-        if (j.target) j.target = first + j.target - 1;
-      m.sock_parts.push_back(a.id);
-      l.add(std::move(a));
+  if (outcome_.has_sock && !m.forced && rng_.uniform() < 0.3f) {  // a second sock somewhere else
+    for (i32 tries = 0; tries < 8; ++tries) {
+      const Vec3 at = place(0.35f);
+      const bool clear = kern::dm::hypot(at.x - sock_at.x, at.y - sock_at.y) > 0.3f &&
+                         (!m.ball || kern::dm::hypot(at.x - m.ball_start.x, at.y - m.ball_start.y) > 0.15f) && kern::dm::hypot(at.x, at.y) > 0.15f;
+      if (clear) { add_sock(at, m.other_socks); break; }
     }
-    m.sock = first;
   }
   m.forced = false;
   if (randomize_) {
@@ -346,7 +375,11 @@ Env::Step PlayEnv::step(const f32* action) {
   m.was_picking = picking;
   if (m.sock && holding && !picking && !m.carrying) {
     m.carrying = true;
-    m.carry_from = m.centre(m.sock, m.sock_parts);
+    // Which sock: the one by its beak.
+    const Vec3 a = m.centre(m.sock, m.sock_parts), b = m.other_socks.empty() ? a : m.centre(m.other_socks[0], m.other_socks);
+    const Vec3 at = p.position;
+    m.carry_other = kern::dm::hypot(b.x - at.x, b.y - at.y) < kern::dm::hypot(a.x - at.x, a.y - at.y);
+    m.carry_from = m.carry_other ? b : a;
     if (!outcome_.picked) { outcome_.picked = true; r.reward += 3; }
   }
   if (holding && m.carrying) r.reward += 0.5f * kDecisionDt * min_of(obs_[19], kCarryM);  // carrying it off
@@ -356,7 +389,7 @@ Env::Step PlayEnv::step(const f32* action) {
     if (kern::dm::hypot(b.x - m.ball_start.x, b.y - m.ball_start.y) >= kKickedM) { outcome_.kicked = true; r.reward += 10; }
   }
   if (m.carrying && !holding) {  // out of the beak: put down far enough from where it was picked up?
-    const Vec3 c = m.centre(m.sock, m.sock_parts);
+    const Vec3 c = m.carry_other ? m.centre(m.other_socks[0], m.other_socks) : m.centre(m.sock, m.sock_parts);
     if (kern::dm::hypot(c.x - m.carry_from.x, c.y - m.carry_from.y) >= kDeliveredM) { outcome_.delivered = true; r.reward += 10; }
     m.carrying = false;
   }
@@ -385,6 +418,7 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
     else {
       out[0] = 0.12f / 0.3f;
       out[4] = -0.1f;
+      out[3] = 0.35f * kern::dm::sin(2.0f * o[20]);  // proud, it looks about as it goes
     }
     return;
   }
@@ -392,8 +426,10 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
   // will: then the network can learn exactly this. A sock first, else a ball; nothing known: it
   // turns on the spot and looks.
   const bool go_sock = o[4] > 0.5f, go_ball = !go_sock && o[0] > 0.5f;
-  if (!go_sock && !go_ball) {
+  if (!go_sock && !go_ball) {  // it turns and looks the way it turns, down at the floor
     out[2] = 0.8f;
+    out[3] = 0.4f;
+    out[4] = 0.3f;
     return;
   }
   const f32 tx = go_sock ? o[5] : o[1], ty = go_sock ? o[6] : o[2];  // where it is (heading frame)
@@ -406,8 +442,10 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
   const f32 dist = kern::dm::hypot(tx, ty), bearing = kern::dm::atan2(ty, tx);
   const f32 ahead = tx - want_ahead, side = ty - want_left;
   // Keep it in the picture: the head pitches down the closer it gets.
-  out[4] = clamp(kern::dm::atan2(0.12f, max_of(dist, 0.05f)) - 0.3f, 0.0f, 0.8f) / 1.1f;
+  // Keep it in the picture and look at it: the head pitches down (more, the closer it gets) and turns to it.
+  out[4] = clamp(kern::dm::atan2(0.12f, max_of(dist, 0.05f)) - 0.1f, 0.25f, 0.8f) / 1.1f;
   if (dist > 0.25f) {
+    out[3] = clamp(0.8f * bearing, -0.7f, 0.7f) / 1.1f;
     const f32 vx = std::fabs(bearing) > 0.6f ? 0.0f : clamp(dist * 1.2f, 0.15f, 0.3f);
     out[0] = vx / 0.3f;
     out[2] = clamp(bearing * 1.5f, -0.6f, 0.6f);  // not faster than 0.6 rad/s: spinning on the spot tips it over

@@ -199,7 +199,9 @@ void GameWorld::play_walker(WalkerBrain& w, f32 dt) {
   const bool holding = walker_holding(w.actor);
   const bool move_running = w.skill >= 0 || w.pick_phase >= 0;
   if (!move_running) p.started_move = false;
-  p.engaged = p.external || p.track[0].known || p.track[1].known || holding || p.started_move;
+  // Steered by hand (the pad, the phone's stick, a robot key) or by a Logic command: the network waits.
+  const bool driven = w.manual_left > 0 || w.drive_left != 0;
+  p.engaged = p.external || (!driven && (p.track[0].known || p.track[1].known || holding || p.started_move));
   if (decide && p.engaged) {
     f32 a[kPlayActions];
     if (p.external) {
