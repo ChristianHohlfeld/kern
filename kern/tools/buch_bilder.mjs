@@ -22,7 +22,7 @@ async function studio(viewport = {width: 1280, height: 800}, phone = false) {
   await wait(1500);
   return {ctx, page, cmd: c => page.evaluate(c => window.KernStudio.command(c), c)};
 }
-const playing = page => page.waitForFunction(() => window.KernStudio.state.play.state === "playing", null, {timeout: 120000});
+const playing = page => page.waitForFunction(() => window.KernStudio.state.play.state === "playing", null, {timeout: 600000});
 
 if (want("studio-play.png")) {
   const {ctx, page} = await studio();
@@ -38,7 +38,7 @@ if (want("duck-level.png") || want("duck-play.png")) {
   await wait(8000);
   if (want("duck-level.png")) await shot(page, "duck-level.png");
   if (want("duck-play.png")) {
-    await page.click("#playBtn");
+    await cmd({cmd: "play", mode: "play"});
     await playing(page);
     await wait(45000);  // the duck walks up to the ball
     await shot(page, "duck-play.png");
