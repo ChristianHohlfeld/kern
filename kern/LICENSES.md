@@ -104,10 +104,15 @@ Robotics, licensed under the Apache License, Version 2.0; the full text is in
 `micro_duck_velstand.inc`) and runs the policies unchanged. Details and checksums:
 `kern/third_party/microduck/README.md`.
 
-## The Micro Duck's look and colliders
+## The Micro Duck's look (CC BY-NC-SA 4.0)
 
-The look is Kern's own design (`tools/kern_duck.py` → `kern/src/game/duck_meshes.inc`), licensed
-like Kern. The colliders (`kern/src/game/duck_colliders.inc`) come from measurement data in
-`tools/kern_duck_envelopes.json`: coarse convex hulls (11–40 points each) of how far the real
-robot's colliding parts reach, so that the duck touches the world as in training. Kern does not
-contain Pollen Robotics' 3D model files (CC BY-NC-SA 4.0) or meshes derived from them.
+The Micro Duck's meshes (`kern/third_party/microduck/micro_duck_meshes.inc`) are derived from the
+STL models of https://github.com/pollen-robotics/microduck_rl (`src/mjlab_microduck/robot/microduck/assets`),
+Copyright Pollen Robotics, licensed under the Creative Commons Attribution-NonCommercial-ShareAlike
+4.0 International licence (https://creativecommons.org/licenses/by-nc-sa/4.0/, the repository's
+`LICENSE-MODELS.md`). `tools/micro_duck_import.py` simplified them (vertex clustering, about 8 % of
+the triangles), merged them per link, took the colours from the MJCF materials and quantised them;
+this adaptation is shared under the same licence. The meshes are not covered by the Apache License:
+they may not be used commercially. Using Kern commercially means replacing them (they are included
+in one place, `kern/src/game/builtin_meshes.cpp`) or leaving the Micro Duck out. The colliders come
+from the same import (convex hulls of the colliding parts).

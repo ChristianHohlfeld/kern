@@ -18,24 +18,28 @@ Quellen für Kerns Micro Duck (`src/game/walker.cpp`, Doku: `docs/walker.md`).
 | `manifest.json` | dasselbe Repository: die Liste aller zehn Netze mit Kommando-Kodierung, Phasen und `action_scale` (Kern liest sie zur Laufzeit) | Apache-2.0 |
 | `robot_allcollisions_backlash.xml` | github.com/pollen-robotics/microduck_rl @ `b02fdea`, `src/mjlab_microduck/robot/microduck/`: das MJCF, auf dem die Policy trainiert wurde | Apache-2.0 (`LICENSE`) |
 | `robot_groundcontact_rollers_backlash.xml` | dieselbe Quelle: das Rollen-Modell (Kufen und vier freie Räder), auf dem `roller.onnx` und `roller_crouch.onnx` trainiert wurden | Apache-2.0 (`LICENSE`) |
+| `micro_duck_meshes.inc` | die STL-Meshes aus microduck_rl (`src/mjlab_microduck/robot/microduck/assets/*.stl`), von `tools/micro_duck_import.py` vereinfacht, pro Glied zusammengeführt, in die Home-Pose gestellt, Normalen neu berechnet und quantisiert | **CC BY-NC-SA 4.0** (`LICENSE-MODELS.md` von microduck_rl) |
 
-Copyright Pollen Robotics, alles hier unter der Apache License 2.0 (`LICENSE`).
+Copyright Pollen Robotics. Die Meshes und ihre Bearbeitung in `micro_duck_meshes.inc` stehen unter
+der Creative-Commons-Lizenz CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+Das heißt: nicht kommerziell nutzen, Pollen Robotics nennen und Bearbeitungen unter derselben Lizenz
+weitergeben. Geändert wurde die Auflösung (Vertex-Clustering mit Quadrik-Repräsentanten, etwa 8 %
+der Dreiecke), die Teile sind pro Glied zusammengeführt und die Farben aus den MJCF-Materialien
+übernommen. Alles andere hier steht unter Apache-2.0.
 
-Pollens 3D-Modelle (STL-Meshes aus microduck_rl, CC BY-NC-SA 4.0, nicht kommerziell) sind **nicht**
-Teil von Kern. Aussehen und Kollisionsformen der Ente gestaltet Kern selbst (`tools/kern_duck.py`
-→ `src/game/duck_meshes.inc`). Übernommen sind nur Messdaten: die Gliedrahmen aus dem MJCF und grobe
-Kollisionshüllen (11–40 Punkte je Teil, `tools/kern_duck_envelopes.json`).
+**Was das für Kern heißt:** Kerns Code steht unter der Apache License 2.0, die Meshes nicht. Wer Kern
+kommerziell nutzt (oder ein Spiel mit der Micro Duck verkauft), muss die Meshes ersetzen oder die
+Micro Duck weglassen; `kern/src/game/builtin_meshes.cpp` ist die einzige Stelle, die sie einbindet.
+Kern ist mit Pollen Robotics nicht verbunden und wird von ihnen nicht unterstützt.
 
 Neu erzeugen (aus dem Repository-Root, mit einem Checkout von microduck_rl für die STL-Maße):
 
 ```
 python3 -I tools/micro_duck_import.py kern/third_party/microduck/robot_allcollisions_backlash.xml \
-    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game
-python3 -I tools/kern_duck.py
+    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game \
+    kern/third_party/microduck/micro_duck_meshes.inc
 ```
 
-Ergebnis: `src/game/micro_duck_model.inc` (Glieder, Gelenke, Massen, Trägheiten, Sensoren aus dem
-MJCF) und `src/game/micro_duck_velstand.inc`. Aus den STL-Dateien liest das Werkzeug nur Maße
-(Ausdehnung, tiefster Punkt, Masseverteilung des Schnabels); keine Geometrie wird übernommen. Danach
-erzeugt `tools/kern_duck.py` Kerns eigene Meshes und die Kollider aus den gemessenen Hüllen
-(braucht numpy).
+Ergebnis: `src/game/micro_duck_model.inc`, `src/game/micro_duck_velstand.inc` und
+`third_party/microduck/micro_duck_meshes.inc`. Für die Meshes braucht das Werkzeug numpy
+(`tools/mesh_simplify.py`).

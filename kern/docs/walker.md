@@ -378,22 +378,21 @@ läuft per Logic und dreht weg, sobald der ToF etwas näher als 1,6 m sieht.
 
 ## 11. Aussehen und Kollision
 
-- **Meshes:** Kerns eigene Gestaltung (`tools/kern_duck.py` → `src/game/duck_meshes.inc`):
-  abgerundete Quader, Streben und Scheiben pro Glied, in der Home-Pose, mit Vertexfarben. Pollens
-  STL-Modelle (CC BY-NC-SA 4.0) sind nicht enthalten; übernommen sind nur Messdaten.
+- **Meshes:** Pollens STL-Modelle aus microduck_rl, von `tools/micro_duck_import.py` vereinfacht,
+  pro Glied zusammengeführt und quantisiert (`third_party/microduck/micro_duck_meshes.inc`,
+  CC BY-NC-SA 4.0, nicht kommerziell).
 - **Mund:** Der Unterschnabel (Kiefer und weiches Polster) ist ein eigenes Glied am Mund-Servo.
   - Bereich wie im Daemon: −5° (gegen das Polster gedrückt) bis 30°.
   - Die Drehachse geht durch die Augen des Kiefer-Meshes.
   - Masse und Trägheit stammen aus den Meshes (PLA 1,24, TPU 1,21 g/cm³) und sind vom Kopf
     abgezogen.
-- **Kollision wie in MuJoCo:** jedes kollidierende Teil eine konvexe Hülle. Kern hat sie als
-  Messdaten (`tools/kern_duck_envelopes.json` → `src/game/duck_colliders.inc`): grobe Hüllen aus
-  11 bis 40 Punkten, wie weit die Teile des echten Roboters reichen.
+- **Kollision wie in MuJoCo:** jedes kollidierende Teil eine konvexe Hülle, aus dem Import
+  (`src/game/micro_duck_model.inc`).
   - Sohlen: Reibung 1.
   - XL330-Gehäuse: reibungsfrei, wie im Training.
   - Schnabelpolster: Reibung 1. Sie greifen.
   - Schalen von Rumpf und Kopf: Reibung 0,5. Darauf liegt eine gestürzte Ente und rutscht nicht
-    wie auf Eis. Die Schalen berühren die eigene Ente nie.
+    wie auf Eis. Die Schalen berühren die Ente selbst nie.
 - *[gemessen]* Test `micro_duck_stands_on_the_floor`: Die Sohlen stehen 0,3–0,6 mm im Boden. Das
   liegt innerhalb von Box3Ds Kontakt-Slop von 5 mm. Früher waren die Sohlen Quader aus den
   Mesh-Maßen und standen 2,8 mm (echt) zu tief, deshalb schwebte die sichtbare Sohle.

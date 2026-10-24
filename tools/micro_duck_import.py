@@ -5,8 +5,8 @@
 
 ROBOT_XML    robot_allcollisions_backlash.xml from pollen-robotics/microduck_rl
              (src/mjlab_microduck/robot/microduck/), the model the velstand policy was trained on.
-ASSETS_DIR   the STL folder next to it. Only measurements are read from the meshes (the lowest
-             point, the beak's mass distribution); no geometry is copied into Kern.
+ASSETS_DIR   the STL folder next to it. Only the extents of the colliding meshes are read:
+             the XL330 servo housing and the two soles. No mesh is copied into Kern.
 POLICY_ONNX  velstand.onnx from huggingface.co/pollen-robotics/microduck-policies.
 
 Writes OUT_DIR/micro_duck_model.inc and OUT_DIR/micro_duck_velstand.inc (C++ initialisers,
@@ -18,9 +18,9 @@ What is converted, and how (docs/walker.md explains why):
     the home angle as their reference, so a joint reads exactly the MJCF angle.
   * Actor frames are world-aligned (no rotation): inertia tensors and collider boxes are rotated
     into the world frame of the home pose.
-  * Colliders and the look are not written here: tools/kern_duck.py draws Kern's own look
-    (duck_meshes.inc) and writes the colliders (duck_colliders.inc) from the measured envelopes in
-    tools/kern_duck_envelopes.json. The rollers' wheels index its kDuckRollerHullPoints.
+  * Colliders are what collides in training (mjlab CollisionCfg FULL_COLLISION): the two soles
+    (friction 1) and every XL330 housing (frictionless, condim 1). Each becomes an oriented box
+    fitted to its mesh.
   * The policy: obs normaliser (mean, divisor) and the four Gemm layers, as exact hex floats.
 """
 import math
@@ -262,6 +262,32 @@ def build_visuals(links, mesh_cache):
     return mouth
 
 
+def link_mesh(link, mesh_cache, lift):
+    """One merged, simplified, crease-shaded mesh for a link, in its frame (vertex colours =
+    the parts' MJCF materials, sRGB). Also the pads' boxes (grip) in the link frame."""
+    import numpy as np
+    import mesh_simplify as ms
+    P, N, C, T, pads = [], [], [], [], []
+    origin = np.array(link["origin"])
+    for vis in link["visuals"]:
+        if vis["path"] not in mesh_cache:
+            mesh_cache[vis["path"]] = ms.weld(ms.read_stl(vis["path"]))
+        v, f = mesh_cache[vis["path"]]
+        w = part_world(v, vis.get("frame", link), vis) - origin
+        thin = any(k in vis["mesh"] for k in THIN_PARTS)
+        v2, f2 = ms.simplify(w, f, max(120, int(len(f) * MESH_BUDGET)), THIN_CELL if thin else None)
+        p, n, t = ms.crease_normals(v2, f2)
+        T.append(t + sum(len(x) for x in P))
+        P.append(p)
+        N.append(n)
+        C.append(np.tile(vis["rgba"][:3], (len(p), 1)))  # sRGB (the renderer decodes vertex colours)
+        if vis["mesh"] in GRIP_PADS:
+            pads.append({"hull": ms.hull_points(w, 40)})
+    P, N, C, T = np.concatenate(P), np.concatenate(N), np.concatenate(C), np.concatenate(T)
+    return P, N, C, T, ms.hull_points(P), pads
+
+
+
 def varint(b, i):
     r = s = 0
     while True:
@@ -400,7 +426,7 @@ def box_rotation(R, size):
     return best[1], best[2]
 
 
-def export_rollers(xml_path, assets, links, order, remap, lift, w, mesh_cache):
+def export_rollers(xml_path, assets, links, order, remap, lift, w, mesh_cache, meshes):
     """The roller skates (pollen-robotics/microduck_rl robot_groundcontact_rollers_backlash.xml, what
     roller.onnx and roller_crouch.onnx train on): the ankles carry a blade instead of the foot, and
     two free wheels hang off each. Everything above the ankles is the walking model."""
@@ -423,28 +449,80 @@ def export_rollers(xml_path, assets, links, order, remap, lift, w, mesh_cache):
     w("// stands this much higher on them (metres, real):")
     w("constexpr float kDuckRollerRaise = %s;" % cf(raise_by))
     w("const DuckRollerDef kDuckRollers[] = {")
-    wheel = 0
+    hull_lines = []
+    flat = []
     for name in ("ankle_l_v1", "ankle_r_v1"):
         a = by[name]
         li = joint_link[ankle_of[name]]
         Iw = mmul(mmul(a["R"], a["I"]), mT(a["R"]))
+        P, N, C, T, H, _ = link_mesh(a, mesh_cache, lift)
+        meshes.append(("roller/" + name, (P, N, C, T, H)))
         w('    {"%s", "", %d, -1, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, %s, %s, %s, 0, 0},' % (
             name, li, cf(a["mass"]), vec(mvec(a["R"], a["ipos"])), vec([Iw[0][0], Iw[1][1], Iw[2][2], Iw[0][1], Iw[0][2], Iw[1][2]])))
         for t in rl:
             if t["parent"] != rl.index(a) or not t["joint"]:
                 continue
             Iw = mmul(mmul(t["R"], t["I"]), mT(t["R"]))
+            P, N, C, T, H, _ = link_mesh(t, mesh_cache, lift)
+            meshes.append(("roller/" + t["joint"][0], (P, N, C, T, H)))
             rel = [t["origin"][k] - a["origin"][k] for k in range(3)]
             axis = [t["R"][0][2], t["R"][1][2], t["R"][2][2]]
+            box = t["boxes"][0]
+            if box["path"] not in mesh_cache:
+                mesh_cache[box["path"]] = ms.weld(ms.read_stl(box["path"]))
+            hp = ms.hull_points(part_world(mesh_cache[box["path"]][0], t, {"pos": box["gpos"], "R": box["R"]}) - np.array(t["origin"]), 40)
             w('    {"%s", "%s", %d, %d, %s, %s, %s, %s, %s, %d, %d},' % (
                 t["joint"][0], t["joint"][0], li, 0, vec(rel), vec(axis), cf(t["mass"]), vec(mvec(t["R"], t["ipos"])),
-                vec([Iw[0][0], Iw[1][1], Iw[2][2], Iw[0][1], Iw[0][2], Iw[1][2]]), 40 * wheel, 40))
-            wheel += 1  # its tyre: 40 points in tools/kern_duck.py's kDuckRollerHullPoints
+                vec([Iw[0][0], Iw[1][1], Iw[2][2], Iw[0][1], Iw[0][2], Iw[1][2]]), len(flat) // 3, len(hp)))
+            flat += [x for q in hp for x in q]
     w("};")
+    w("const float kDuckRollerHullPoints[] = {")
+    for k in range(0, len(flat), 12):
+        w("    " + ", ".join(cf(x) for x in flat[k:k + 12]) + ",")
+    w("};")
+
+
+def write_meshes(path, meshes):
+    """The links' meshes as C++ arrays: positions quantised to 16 bits over the mesh bounds, normals
+    and sRGB colours to 8 bits, 16-bit indices, hull points as floats (metres, real size)."""
+    import numpy as np
+    L = ["// Generated by tools/micro_duck_import.py from Pollen Robotics' Micro Duck meshes",
+         "// (github.com/pollen-robotics/microduck_rl, src/mjlab_microduck/robot/microduck/assets/*.stl).",
+         "// Copyright Pollen Robotics. Licensed under CC BY-NC-SA 4.0",
+         "// (https://creativecommons.org/licenses/by-nc-sa/4.0/). Modified: simplified (vertex clustering",
+         "// with quadric representatives), merged per link, posed in the STAND keyframe, normals recomputed",
+         "// with a crease angle, quantised. Not for commercial use; adaptations under the same licence.",
+         "// Do not edit by hand."]
+    table = []
+    for name, (P, N, C, T, H) in meshes:
+        assert len(P) < 65536, name
+        lo, hi = P.min(axis=0), P.max(axis=0)
+        q = np.round((P - lo) / np.maximum(hi - lo, 1e-9) * 65535 - 32768).astype(int)
+        n = np.round(N * 127).astype(int)
+        c = np.round(np.clip(C, 0, 1) * 255).astype(int)
+        ident = "kDuckMesh_" + name.replace("/", "_")
+        def arr(ctype, suffix, values):
+            values = list(values)
+            L.append("static const %s %s%s[] = {" % (ctype, ident, suffix))
+            for k in range(0, len(values), 24):
+                L.append("    " + ",".join(str(x) for x in values[k:k + 24]) + ",")
+            L.append("};")
+        arr("short", "_pos", q.reshape(-1))
+        arr("signed char", "_nrm", n.reshape(-1))
+        arr("unsigned char", "_col", c.reshape(-1))
+        arr("unsigned short", "_idx", T.reshape(-1))
+        L.append("static const float %s_hull[] = {%s};" % (ident, ", ".join(cf(x) for x in H.reshape(-1))))
+        table.append('    {"duck/%s", %s, %s, %d, %d, %s_pos, %s_nrm, %s_col, %s_idx, %d, %s_hull},' % (
+            name, vec(lo), vec(hi), len(P), T.size, ident, ident, ident, ident, len(H), ident))
+    L.append("const DuckMeshDef kDuckMeshes[] = {")
+    L += table
+    L.append("};")
+    open(path, "w").write("\n".join(L) + "\n")
 
 
 def main():
     xml_path, assets, onnx_path, out = sys.argv[1:5]
+    meshes_path = sys.argv[5] if len(sys.argv) > 5 else None
     links = load_robot(xml_path, assets)
     mesh_cache = {}
     links.append(build_visuals(links, mesh_cache))
@@ -485,13 +563,45 @@ def main():
         w('    {"%s", "%s", %d, %s, %s, %s, %s, %s, %s, %s, %s},' % (
             l["name"], jn, parent, vec(origin), vec(axis), cf(lo), cf(hi), cf(home), cf(l["mass"]), vec(com), vec(inertia)))
     w("};")
-    w("// Colliders and the look come from tools/kern_duck.py (duck_colliders.inc, duck_meshes.inc).")
+    meshes, pads = [], []
+    for i in order:
+        P, N, C, T, H, link_pads = link_mesh(links[i], mesh_cache, lift)
+        meshes.append((links[i]["name"], (P, N, C, T, H)))
+        pads += [(remap[i], p) for p in link_pads]
+    w("// Colliders, as MuJoCo collides mesh geoms: the convex hull of each mesh. The soles (friction 1)")
+    w("// and the XL330 housings (frictionless) as in training, then the beak's soft pads (TPU, friction")
+    w("// %g): what grips. Points relative to the link's origin, world-aligned, home pose." % PAD_FRICTION)
+    import numpy as np
+    import mesh_simplify as ms
+    hulls = []
+    for i in order:
+        l = links[i]
+        for b in l["boxes"]:
+            if b["path"] not in mesh_cache:
+                mesh_cache[b["path"]] = ms.weld(ms.read_stl(b["path"]))
+            v = mesh_cache[b["path"]][0]
+            pw = part_world(v, l, {"pos": b["gpos"], "R": b["R"]}) - np.array(l["origin"])
+            hulls.append((remap[i], 1.0 if b["sole"] else 0.0, b["sole"], ms.hull_points(pw, 40)))
+    for li, p in pads:
+        hulls.append((li, PAD_FRICTION, False, p["hull"]))
+    flat = []
+    w("const DuckHullDef kDuckHulls[] = {")
+    for li, fr, sole, H in hulls:
+        w("    {%d, %s, %s, %d, %d}," % (li, cf(fr), "true" if sole else "false", len(flat) // 3, len(H)))
+        flat += [x for p in H for x in p]
+    w("};")
+    w("const float kDuckHullPoints[] = {")
+    for k in range(0, len(flat), 12):
+        w("    " + ", ".join(cf(x) for x in flat[k:k + 12]) + ",")
+    w("};")
     rollers_xml = os.path.join(os.path.dirname(xml_path), "robot_groundcontact_rollers_backlash.xml")
     if os.path.exists(rollers_xml):
-        export_rollers(rollers_xml, assets, links, order, remap, lift, w, mesh_cache)
+        export_rollers(rollers_xml, assets, links, order, remap, lift, w, mesh_cache, meshes)
     w("// Links whose convex shell collides (the shell encloses the servos; PLA on a floor).")
     w("constexpr const char* kDuckShellBodies[] = {%s};" % ", ".join('"%s"' % n for n in SHELL_LINKS))
     w("constexpr float kDuckShellFriction = %s;" % cf(SHELL_FRICTION))
+    if meshes_path:
+        write_meshes(meshes_path, meshes)
     w("// Sensor sites: position relative to the link's origin and the site frame's axes, world-aligned in")
     w("// the home pose (MJCF site frames; a MuJoCo camera looks along -Z with +Y up).")
     w("const DuckSiteDef kDuckSites[] = {")

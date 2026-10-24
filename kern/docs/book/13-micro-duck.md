@@ -56,14 +56,14 @@ The physics itself (Box3D, contacts, joints) is described in [Chapter 6](06-phys
 
 Pollen trains on `robot_allcollisions_backlash.xml` (15 bodies, 14 joints). The tool
 `tools/micro_duck_import.py` reads this file and `velstand.onnx` and generates
-`src/game/micro_duck_model.inc` and `src/game/micro_duck_velstand.inc` from them. From Pollen's STL
-files it reads only measurements (the lowest point, the beak's mass distribution); the look is then
-drawn by `tools/kern_duck.py`, which also writes the colliders from the measured hulls:
+`src/game/micro_duck_model.inc` and `src/game/micro_duck_velstand.inc` from them, and from Pollen's
+STL files the simplified meshes (`third_party/microduck/micro_duck_meshes.inc`) and the colliders'
+convex hulls:
 
 ```
 python3 -I tools/micro_duck_import.py kern/third_party/microduck/robot_allcollisions_backlash.xml \
-    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game
-python3 -I tools/kern_duck.py
+    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game \
+    kern/third_party/microduck/micro_duck_meshes.inc
 ```
 
 The import checks joint names and order, the home pose against `default_joint_pos`, the order of
@@ -129,7 +129,7 @@ closer to training with armature and jitters considerably less (Section 13.14).
 
 ### Collision
 
-What collides is, as in MuJoCo, a convex hull each – in Kern as measurement data: coarse hulls of 11 to 40 points that state how far the real robot's parts reach (`tools/kern_duck_envelopes.json` → `src/game/duck_colliders.inc`). No design can be seen in them; they make the duck touch the world exactly as in training:
+What collides is, as in MuJoCo, a convex hull each – in Kern the hulls of the colliding parts from the import (`src/game/micro_duck_model.inc`). They make the duck touch the world exactly as in training:
 
 | Part | Friction | Surface |
 |---|---|---|
@@ -182,13 +182,10 @@ metres, real seconds) unless stated otherwise.
 
 ### Appearance
 
-The duck in Kern is an original design (`tools/kern_duck.py` → `src/game/duck_meshes.inc`): a white
-body with a blue Kern badge, a head with an orange beak, eyes, camera and range sensor, dark servo
-blocks at the joints, light struts between them and orange feet. Everything is built from rounded
-boxes (superellipsoids), struts and discs, in the home pose and with vertex colours. Pollen's 3D
-models (CC BY-NC-SA 4.0, non-commercial) are not included; only measurement data is taken (the link
-frames and the coarse collision hulls), so that soles, servos and beak sit where they sit on the
-real robot.
+The duck's look in Kern comes from Pollen Robotics' own 3D models (the STL files of microduck_rl),
+simplified, merged per link and quantised by `tools/micro_duck_import.py`
+(`third_party/microduck/micro_duck_meshes.inc`). They are licensed CC BY-NC-SA 4.0: non-commercial,
+adaptations under the same licence. Kern's code is Apache 2.0; the meshes are not.
 
 ![The Micro Duck in Kern's own design](../buch/bilder/duck-close.png)
 

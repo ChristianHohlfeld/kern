@@ -17,8 +17,12 @@ This product includes software and data developed by others:
   synthesiser), Copyright Pollen Robotics, Apache License 2.0, modified by Christian Heinrich
   Hohlfeld (kern/src/game/walker_brain.cpp, kern/src/audio/duck_voice.cpp).
 
-The Micro Duck's visual appearance in Kern is Kern's own design (tools/kern_duck.py); its
-colliders are coarse measured envelopes (tools/kern_duck_envelopes.json). Pollen Robotics' 3D
-model files are not included. Kern is not affiliated with or endorsed by Pollen Robotics.
+The Micro Duck's 3D meshes (kern/third_party/microduck/micro_duck_meshes.inc) are derived from
+Pollen Robotics' microduck_rl STL models, Copyright Pollen Robotics, licensed under the Creative
+Commons Attribution-NonCommercial-ShareAlike 4.0 International licence (CC BY-NC-SA 4.0,
+https://creativecommons.org/licenses/by-nc-sa/4.0/). Changes: simplified, merged per link,
+recoloured from the MJCF materials and quantised (tools/micro_duck_import.py). They are not covered
+by the Apache License: no commercial use, adaptations under the same licence. Kern is not affiliated
+with or endorsed by Pollen Robotics.
 
 Full license texts and details: kern/LICENSES.md.

@@ -426,7 +426,7 @@ Daneben gibt es `shape_bounds`, `shape_hull_points` (Punkte für konvexe Hüllen
 
 ### Eingebaute Meshes
 
-Die Form `mesh` verweist mit `MeshComponent::asset` auf ein Dreiecksmesh, das in die Engine einkompiliert ist (`include/kern/game/builtin_meshes.h`). Heute sind das die Glieder der Micro Duck in Kerns eigener Gestaltung, erzeugt von `tools/kern_duck.py` (`src/game/duck_meshes.inc`). Die Namen beginnen mit `duck/`, zum Beispiel `duck/trunk_base`, `duck/neck`, `duck/upper_leg_left`, `duck/ankle_right` oder `duck/roller/passive_LF_wheel`; `builtin_mesh_names()` liefert die vollständige Liste.
+Die Form `mesh` verweist mit `MeshComponent::asset` auf ein Dreiecksmesh, das in die Engine einkompiliert ist (`include/kern/game/builtin_meshes.h`). Heute sind das die Glieder der Micro Duck: Pollen Robotics' Meshes, vereinfacht von `tools/micro_duck_import.py` (`third_party/microduck/micro_duck_meshes.inc`, CC BY-NC-SA 4.0). Die Namen beginnen mit `duck/`, zum Beispiel `duck/trunk_base`, `duck/neck`, `duck/upper_leg_left`, `duck/ankle_right` oder `duck/roller/passive_LF_wheel`; `builtin_mesh_names()` liefert die vollständige Liste.
 
 Gespeichert sind sie kompakt:
 

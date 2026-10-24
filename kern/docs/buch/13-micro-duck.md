@@ -57,14 +57,14 @@ Die Physik selbst (Box3D, Kontakte, Gelenke) beschreibt [Kapitel 6](06-physik.md
 
 Pollen trainiert auf `robot_allcollisions_backlash.xml` (15 Bodies, 14 Gelenke). Das Werkzeug
 `tools/micro_duck_import.py` liest diese Datei und `velstand.onnx` und erzeugt daraus
-`src/game/micro_duck_model.inc` und `src/game/micro_duck_velstand.inc`. Aus Pollens STL-Dateien
-liest es nur Maße (tiefster Punkt, Masseverteilung des Schnabels); das Aussehen zeichnet danach
-`tools/kern_duck.py`, die Kollider schreibt es aus den gemessenen Hüllen:
+`src/game/micro_duck_model.inc` und `src/game/micro_duck_velstand.inc`, aus Pollens STL-Dateien
+die vereinfachten Meshes (`third_party/microduck/micro_duck_meshes.inc`) und die konvexen Hüllen der
+Kollider:
 
 ```
 python3 -I tools/micro_duck_import.py kern/third_party/microduck/robot_allcollisions_backlash.xml \
-    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game
-python3 -I tools/kern_duck.py
+    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game \
+    kern/third_party/microduck/micro_duck_meshes.inc
 ```
 
 Der Import prüft Gelenknamen und -reihenfolge, die Home-Pose gegen `default_joint_pos`, die
@@ -129,7 +129,7 @@ Ente mit Armatur näher am Training und zappelt deutlich weniger (Abschnitt 13.1
 
 ### Kollision
 
-Was kollidiert, ist wie in MuJoCo jeweils eine konvexe Hülle – in Kern als Messdaten: grobe Hüllen aus 11 bis 40 Punkten, die angeben, wie weit die Teile des echten Roboters reichen (`tools/kern_duck_envelopes.json` → `src/game/duck_colliders.inc`). Eine Gestaltung ist darin nicht zu erkennen; sie sorgen dafür, dass die Ente die Welt genau so berührt wie im Training:
+Was kollidiert, ist wie in MuJoCo jeweils eine konvexe Hülle – in Kern die Hüllen der kollidierenden Teile aus dem Import (`src/game/micro_duck_model.inc`). Sie sorgen dafür, dass die Ente die Welt genau so berührt wie im Training:
 
 | Teil | Reibung | Oberfläche |
 |---|---|---|
@@ -138,7 +138,7 @@ Was kollidiert, ist wie in MuJoCo jeweils eine konvexe Hülle – in Kern als Me
 | Schnabelpolster | 1 | `tpu` |
 | Schalen von Rumpf und Kopf (`trunk_base`, `jaw_soft`) | 0,5 | – |
 
-Die Schalen umschließen die Servos der Nachbarglieder und berühren die eigene Ente nie (Kern setzt
+Die Schalen umschließen die Servos der Nachbarglieder und berühren die Ente selbst nie (Kern setzt
 dafür `no_collision`-Gelenke). Auf ihnen liegt eine gestürzte Ente und rutscht nicht wie auf Eis.
 
 Seit der Überarbeitung der Spielschicht kennt die Physik **Oberflächenmaterialien mit eigener
@@ -184,13 +184,10 @@ Robotereinheiten (echte Meter, echte Sekunden), sofern nicht anders gesagt.
 
 ### Aussehen
 
-Die Ente in Kern ist eine eigene Gestaltung (`tools/kern_duck.py` → `src/game/duck_meshes.inc`): ein
-weißer Rumpf mit blauem Kern-Abzeichen, ein Kopf mit orangem Schnabel, Augen, Kamera und
-Abstandssensor, dunkle Servoblöcke an den Gelenken, helle Streben dazwischen und orange Füße. Alles
-ist aus abgerundeten Quadern (Superellipsoiden), Streben und Scheiben gebaut, in der Home-Pose und
-mit Vertexfarben. Pollens 3D-Modelle (CC BY-NC-SA 4.0, nicht kommerziell) sind nicht enthalten;
-übernommen sind nur Messdaten (die Gliedrahmen und die groben Kollisionshüllen), damit Sohlen,
-Servos und Schnabel dort sitzen, wo sie beim echten Roboter sitzen.
+Das Aussehen der Ente in Kern stammt aus Pollen Robotics' eigenen 3D-Modellen (den STL-Dateien von
+microduck_rl), von `tools/micro_duck_import.py` vereinfacht, pro Glied zusammengeführt und
+quantisiert (`third_party/microduck/micro_duck_meshes.inc`). Sie stehen unter CC BY-NC-SA 4.0: nicht
+kommerziell, Bearbeitungen unter derselben Lizenz. Kerns Code steht unter Apache 2.0, die Meshes nicht.
 
 ![Die Micro Duck in Kerns eigener Gestaltung](bilder/duck-close.png)
 
