@@ -16,13 +16,13 @@ docs = here.parent / "docs"
 ap = argparse.ArgumentParser()
 ap.add_argument("--en", action="store_true", help="the English book (kern/docs/book)")
 ap.add_argument("--out", default=None)
-ap.add_argument("--format", default="170x240", help="trim size in mm, width x height")
+ap.add_argument("--format", default="177.8x254", help="trim size in mm, width x height (default: Amazon KDP hardcover 7 x 10 in)")
 ap.add_argument("--keep", action="store_true", help="keep the intermediate files (prints where)")
 a = ap.parse_args()
 
 src = docs / ("book" if a.en else "buch")
 out = pathlib.Path(a.out or ("kern-book.pdf" if a.en else "kern-buch.pdf")).resolve()
-w, h = (int(x) for x in a.format.lower().split("x"))
+w, h = (float(x) for x in a.format.lower().split("x"))
 files = sorted(p for p in src.glob("*.md") if re.match(r"^(\d\d|[A-Z])-", p.name))
 files = [p for p in files if p.name[0].isdigit()] + [p for p in files if p.name[0].isalpha()]
 if not files: sys.exit(f"no chapters in {src}")
