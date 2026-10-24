@@ -19,7 +19,7 @@ if [ "${1:-}" = "--skip-wasm" ]; then skip_wasm=1; shift; fi
 out="${1:-$root/generated/studio.html}"
 wasm="$root/generated/kern_studio.wasm"
 mkdir -p "$(dirname "$out")" "$root/generated"
-if [ "$skip_wasm" = 0 ]; then "$root/kern/build.sh" --studio "$wasm"; fi
+if [ "$skip_wasm" = 0 ]; then "$root/kern/build.sh" --studio ${KERN_COMMERCIAL:+--commercial} "$wasm"; fi
 [ -s "$wasm" ] || { echo "missing $wasm (run without --skip-wasm)" >&2; exit 1; }
 
 python3 - "$root" "$wasm" "$out" <<'PY'

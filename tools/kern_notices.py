@@ -29,6 +29,8 @@ def notices():
         "Box3D:\n" + (root / "kern/third_party/box3d/LICENSE").read_text(),
         "musl:\n" + musl,
         "Earcut:\n" + isc,
+        "Intel XeGTAO:\n" + (root / "kern/third_party/xegtao/LICENSE").read_text(),
+        "three.js:\n" + (root / "kern/third_party/threejs/LICENSE").read_text(),
     ]
     return "\n" + ("\n" + "=" * 72 + "\n").join(p.strip("\n") + "\n" for p in parts)
 

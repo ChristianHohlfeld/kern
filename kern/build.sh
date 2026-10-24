@@ -13,6 +13,9 @@
 #              procedural city (kern/src/game); implies --physics.
 #   --studio   Kern Studio, the engine editor (kern/src/studio) and its C ABI;
 #              implies --game.
+#   --commercial  leaves out the assets that may not be used commercially: Pollen Robotics'
+#              Micro Duck 3D models (CC BY-NC-SA 4.0). Everything else in the module is
+#              Apache 2.0 or permissive (kern/LICENSES.md).
 #   --lehrer   the headless Lehrer (kern/src/lehrer: environments, PPO, ONNX
 #              export) and its C ABI for the browser's Web Workers; implies --game.
 #
@@ -29,7 +32,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-with_app=0 with_physics=0 with_game=0 with_studio=0 with_lehrer=0
+with_app=0 with_physics=0 with_game=0 with_studio=0 with_lehrer=0 commercial=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --app) with_app=1 ;;
@@ -37,6 +40,7 @@ while [ $# -gt 0 ]; do
     --game) with_game=1; with_physics=1 ;;
     --studio) with_studio=1; with_game=1; with_physics=1 ;;
     --lehrer) with_lehrer=1; with_game=1; with_physics=1 ;;
+    --commercial) commercial=1 ;;
     *) break ;;
   esac
   shift
@@ -112,6 +116,7 @@ includes=(-I"$here/include")
 
 # Game sources (*.cpp) compile like the engine's; other arguments are compiler flags.
 extra_flags=()
+[ "$commercial" = 1 ] && extra_flags+=(-DKERN_NO_NONCOMMERCIAL_ASSETS)
 for a in "$@"; do
   case "$a" in
     *.cpp|*.cc) sources+=("$(cd "$(dirname "$a")" && pwd)/$(basename "$a")") ;;

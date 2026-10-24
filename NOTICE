@@ -9,10 +9,17 @@ This product includes software and data developed by others:
 - Earcut, Copyright (c) 2024 Mapbox, ISC License (port in kern/src/geo/earcut.cpp).
 - musl libm functions, Copyright (c) 2005-2020 Rich Felker, et al., MIT License
   (kern/third_party/musl_math).
+- Ground-truth ambient occlusion adapted from Intel XeGTAO, Copyright (C) 2016-2021 Intel
+  Corporation, MIT License (kern/src/gfx/gtao.cpp; licence in kern/third_party/xegtao).
+- ACES filmic tone-mapping fit and exponential fog as in three.js, Copyright (c) 2010-2026
+  three.js authors, MIT License (kern/src/gfx/standard_shader.cpp; licence in
+  kern/third_party/threejs).
 - Micro Duck model description (MJCF), control policies (ONNX), policy manifest and pick-up
   detector, Copyright Pollen Robotics, Apache License 2.0 (kern/third_party/microduck,
   from github.com/pollen-robotics/microduck, github.com/pollen-robotics/microduck_rl and
   huggingface.co/pollen-robotics/microduck-policies).
+- jump.onnx (kern/policies), trained by Kern's Lehrer from Pollen Robotics' velstand.onnx
+  (warm start), Apache License 2.0, modified by Christian Heinrich Hohlfeld.
 - C++ ports of Pollen Robotics' microduck code (idle look-around, autonomous brain, voice
   synthesiser), Copyright Pollen Robotics, Apache License 2.0, modified by Christian Heinrich
   Hohlfeld (kern/src/game/walker_brain.cpp, kern/src/audio/duck_voice.cpp).
@@ -22,7 +29,8 @@ Pollen Robotics' microduck_rl STL models, Copyright Pollen Robotics, licensed un
 Commons Attribution-NonCommercial-ShareAlike 4.0 International licence (CC BY-NC-SA 4.0,
 https://creativecommons.org/licenses/by-nc-sa/4.0/). Changes: simplified, merged per link,
 recoloured from the MJCF materials and quantised (tools/micro_duck_import.py). They are not covered
-by the Apache License: no commercial use, adaptations under the same licence. Kern is not affiliated
+by the Apache License: no commercial use, adaptations under the same licence. Kern Studio and the
+games it exports contain them; a commercial build leaves them out (kern/build.sh --commercial). Kern is not affiliated
 with or endorsed by Pollen Robotics.
 
 Full license texts and details: kern/LICENSES.md.

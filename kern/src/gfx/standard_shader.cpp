@@ -180,7 +180,7 @@ constexpr const char* kFragmentLighting = R"GLSL(
   vec3 hemis = mix(uGroundColor, uSkyColor, clamp(n.z * 0.5 + 0.5, 0.0, 1.0));
   float shadow = 1.0;
   if (uSunShadowEnabled == 1 && ndl > 0.0) {
-    // Normal offset (Holbein 2011): look the shadow up a texel off the surface along its normal,
+    // Normal offset (Holbert 2011): look the shadow up a texel off the surface along its normal,
     // more where the light grazes it - no acne without a large constant bias (no detached shadows).
     vec3 lookup = vWorld + n * (uSunShadowTexel.z * (0.6 + 1.4 * (1.0 - ndl)));
     vec4 clip = uSunShadowProjection * vec4(lookup, 1.0);

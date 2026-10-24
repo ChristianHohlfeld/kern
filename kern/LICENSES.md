@@ -56,6 +56,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Intel XeGTAO (adapted in `kern/src/gfx/gtao.cpp`)
+
+Kern's ground-truth ambient occlusion follows Intel's XeGTAO (https://github.com/GameTechDev/XeGTAO):
+the slice and horizon math, the falloff, the sample distribution and the quality presets, rewritten
+for WebGL2. Copyright (C) 2016-2021, Intel Corporation, MIT License; the text is in
+`kern/third_party/xegtao/LICENSE`.
+
+## three.js (adapted in `kern/src/gfx/standard_shader.cpp`)
+
+The ACES filmic tone-mapping fit and the exponential fog are applied as three.js applies them
+(https://github.com/mrdoob/three.js). Copyright (c) 2010-2026 three.js authors, MIT License; the text
+is in `kern/third_party/threejs/LICENSE`.
+
 ## musl math (`kern/third_party/musl_math`)
 
 The deterministic libm functions (sin, cos, exp, log, pow, atan2, ...) are taken from musl
@@ -80,8 +93,9 @@ Antoine Pirrone, 2026-10-01), Copyright Pollen Robotics, licensed under the Apac
 Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Changes: translated to C++, ticked from
 Kern's control step, seeded from the actor id; the obstacle model reads Kern's simulated ToF frame
 instead of `kinematics::tof::Reprojector`; hearing and petting come from API calls (Kern has no
-microphone or touch sensor). Added by Kern, not part of the original: ball play and sock fetching
-(the Fetch / Kick / Carry states).
+microphone or touch sensor). Added by Kern, not part of the original: BallPlay (approach, line up,
+kick), rebuilt from the description of Pollen's original runtime, whose code is not public, and the
+learned play layer for ball and sock (`walker_play.cpp`).
 
 ## Micro Duck voice (port in `kern/src/audio/duck_voice.cpp`)
 
@@ -113,6 +127,14 @@ Copyright Pollen Robotics, licensed under the Creative Commons Attribution-NonCo
 `LICENSE-MODELS.md`). `tools/micro_duck_import.py` simplified them (vertex clustering, about 8 % of
 the triangles), merged them per link, took the colours from the MJCF materials and quantised them;
 this adaptation is shared under the same licence. The meshes are not covered by the Apache License:
-they may not be used commercially. Using Kern commercially means replacing them (they are included
-in one place, `kern/src/game/builtin_meshes.cpp`) or leaving the Micro Duck out. The colliders come
-from the same import (convex hulls of the colliding parts).
+they may not be used commercially. Kern Studio's module and every game exported from it contain
+them. A commercial build leaves them out: `kern/build.sh --commercial` (or
+`KERN_COMMERCIAL=1 tools/build_studio.sh`) compiles without them, and the duck's links then have no
+look. The colliders come from the same import: 40-point convex hulls of the colliding parts
+(`micro_duck_model.inc`), functional collision data that keeps the physics as in training.
+
+## Kern's trained networks (`kern/policies`)
+
+`jump.onnx` and `play.onnx` were trained by Kern's Lehrer. `jump.onnx` starts from Pollen Robotics'
+`velstand.onnx` (warm start, Apache License 2.0) and is a modification of it; both networks run on
+Pollen's robot model. Copyright Christian Heinrich Hohlfeld and Pollen Robotics, Apache License 2.0.
