@@ -399,6 +399,7 @@ json::Value actor_to_json(const Actor& a) {
     x.set("friction", num(m.friction));
     x.set("restitution", num(m.restitution));
     x.set("rollingResistance", num(m.rolling_resistance));
+    if (!m.surface.empty()) x.set("surface", m.surface);
     x.set("material", material_json(m.material));
     c.set("mesh", std::move(x));
   }
@@ -455,6 +456,7 @@ json::Value actor_to_json(const Actor& a) {
       x.set("friction", num(k.friction));
       x.set("restitution", num(k.restitution));
       x.set("rollingResistance", num(k.rolling_resistance));
+      if (!k.surface.empty()) x.set("surface", k.surface);
       x.set("sensor", k.sensor);
       x.set("category", k.category);
       x.set("mask", k.mask);
@@ -672,6 +674,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
       mr.number("friction", m.friction, 0, 10);
       mr.number("restitution", m.restitution, 0, 1);
       mr.number("rollingResistance", m.rolling_resistance, 0, 10);
+      mr.string("surface", m.surface);
       if (!mr.ok || !read_material((*x)["material"], m.material, error)) return false;
       a.mesh = m;
     }
@@ -725,6 +728,7 @@ bool actor_from_json(const json::Value& v, Actor& a, std::string* error) {
         kr.number("friction", k.friction, 0, 10);
         kr.number("restitution", k.restitution, 0, 1);
         kr.number("rollingResistance", k.rolling_resistance, 0, 10);
+        kr.string("surface", k.surface);
         kr.boolean("sensor", k.sensor);
         kr.uinteger("category", k.category);
         kr.uinteger("mask", k.mask);
@@ -938,6 +942,7 @@ json::Value world_to_json(const WorldSettings& w) {
   o.set("groundColor", hex_color(w.ground_color));
   o.set("groundFriction", num(w.ground_friction));
   o.set("groundRestitution", num(w.ground_restitution));
+  if (!w.ground_surface.empty()) o.set("groundSurface", w.ground_surface);
   o.set("contactHertz", num(w.contact_hertz));
   o.set("contactDamping", num(w.contact_damping));
   o.set("contactSpeed", num(w.contact_speed));
@@ -975,6 +980,7 @@ bool world_from_json(const json::Value& v, WorldSettings& w, std::string* error)
   r.color("groundColor", w.ground_color);
   r.number("groundFriction", w.ground_friction, 0, 10);
   r.number("groundRestitution", w.ground_restitution, 0, 1);
+  r.string("groundSurface", w.ground_surface);
   r.number("contactHertz", w.contact_hertz, 1, 1000);
   r.number("contactDamping", w.contact_damping, 0, 1000);
   r.number("contactSpeed", w.contact_speed, 0.01f, 100);

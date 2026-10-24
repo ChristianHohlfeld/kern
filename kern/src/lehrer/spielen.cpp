@@ -22,9 +22,9 @@ constexpr i32 kMaxDecisions = static_cast<i32>(60 / kDecisionDt);  // 60 s of th
 // Where the moves want the object (the demonstration's aim; the network learns its own).
 constexpr f32 kKickAhead = 0.09f, kKickLeft = 0.042f, kKickTolerance = 0.02f, kKickBall = 0.035f;  // microduck_ball_kick_env_cfg.py (BALL_POS_NOISE_XY +-1.5 cm; a little more is fine)
 constexpr f32 kBallCoastM = -0.005f;  // to the ball it walks right up to the spot (it stops a little short)
-// The sock's centre where the beak gets it about a third of the time (kern_lehrer --biss-fenster);
+// The sock's centre where the beak gets it and keeps it most often (kern_lehrer --biss-fenster, TPU on cotton 0.8);
 // left 0: between the soles (their inner edges at +-2.15 cm). The beak is wide: sideways it may be off more.
-constexpr f32 kBiteAhead = 0.063f, kBiteLeft = -0.002f, kSockTolerance = 0.008f, kSockSideTolerance = 0.012f;
+constexpr f32 kBiteAhead = 0.065f, kBiteLeft = 0.0f, kSockTolerance = 0.008f, kSockSideTolerance = 0.012f;
 constexpr f32 kCoastM = 0.007f;  // told to stop from 0.12 m/s, it still goes a little (--schritt-probe, and where the picks happened)
 constexpr f32 kSettleS = 1.5f;  // told to stop, it has come to rest after this long
 constexpr f32 kBackOffM = 0.1f;  // closer than this and crooked: back off and come in again
@@ -80,6 +80,7 @@ PlayEnv::PlayEnv(u64 seed, bool randomize) : impl_(std::make_unique<Impl>()), rn
   l.world.step_hz = game::kWalkerStepHz;
   l.world.ground = true;
   l.world.ground_friction = 1.0f;
+  l.world.ground_surface = "floor";
   impl_->duck = game::add_micro_duck(l, {0, 0, 0});
   game::ControllerComponent& c = *l.find(impl_->duck)->controller;
   c.autonomous = true;   // the play layer works where the autonomy works

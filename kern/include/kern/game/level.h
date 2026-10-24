@@ -68,6 +68,7 @@ struct MeshComponent {
   // The physical material of that fitted collider (Box3D surface material; touching materials
   // combine friction as sqrt(a x b)): beside the render material, as the object's physics.
   f32 friction = 0.6f, restitution = 0, rolling_resistance = 0;
+  std::string surface;          // what it is made of, where a pair has its own friction: "", cloth, tpu, floor (physics::Surface)
   MaterialDesc material;
 };
 
@@ -109,6 +110,7 @@ struct ColliderComponent {
   f32 radius = 0.5f, length = 1;  // sphere, capsule (length between the cap centres, along Z)
   std::vector<Vec3> points;     // hull: its points (actor-local); empty = the hull of the actor's mesh
   f32 density = 1000, friction = 0.6f, restitution = 0, rolling_resistance = 0;
+  std::string surface;          // "", cloth, tpu, floor: a pair of these has its own friction (physics::Surface)
   bool sensor = false;
   u32 category = 1, mask = 0xffffffffu;  // collision channels
   i32 group = 0;
@@ -341,6 +343,7 @@ struct WorldSettings {
   // sqrt(a x b), Box3D's rule) and the contact softness - stiffness (Hz), damping ratio, push-out
   // speed cap (m/s), Box3D's world definition.
   f32 ground_friction = 0.7f, ground_restitution = 0;
+  std::string ground_surface;  // "" or floor (physics::Surface)
   f32 contact_hertz = 30, contact_damping = 10, contact_speed = 3;
   f32 kill_z = -50;             // a player below this height respawns / loses
   std::string title;

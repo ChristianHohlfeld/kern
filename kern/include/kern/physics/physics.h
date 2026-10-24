@@ -17,6 +17,15 @@ namespace kern::physics {
 
 enum class BodyType : u8 { fixed = 0, kinematic = 1, dynamic = 2 };
 enum class ShapeKind : u8 { box, sphere, capsule, hull, mesh };
+
+/// What a surface is made of, where a pair of materials has its own measured friction (two
+/// materials do not simply combine: TPU grips cotton less than either grips itself). Any pair
+/// not in surface_friction() combines the shapes' friction as Box3D does, sqrt(a x b).
+enum class Surface : u8 { none, cloth, tpu, floor };
+const char* surface_name(Surface s);
+bool parse_surface(const std::string& name, Surface& out);
+/// The friction of a pair of surfaces, or < 0 when the pair has no value of its own.
+f32 surface_friction(Surface a, Surface b);
 /// Box3D's native joints. (The editor's "rope" and "friction" are a limited
 /// distance joint and a motor joint without springs.)
 enum class JointType : u8 { revolute, distance, prismatic, wheel, weld, motor, spherical, parallel, filter };
@@ -63,6 +72,7 @@ struct ShapeMaterial {
   i32 group_index = 0;
   bool contact_events = true, sensor_events = true, hit_events = false;
   u64 user = 0;               // returned by World::shape_user
+  Surface surface = Surface::none;
 };
 
 struct ShapeSettings {

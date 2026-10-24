@@ -272,7 +272,8 @@ std::vector<Actor> micro_duck_sock_actors() {
     ColliderComponent c;
     c.shape = ColliderShape::sphere;
     c.radius = r;
-    c.friction = 1;  // cotton on TPU and wood
+    c.friction = 1;
+    c.surface = "cloth";  // cotton knit: on the beak's TPU, on itself and on the floor its own measured friction (physics::surface_friction)
     c.rolling_resistance = 0.5f;  // a lump of cloth does not roll (round lumps would, and the heap crawls)
     a.colliders.push_back(c);
     for (int m = 0; m < k; ++m) {
@@ -371,6 +372,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
       }
       c.friction = h.friction;
       if (h.sole) c.impact_sound = "builtin:plastic_step";
+      else if (h.friction > 0) c.surface = "tpu";  // the beak's printed pads: on the sock, TPU on cotton
       a.colliders.push_back(c);
     }
     for (const char* shell : kDuckShellBodies)

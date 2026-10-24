@@ -340,6 +340,7 @@ std::vector<BodyPlan> plan_bodies(const Level& level) {
       fit.friction = a.mesh->friction;
       fit.restitution = a.mesh->restitution;
       fit.rolling_resistance = a.mesh->rolling_resistance;
+      fit.surface = a.mesh->surface;
       if (trigger_like) fit.sensor = true;
       add_shape(b, a.id, fit, rel, &*a.mesh, true);
     } else if (trigger_like) {
@@ -383,6 +384,7 @@ std::vector<BodyPlan> plan_bodies(const Level& level) {
     s.size = {20000, 20000, 2};
     s.source.friction = level.world.ground_friction;
     s.source.restitution = level.world.ground_restitution;
+    s.source.surface = level.world.ground_surface;
     g.shapes.push_back(s);
     plans.push_back(std::move(g));
   }
@@ -1172,6 +1174,7 @@ physics::Body GameWorld::create_body(const BodyPlan& plan) {
     ss.material.friction = sp.source.friction;
     ss.material.restitution = sp.source.restitution;
     ss.material.rolling_resistance = sp.source.rolling_resistance;
+    physics::parse_surface(sp.source.surface, ss.material.surface);
     ss.material.sensor = sp.source.sensor;
     ss.material.category_bits = sp.source.category;
     ss.material.mask_bits = sp.source.mask;

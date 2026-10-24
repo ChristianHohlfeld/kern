@@ -90,6 +90,43 @@ Pose frame_from_axis(Vec3 anchor, Vec3 axis, bool x_axis) {
 }
 
 // ---------------------------------------------------------------------------
+// surfaces
+
+const char* surface_name(Surface s) {
+  switch (s) {
+    case Surface::cloth: return "cloth";
+    case Surface::tpu: return "tpu";
+    case Surface::floor: return "floor";
+    default: return "";
+  }
+}
+
+bool parse_surface(const std::string& name, Surface& out) {
+  for (Surface s : {Surface::none, Surface::cloth, Surface::tpu, Surface::floor})
+    if (name == surface_name(s)) { out = s; return true; }
+  return false;
+}
+
+f32 surface_friction(Surface a, Surface b) {
+  if (a > b) std::swap(a, b);
+  // Static friction of dry pairs (Coulomb, as the solver uses one coefficient):
+  // cotton knit on cotton knit 0.5 (cotton thread on thread 0.3, knitted fabric on itself 0.4-0.6),
+  // TPU (the beak's soft printed pads) on cotton 0.8 (elastomers on textiles 0.6-1.0, the softer
+  // the higher), cotton on a wooden or laminate floor 0.4 (cloth on wood 0.3-0.5).
+  if (a == Surface::cloth && b == Surface::cloth) return 0.5f;
+  if (a == Surface::cloth && b == Surface::tpu) return 0.8f;
+  if (a == Surface::cloth && b == Surface::floor) return 0.4f;
+  return -1;
+}
+
+namespace {
+float pair_friction(float fa, uint64_t ma, float fb, uint64_t mb) {
+  const f32 f = ma && mb && ma <= 3 && mb <= 3 ? surface_friction(static_cast<Surface>(ma), static_cast<Surface>(mb)) : -1.0f;
+  return f >= 0 ? f : sqrtf(fa * fb);
+}
+}  // namespace
+
+// ---------------------------------------------------------------------------
 // world
 
 bool World::create(const WorldSettings& s) {
@@ -107,6 +144,7 @@ bool World::create(const WorldSettings& s) {
   if (s.contact_damping_ratio > 0) def.contactDampingRatio = s.contact_damping_ratio;
   if (s.contact_speed > 0) def.contactSpeed = s.contact_speed;
   if (s.maximum_linear_speed > 0) def.maximumLinearSpeed = s.maximum_linear_speed;
+  def.frictionCallback = pair_friction;
   def.workerCount = 1;  // single-threaded WebAssembly: no scheduler threads
   b3WorldId id;
   {
@@ -194,6 +232,7 @@ Shape World::create_shape(Body body, const ShapeSettings& s) {
   def.baseMaterial.friction = max_of(0.0f, std::isfinite(m.friction) ? m.friction : 0.0f);
   def.baseMaterial.restitution = std::clamp(std::isfinite(m.restitution) ? m.restitution : 0.0f, 0.0f, 1.0f);
   def.baseMaterial.rollingResistance = max_of(0.0f, std::isfinite(m.rolling_resistance) ? m.rolling_resistance : 0.0f);
+  def.baseMaterial.userMaterialId = static_cast<uint64_t>(m.surface);
   def.isSensor = m.sensor;
   def.filter.categoryBits = m.category_bits;
   def.filter.maskBits = m.mask_bits;
