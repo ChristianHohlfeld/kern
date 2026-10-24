@@ -355,7 +355,8 @@ haben ihre eigenen Werte.
 Genau hier geht Kern einen Schritt weiter. `physics.h`:
 
 > „What a surface is made of, where a pair of materials has its own measured friction (two materials
-> do not simply combine: TPU grips cotton less than either grips itself). Any pair not in
+> do not simply combine: TPU on cotton has its own measured value, not the mean of
+> TPU on TPU and cotton on cotton). Any pair not in
 > surface_friction() combines the shapes' friction as Box3D does, sqrt(a x b).“
 
 - `enum class Surface : u8 { none, cloth, tpu, floor }` – woraus eine Oberfläche besteht.
@@ -377,9 +378,7 @@ float pair_friction(float fa, uint64_t ma, float fb, uint64_t mb) {
 | TPU (weiche Schnabelpolster) auf Baumwolle | 0,8 | Elastomere auf Textil 0,6–1,0 |
 | Baumwolle auf Holz-/Laminatboden | 0,4 | Stoff auf Holz 0,3–0,5 |
 
-(Der Kommentar im Kopf von `physics.h` ist an dieser Stelle ungenau: Laut Tabelle greift TPU auf
-Baumwolle mit 0,8 *stärker* als Baumwolle auf sich selbst mit 0,5. Gemeint ist, dass sich der
-Paarwert nicht aus den Einzelwerten ergibt.) Alle anderen Paare fallen auf $\sqrt{\mu_A\mu_B}$ zurück. Wozu? Der Micro Duck hebt eine Socke mit
+Alle anderen Paare fallen auf $\sqrt{\mu_A\mu_B}$ zurück. Wozu? Der Micro Duck hebt eine Socke mit
 dem Schnabel auf (`spielen.cpp`): Ob der Biss hält, hängt genau an diesen Paaren – Polster auf Socke
 muss greifen, Socke auf Boden muss rutschen. Ein einziger Reibwert pro Form kann das nicht
 gleichzeitig darstellen.
