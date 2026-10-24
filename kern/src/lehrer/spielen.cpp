@@ -497,7 +497,8 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
   out[4] = dist < 0.15f ? 0.0f : min_of(out[4], 0.3f / 1.1f);  // close by the beak would brush it
   const f32 steer = clamp(2.0f * side / max_of(tx, 0.05f), -0.4f, 0.4f);
   const bool in_place = std::fabs(ahead) <= tol && std::fabs(side) <= side_tol;
-  const bool standing = o[21] > 0.0f && ahead <= kBackOffM, backing = o[22] < 0.0f;
+  // Standing: both soles down longer than a step's double support lasts.
+  const bool standing = o[21] > 0.25f && ahead <= kBackOffM, backing = o[22] < 0.0f;
   auto back_off = [&] {
     out[0] = -1.0f;  // back at full speed: slower, a stiff duck does not step at all
     out[2] = steer;

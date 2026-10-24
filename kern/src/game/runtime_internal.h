@@ -140,7 +140,7 @@ struct GameWorld::WalkerBrain::Play {
   i64 tick = 0;                              // control ticks since start (a decision every kPlayDecisionTicks)
   bool engaged = false, started_move = false, was_holding = false;
   f32 carry_from[2] = {0, 0}, carry_time = 0;
-  f32 still = 0;                             // real seconds its walking command has been zero
+  f32 still = 0;                             // real seconds both soles have been on the floor (no move running)
   f32 walking = 0;                           // real seconds it has been told forward (+) / back (-)
   ActorId carried = 0;
   DetectorModel detector;

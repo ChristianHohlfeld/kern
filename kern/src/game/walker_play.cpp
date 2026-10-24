@@ -14,7 +14,7 @@
 // * a tracker that keeps the last estimate while the object is out of view (odometry), with its
 //   age; objects the duck just kicked or put down are not reported for a while (habituation);
 // * proprioception: left foot, beak (encoder: holding?), the move running, how far it carried;
-// * its own recent past: how long its walking command has been zero, how long it has walked forward
+// * its own recent past: how long it has stood (both soles down), how long it has walked forward
 //   or back.
 // The network is engaged while it knows of an object, holds something or runs a move it started;
 // otherwise Pollen's brain (walker_brain.cpp) roams as before.
@@ -39,10 +39,7 @@ constexpr f32 kNearForgetS = 30;     // ... unless it was close (below the camer
 constexpr f32 kBallRestS = 15, kSockRestS = 40;  // habituation after a kick / after putting a sock down
 constexpr f32 kPutDownM = 0.25f;                // carried at least this far, letting go is putting it down
 constexpr f32 kStillCapS = 4;                   // standing still / walking: reported up to this long
-// Of the walking command's range. Forward: below 0.35 (0.105 m/s) Pollen's gait does not step at all
-// (kern_lehrer --halt-messen: told 0.10 m/s it stands, 0.12 m/s it walks), so "a little forward" is
-// standing still - and counts as standing still. Sideways and turning: 0.2 (0.04 m/s, 0.2 rad/s).
-constexpr f32 kDeadBand = 0.2f, kForwardDeadBand = 0.35f;
+constexpr f32 kDeadBand = 0.2f;  // of the walking command's range (0.06 m/s, 0.04 m/s, 0.2 rad/s), like a gamepad stick's
 // The action's ranges (the pad's: robotd_params::drive; the head's training ranges).
 constexpr f32 kVx = 0.3f, kVy = 0.2f, kWz = 1.0f, kYaw = 1.1f, kPitch = 1.1f, kNeck = 1.1f;
 
@@ -186,7 +183,7 @@ bool GameWorld::walker_play_observation(ActorId id, f32 o[kPlayObs]) const {
     o[19] = min_of(kern::dm::hypot(px - p.carry_from[0], py - p.carry_from[1]), 2.0f);
     o[20] = min_of(p.carry_time, 10.0f);
   }
-  o[21] = min_of(p.still, kStillCapS);  // how long it has stood still (its own walking command zero)
+  o[21] = min_of(p.still, kStillCapS);  // how long it has stood still (both soles down, no move)
   o[22] = clamp(p.walking, -kStillCapS, kStillCapS);  // how long it has been walking forward (+) / back (-)
   return true;
 }
@@ -226,13 +223,28 @@ void GameWorld::play_walker(WalkerBrain& w, f32 dt) {
     if (!move_running && !holding && p.action[7] > 0.5f && walker_skill(w.actor, "pick").empty()) p.started_move = true;
   }
   sense_play(w, dt);
-  // The walking command has a dead band like a gamepad's stick: below it the gait would not step
-  // anyway, and "stand still" stays standing still when a network answers 0.1 instead of 0.
+  // The walking command has a dead band like a gamepad's stick: "stand still" stays standing still
+  // when a network answers 0.1 instead of 0.
   auto band = [](f32 v, f32 b) { v = clamp(v, -1.0f, 1.0f); return std::fabs(v) < b ? 0.0f : v; };
   auto walk = [&](f32 v) { return band(v, kDeadBand); };
-  auto forward = [&](f32 v) { return band(v, kForwardDeadBand); };
-  const bool walking = forward(p.action[0]) != 0 || walk(p.action[1]) != 0 || walk(p.action[2]) != 0;
-  p.still = p.engaged && !walking && !move_running ? p.still + dt : 0.0f;
+  auto forward = walk;
+  // Standing still is what the legs do, not what it was told: both soles on the floor. (Told "a little
+  // forward", Pollen's gait may not step at all - that is standing, wherever the threshold lies in
+  // this physics or on the real duck.)
+  bool feet_down = true;
+  std::vector<std::pair<physics::Body, f32>> touch;
+  for (i32 foot : {5, 14}) {  // the ankle links carry the soles
+    bool down = false;
+    touch.clear();
+    if (w.bodies[foot].valid()) physics_.touching(w.bodies[foot], touch);
+    for (const auto& [other, impulse] : touch) {
+      bool own = false;
+      for (const physics::Body& b : w.bodies) own = own || (b.valid() && b == other);
+      down = down || !own;
+    }
+    feet_down = feet_down && down;
+  }
+  p.still = p.engaged && feet_down && !move_running ? p.still + dt : 0.0f;
   const f32 dir = forward(p.action[0]) > 0 ? 1.0f : forward(p.action[0]) < 0 ? -1.0f : 0.0f;  // forward, back, neither
   p.walking = p.engaged && !move_running && dir != 0 && (p.walking == 0 || (p.walking > 0) == (dir > 0)) ? p.walking + dir * dt : 0.0f;
   if (!p.engaged) return;
