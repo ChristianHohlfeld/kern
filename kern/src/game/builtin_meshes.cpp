@@ -2,7 +2,9 @@
 
 #include <cmath>
 #include <memory>
+#if !defined(__wasi__)
 #include <mutex>
+#endif
 #include <unordered_map>
 
 namespace kern::game {
@@ -54,9 +56,11 @@ BuiltinMesh decode(const DuckMeshDef& d) {
 
 const BuiltinMesh* builtin_mesh(std::string_view name) {
   // The cache lives for the program. The Lehrer builds worlds on several threads at once: one at a time here.
-  static std::mutex lock;
   static std::unordered_map<std::string, std::unique_ptr<BuiltinMesh>> cache;
+#if !defined(__wasi__)  // WebAssembly runs on one thread
+  static std::mutex lock;
   const std::lock_guard<std::mutex> guard(lock);
+#endif
   const std::string key(name);
   if (auto it = cache.find(key); it != cache.end()) return it->second.get();
   for (const DuckMeshDef& d : kDuckMeshes)

@@ -5,7 +5,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if !defined(__wasi__)
 #include <mutex>
+#endif
 
 #include "kern/core/dmath.h"
 #include "kern/game/servo.h"
@@ -315,12 +317,18 @@ BiteSpot measure_bite(f32 open, f32 close, bool print, const ParallelFor& parall
 }
 
 BiteSpot bite_spot(const ParallelFor& parallel) {
-  static std::once_flag once;
   static BiteSpot spot;
-  std::call_once(once, [&] {
+  auto measure = [&] {
     spot = measure_bite(kPlayBeakOpen, kPlayBeakClose, false, parallel);
     if (spot.kept == 0) spot = {0.065f, 0.0f, 0};  // nothing held anywhere: in front of the beak
-  });
+  };
+#if defined(__wasi__)  // one thread
+  static bool measured = false;
+  if (!measured) { measured = true; measure(); }
+#else
+  static std::once_flag once;
+  std::call_once(once, measure);
+#endif
   return spot;
 }
 
