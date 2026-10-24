@@ -833,7 +833,7 @@ Rolling Ball platzieren, **Play**: Das HUD zeigt den Text.
 
 Beim Start von Play oder Simulate kompiliert Kern jeden Graphen zu WebAssembly-Maschinencode; Graphen mit
 Fehlern lassen Play nicht starten. **C++** lädt den Graphen als lesbaren C++-Quelltext herunter, der in
-ein Spiel gebaut als nativer Code läuft ([Kapitel 12](12-eigene-spiele.md#124-weg-c-aus-javascript-und-über-die-c-abi)).
+ein Spiel gebaut als nativer Code läuft ([Kapitel 12](12-eigene-spiele.md#1243-logik-graphen-als-c)).
 Mit F9 gesetzte Breakpoints halten das Spiel an, sobald der Knoten läuft. Alle Knoten, Variablen, State
 Machines, die Bedienung im Detail und die drei Ausführungsstufen beschreibt [Kapitel 9](09-logik.md).
 
@@ -1315,7 +1315,7 @@ Menüeintrag im JSON von `state()` trägt den Befehl, den er ausführt. Die wich
 | Dokumente | `new {template}`, `open`, `restore`, `save`, `saved`, `packageText`, `validate`, `console` |
 | Ton | `previewSound`, `stopSound`, `importSound`, `removeSound`, `renameSound`, `mute` |
 | Einstellungen | `settings`, `applySettings`, `takeSettings`, `resetSettings` |
-| Hilfen | `project {id | point}` liefert die Bildschirmposition |
+| Hilfen | `project {id oder point}` liefert die Bildschirmposition |
 | Logik | alle Befehle, die mit `logic` beginnen ([Kapitel 9](09-logik.md)) |
 
 Eigenschaftspfade folgen der JSON-Form des Actors, zum Beispiel `transform.position`,
