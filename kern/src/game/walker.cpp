@@ -66,6 +66,7 @@ struct DuckSiteDef {
 };
 
 #include "micro_duck_model.inc"
+#include "duck_colliders.inc"  // Kern's own collider shapes (tools/kern_duck.py)
 #include "micro_duck_velstand.inc"
 
 constexpr i32 kLinkCount = static_cast<i32>(sizeof kDuckLinks / sizeof kDuckLinks[0]);
@@ -350,8 +351,8 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
       j.max_motor_force = kServoTorque;
       a.joints.push_back(j);
     }
-    // The link as it looks: Pollen's meshes of its parts, merged, in the link's frame (builtin
-    // mesh "duck/<MJCF body>", vertex colours from the MJCF materials).
+    // The link as it looks: Kern's own design for it, in the link's frame (builtin mesh
+    // "duck/<MJCF body>", tools/kern_duck.py).
     a.mesh = MeshComponent{};
     a.mesh->shape = Shape::mesh;
     a.mesh->asset = blade ? std::string("duck/roller/") + blade->body : std::string("duck/") + l.body;
@@ -365,7 +366,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
     for (const DuckHullDef& h : kDuckHulls) {
       if (h.link != i || (blade && h.sole)) continue;  // the blade has no sole: its wheels touch
       ColliderComponent c;
-      c.shape = ColliderShape::hull;  // MuJoCo collides a mesh geom as its convex hull
+      c.shape = ColliderShape::hull;  // a convex shape around the part (tools/kern_duck.py)
       for (i32 k = 0; k < h.count; ++k) {
         const f32* p = kDuckHullPoints + 3 * (h.first + k);
         c.points.push_back({p[0], p[1], p[2]});
@@ -378,7 +379,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
     for (const char* shell : kDuckShellBodies)
       if (std::strcmp(shell, l.body) == 0) {
         ColliderComponent c;
-        c.shape = ColliderShape::hull;  // the convex hull of the link's mesh
+        c.shape = ColliderShape::hull;  // the shell of the link's own mesh (tools/kern_duck.py)
         c.friction = kDuckShellFriction;
         a.colliders.push_back(c);
         // The shell encloses its neighbours' servos and brackets: it never touches its own robot.
