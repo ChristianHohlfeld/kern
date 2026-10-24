@@ -26,7 +26,7 @@ constexpr f32 kBallCoastM = -0.005f;  // to the ball it walks right up to the sp
 // Where the sock should lie for the bite the Lehrer measures itself (bite_spot); how far off it may be
 // (the beak is wide: sideways more).
 constexpr f32 kSockTolerance = 0.008f, kSockSideTolerance = 0.012f;
-constexpr f32 kCoastM = 0.0075f;  // told to stop from 0.15 m/s, it still goes a little (kern_lehrer --halt-messen)
+constexpr f32 kCoastM = 0.007f;  // told to stop from 0.12 m/s, it still goes a little (kern_lehrer --halt-messen)
 constexpr f32 kSettleS = 1.5f;  // told to stop, it has come to rest after this long
 constexpr f32 kBackOffM = 0.1f;  // closer than this and crooked: back off and come in again
 constexpr f32 kPickOpen = kPlayBeakOpen, kPickClose = kPlayBeakClose;  // the beak opens on the way down, bites at the bottom
@@ -457,13 +457,13 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
     return;
   }
   // It goes by what its camera's detector and tracker report (the observation), as the network
-  // will: then the network can learn exactly this. A sock first, else a ball; nothing known: it
-  // turns on the spot and looks.
-  const bool go_sock = o[4] > 0.5f, go_ball = !go_sock && o[0] > 0.5f;
-  if (!go_sock && !go_ball) {  // it turns and looks the way it turns, down at the floor
+  // will: then the network can learn exactly this. The nearer of the two (a ball in the way gets
+  // kicked away first, it does not walk over it); nothing known: it turns on the spot and looks.
+  const bool sock_known = o[4] > 0.5f, ball_known = o[0] > 0.5f;
+  const bool ball_nearer = ball_known && (!sock_known || kern::dm::hypot(o[1], o[2]) < kern::dm::hypot(o[5], o[6]));
+  const bool go_ball = ball_nearer, go_sock = sock_known && !go_ball;
+  if (!go_sock && !go_ball) {  // it turns on the spot, the head at home (bowed or swung out while it turns, it tips over)
     out[2] = 0.8f;
-    out[3] = 0.4f;
-    out[4] = 0.3f;
     return;
   }
   const f32 tx = go_sock ? o[5] : o[1], ty = go_sock ? o[6] : o[2];  // where it is (heading frame)
@@ -480,9 +480,10 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
   // Keep it in the picture and look at it: the head pitches down (more, the closer it gets) and turns to it.
   out[4] = clamp(kern::dm::atan2(0.12f, max_of(dist, 0.05f)) - 0.1f, 0.25f, 0.8f) / 1.1f;
   if (dist > 0.25f) {
-    out[3] = clamp(0.8f * bearing, -0.7f, 0.7f) / 1.1f;
+    out[3] = clamp(0.5f * bearing, -0.3f, 0.3f) / 1.1f;  // not far: turning with the head swung out tips it over
     const f32 vx = std::fabs(bearing) > 0.6f ? 0.0f : clamp(dist * 1.2f, 0.15f, 0.3f);
     out[0] = vx / 0.3f;
+    if (vx == 0) out[3] = out[4] = 0;  // turning on the spot: the head at home (else it tips over)
     out[2] = clamp(bearing * 1.5f, -0.6f, 0.6f);  // not faster than 0.6 rad/s: spinning on the spot tips it over
     return;
   }
@@ -513,7 +514,7 @@ void PlayEnv::teacher(f32 out[kPlayActions]) {
   } else {
     if (ahead < -tol) return back_off();  // too far in
     if (ahead > (go_sock ? kCoastM : kBallCoastM)) {  // on its way: slowly (it coasts the rest when told to stop)
-      f32 vx = 0.15f;  // the slowest it steps at, clear of the dead band (0.105 m/s)
+      f32 vx = ahead > 0.06f ? 0.15f : 0.12f;
       if (o[22] < 0.5f) vx = 0.3f;  // from a stand the gait needs a firm push
       out[0] = vx / 0.3f;
       out[2] = std::fabs(steer) < 0.04f ? 0.0f : steer;
