@@ -188,8 +188,9 @@ Das Aussehen der Ente in Kern stammt aus Pollen Robotics' eigenen 3D-Modellen (d
 microduck_rl), von `tools/micro_duck_import.py` vereinfacht, pro Glied zusammengeführt und
 quantisiert (`third_party/microduck/micro_duck_meshes.inc`). Sie stehen unter CC BY-NC-SA 4.0: nicht
 kommerziell, Bearbeitungen unter derselben Lizenz. Kerns Code steht unter Apache 2.0, die Meshes nicht.
+Die Abbildungen der Ente in diesem Buch zeigen deshalb eine eigene Gestaltung.
 
-![Die Micro Duck in Kerns eigener Gestaltung](bilder/duck-close.png)
+![Die Ente in der eigenen Gestaltung dieses Buchs](bilder/duck-close.png)
 
 ### Rollschuhe
 

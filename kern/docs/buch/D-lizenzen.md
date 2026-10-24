@@ -12,6 +12,7 @@ unübersetzt wiedergegeben. Die Liste mit Herkunft und Änderungen steht im Repo
 | Earcut (C++-Portierung) | Mapbox | ISC |
 | musl-Mathematikfunktionen | Rich Felker und andere | MIT |
 | Micro-Duck-Robotermodell (MJCF), Policies, Pick-up-Erkennung, portierte Software | Pollen Robotics | Apache License 2.0 |
+| Micro-Duck-3D-Modelle in Kern Studio (in diesem Buch nicht enthalten) | Pollen Robotics | CC BY-NC-SA 4.0 |
 
 Das Buch selbst steht nicht unter diesen Lizenzen (siehe [Impressum](00-impressum.md)).
 

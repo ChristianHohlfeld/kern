@@ -1,6 +1,6 @@
 # Kern – The Book
 
-**The engine, Kern Studio, the Micro Duck and the Lehrer: understanding, using and extending them**
+**The engine, Kern Studio, a walking robot and the Lehrer: understanding, using and extending them**
 
 ## Imprint and Rights
 
@@ -28,11 +28,13 @@ companies are offered separately by the rights holder.
 **Third-party components.** Kern uses, and this book describes, Box3D (Erin Catto, MIT), Earcut
 (Mapbox, ISC), musl math (MIT) and the Micro Duck's robot model, policies and ported software by
 Pollen Robotics (Apache 2.0). They remain under their own licences; the licence texts are in
-[Appendix D](D-licences.md). The duck's appearance in Kern and in this book's figures is an original
-design; Pollen's 3D models are not included.
+[Appendix D](D-licences.md). Kern Studio shows the duck with Pollen's 3D models (CC BY-NC-SA 4.0,
+non-commercial); they are neither included nor shown in this book. The figures of the duck in this
+book show the author's own design.
 
-**Trademarks.** "Micro Duck" names Pollen Robotics' robot, which Kern simulates. This book and Kern
-are not products of Pollen Robotics and are neither endorsed nor reviewed by them. Other trademarks
+**Trademarks.** "Micro Duck" (also "Microduck") names Pollen Robotics' (Hugging Face) robot, which
+Kern simulates; the name is used only descriptively. This book and Kern are not products of Pollen
+Robotics or Hugging Face and are neither endorsed nor reviewed by them. Other trademarks
 and product names (among them Box3D, Unreal Engine, WebAssembly, WebGL, ONNX, GitHub, Amazon)
 belong to their owners and are used only descriptively.
 

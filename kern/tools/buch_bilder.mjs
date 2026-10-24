@@ -32,7 +32,14 @@ if (want("studio-play.png")) {
   await shot(page, "studio-play.png");
   await ctx.close();
 }
-if (want("duck-level.png") || want("duck-play.png") || want("duck-close.png")) {
+// The duck pictures stay as they are: Kern Studio now draws the duck with Pollen Robotics' meshes
+// (CC BY-NC-SA 4.0, non-commercial), and a book that is sold must not show them. The committed
+// duck-*.png show the author's own design; they are only remade with KERN_BOOK_DUCK=own-design,
+// on a build whose duck is not Pollen's.
+const duckAllowed = process.env.KERN_BOOK_DUCK === "own-design";
+if (!duckAllowed && (only.length === 0 || only.some(n => n.startsWith("duck-"))))
+  console.log("duck-*.png kept: the Studio's duck is Pollen's (CC BY-NC-SA), not for a book that is sold");
+if (duckAllowed && (want("duck-level.png") || want("duck-play.png") || want("duck-close.png"))) {
   const {ctx, page, cmd} = await studio();
   await cmd({cmd: "new", template: "microDuck"});
   await wait(8000);

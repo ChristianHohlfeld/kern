@@ -11,6 +11,7 @@ and `NOTICE`.
 | Earcut (C++ port) | Mapbox | ISC |
 | musl maths functions | Rich Felker et al. | MIT |
 | Micro Duck robot model (MJCF), policies, pick-up detector, ported software | Pollen Robotics | Apache License 2.0 |
+| Micro Duck 3D models in Kern Studio (not included in this book) | Pollen Robotics | CC BY-NC-SA 4.0 |
 
 The book itself is not covered by these licences (see the [imprint](00-imprint.md)).
 

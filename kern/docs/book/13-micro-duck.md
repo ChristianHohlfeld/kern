@@ -185,9 +185,10 @@ metres, real seconds) unless stated otherwise.
 The duck's look in Kern comes from Pollen Robotics' own 3D models (the STL files of microduck_rl),
 simplified, merged per link and quantised by `tools/micro_duck_import.py`
 (`third_party/microduck/micro_duck_meshes.inc`). They are licensed CC BY-NC-SA 4.0: non-commercial,
-adaptations under the same licence. Kern's code is Apache 2.0; the meshes are not.
+adaptations under the same licence. Kern's code is Apache 2.0; the meshes are not. The figures of
+the duck in this book therefore show a design of their own.
 
-![The Micro Duck in Kern's own design](../buch/bilder/duck-close.png)
+![The duck in this book's own design](../buch/bilder/duck-close.png)
 
 ### Roller skates
 

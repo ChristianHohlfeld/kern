@@ -23,7 +23,7 @@ ap.add_argument("--en", action="store_true")
 ap.add_argument("--out", default=None)
 ap.add_argument("--trim", default="7x10", help="trim size in inches")
 ap.add_argument("--spine", type=float, default=0, help="spine width in inches (default: from the page count)")
-ap.add_argument("--image", default="duck-close.png", help="the front picture (in kern/docs/buch/bilder)")
+ap.add_argument("--image", default="studio.png", help="the front picture (in kern/docs/buch/bilder); no duck on the cover of a book that is sold: the robot is Pollen Robotics'")
 a = ap.parse_args()
 
 W, H = (float(x) for x in a.trim.split("x"))
@@ -42,13 +42,13 @@ logo = f'<img src="{data("kern-logo.png")}" alt="Kern">'  # sRGB raster: the sam
 de = not a.en
 t = {
     "book": "Das Buch" if de else "The Book",
-    "sub": ("Die Engine, Kern Studio, die Micro Duck und der Lehrer" if de
-            else "The engine, Kern Studio, the Micro Duck and the Lehrer"),
+    "sub": ("Die Engine, Kern Studio, ein Laufroboter und der Lehrer" if de
+            else "The engine, Kern Studio, a walking robot and the Lehrer"),
     "tag": ("Verstehen, benutzen, weiterentwickeln" if de else "Understand it, use it, build on it"),
     "blurb": ("""<p><b>Kern</b> ist eine 3D-Engine in C++20, die im Browser läuft: WebAssembly und WebGL2, Physik mit Box3D,
 eine eigene Sound-Engine, Logik-Graphen mit JIT und Netzwerkspiel. Dazu <b>Kern Studio</b>, ein Editor im Stil der großen Engines,
 und <b>der Lehrer</b>, ein Trainingssystem für neuronale Netze in C++ – nativ und im Browser, bit-identisch.</p>
-<p>Mit ihm lernt die <b>Micro Duck</b>, ein kleiner Laufroboter, auf Pollen Robotics' eigenen Netzen zu springen,
+<p>Mit ihm lernt ein kleiner zweibeiniger Laufroboter, auf den Original-Netzen seines Herstellers zu laufen, zu springen,
 einen Ball zu kicken und eine Socke zu holen.</p>
 <p>Dieses Buch erklärt das Ganze von Grund auf: wie die Engine aufgebaut ist und warum, wie man sie bedient und eigene Spiele baut,
 wie Rendering, Physik und neuronale Netze funktionieren – und wie man eigene Modelle trainiert.</p>
@@ -56,7 +56,7 @@ wie Rendering, Physik und neuronale Netze funktionieren – und wie man eigene M
 """<p><b>Kern</b> is a 3D engine in C++20 that runs in the browser: WebAssembly and WebGL2, physics with Box3D,
 its own sound engine, logic graphs with a JIT and networked play. With it come <b>Kern Studio</b>, an editor in the style of the big engines,
 and <b>the Lehrer</b>, a training system for neural networks in C++ – native and in the browser, bit for bit identical.</p>
-<p>With it the <b>Micro Duck</b>, a small walking robot, learns on Pollen Robotics' own networks to jump,
+<p>With it a small two-legged walking robot learns, on its maker's original networks, to walk, to jump,
 kick a ball and fetch a sock.</p>
 <p>This book explains it all from the ground up: how the engine is built and why, how to use it and build your own games,
 how rendering, physics and neural networks work – and how to train your own models.</p>
@@ -107,7 +107,7 @@ body {{ width: {TW}in; height: {TH}in; position: relative; overflow: hidden;
   <div class="blurb">{t["blurb"]}</div>
   <div class="shots"><img src="{data('studio-selected.png')}"><img src="{data('duck-play.png')}"></div>
   <div class="rights">© 2026 Christian Heinrich Hohlfeld · ORCID 0009-0003-6634-9045<br>
-  {"Alle Rechte am Buch vorbehalten. Die Software Kern ist Open Source (Apache 2.0). Kein offizielles Produkt von Pollen Robotics; Micro Duck ist deren Roboter." if de else "Book: all rights reserved. The Kern software is open source (Apache 2.0). Not an official Pollen Robotics product; Micro Duck is their robot."}</div>
+  {"Alle Rechte am Buch vorbehalten. Die Software Kern ist Open Source (Apache 2.0). Kein Produkt von Pollen Robotics oder Hugging Face und nicht von ihnen geprüft." if de else "Book: all rights reserved. The Kern software is open source (Apache 2.0). Not a product of Pollen Robotics or Hugging Face, nor reviewed by them."}</div>
   <div class="barcode"></div>
 </div>
 <div class="panel spine"><div class="inner"><b>Kern</b><span>{t["book"]}</span><span style="color:#d5e2f5">Christian Heinrich Hohlfeld</span></div>

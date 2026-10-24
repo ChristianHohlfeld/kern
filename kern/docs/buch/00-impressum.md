@@ -1,6 +1,6 @@
 # Kern – Das Buch
 
-**Die Engine, Kern Studio, die Micro Duck und der Lehrer: verstehen, benutzen, weiterentwickeln**
+**Die Engine, Kern Studio, ein Laufroboter und der Lehrer: verstehen, benutzen, weiterentwickeln**
 
 ## Impressum und Rechte
 
@@ -29,11 +29,13 @@ Unternehmen bietet der Rechteinhaber gesondert an.
 **Bestandteile Dritter.** Kern verwendet und dieses Buch beschreibt Box3D (Erin Catto, MIT), Earcut
 (Mapbox, ISC), musl-Mathematik (MIT) sowie Robotermodell, Policies und portierte Software der Micro
 Duck von Pollen Robotics (Apache 2.0). Sie bleiben unter ihren eigenen Lizenzen; die Lizenztexte
-stehen in [Anhang D](D-lizenzen.md). Das Aussehen der Ente in Kern und in den Abbildungen dieses
-Buchs ist eine eigene Gestaltung; Pollens 3D-Modelle sind nicht enthalten.
+stehen in [Anhang D](D-lizenzen.md). Kern Studio zeigt die Ente mit Pollens 3D-Modellen (CC BY-NC-SA 4.0,
+nicht kommerziell); diese sind in diesem Buch nicht enthalten und nicht abgebildet. Die Abbildungen
+der Ente in diesem Buch zeigen eine eigene Gestaltung des Autors.
 
-**Marken.** „Micro Duck" bezeichnet den Roboter von Pollen Robotics, den Kern simuliert. Dieses Buch
-und Kern sind keine Produkte von Pollen Robotics und werden von ihnen weder unterstützt noch
+**Marken.** „Micro Duck" (auch „Microduck") bezeichnet den Roboter von Pollen Robotics (Hugging
+Face), den Kern simuliert; der Name wird nur zur Beschreibung verwendet. Dieses Buch und Kern sind
+keine Produkte von Pollen Robotics oder Hugging Face und werden von ihnen weder unterstützt noch
 geprüft. Weitere Marken- und Produktnamen (unter anderem Box3D, Unreal Engine, WebAssembly, WebGL,
 ONNX, GitHub, Amazon) gehören ihren Inhabern und werden nur zur Beschreibung genannt.
 
