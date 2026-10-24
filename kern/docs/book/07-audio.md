@@ -2,13 +2,13 @@
 
 Kern has its own sound engine in C++. It runs in the same WebAssembly module as the renderer and the physics, mixes every voice itself, sample by sample, and hands the browser nothing but finished stereo PCM. Web Audio serves only as the speaker output and as the decoder for imported files.
 
-This chapter describes the mixer with 3D sound, buses, reverb and limiter; the synthesizer from which all built-in sounds are made; the voice of the Micro Duck; the layer through which games and levels use sound; and the connection to the browser.
+This chapter describes the mixer with 3D sound, buses, reverb and limiter; the synthesizer from which all built-in sounds are made; the voice of Plumo; the layer through which games and levels use sound; and the connection to the browser.
 
 | Part | Files | Task |
 |---|---|---|
 | Mixer | `include/kern/audio/audio.h`, `src/audio/audio.cpp` | clips, voices, 3D, buses, reverb, limiter |
 | Synthesizer | `include/kern/audio/synth.h`, `src/audio/synth.cpp` | patches, music sequencer, built-in sound library |
-| Duck voice | `include/kern/audio/duck_voice.h`, `src/audio/duck_voice.cpp` | vocalizations of the Micro Duck |
+| Duck voice | `include/kern/audio/duck_voice.h`, `src/audio/duck_voice.cpp` | vocalizations of Plumo |
 | Game sound | `include/kern/game/sound.h`, `src/game/sound.cpp` | `SoundBank` and `GameAudio` |
 | Browser | `web/studio/game.mjs` (`KernAudio`) | AudioWorklet/ScriptProcessor, decoding |
 
@@ -258,7 +258,7 @@ Sounds are referenced with `"builtin:<name>"`. `builtin_sounds()` lists, in disp
 | UI | `click`, `confirm`, `error` |
 | Music | `music_drive`*, `music_calm`* |
 
-Entries marked with * are loops. In addition there are the Micro Duck's sounds (7.6), which are not in this list but can be reached via a naming scheme.
+Entries marked with * are loops. In addition there are Plumo's sounds (7.6), which are not in this list but can be reached via a naming scheme.
 
 Two examples from `render_builtin` to show how the sounds are built:
 
@@ -275,11 +275,11 @@ Two examples from `render_builtin` to show how the sounds are built:
   ...
 ```
 
-## 7.6 The voice of the Micro Duck
+## 7.6 The voice of Plumo
 
-The Micro Duck speaks with a small synthesizer of its own (`duck_voice.h`), a port of the `sounds` crate from pollen-robotics/microduck (Rust, Apache-2.0). There are no samples.
+Plumo speaks with a small synthesizer of its own (`duck_voice.h`), a port of the `sounds` crate from Pollen's robot repository (Rust, Apache-2.0). There are no samples.
 
-![The Micro Duck in the level: its sounds come from its head, on the voice bus](../buch/bilder/duck-level.png)
+![Plumo in the level: its sounds come from its head, on the voice bus](../buch/bilder/duck-level.png)
 
 ### Personality from a seed
 
@@ -323,7 +323,7 @@ builtin:duck_wheee-start_<seed>_<variant>    (likewise -loop, -end)
 
 `find_builtin` and `render_builtin` recognize these names. The runtime sends them as a `SoundCue` with `voice = true` on the `voice` bus, with the duck's head as the position (that is where the speaker sits). A new sound cuts off the current one – like a single speaker. During `wheee`, other sounds are discarded.
 
-Because synthesis on a phone can cost a few tens of milliseconds per sound (long enough to starve the audio output), `GameWorld::warm_walker_voices()` pre-warms each duck's sounds: one synthesis per frame, most frequent first (`duck_voice_warm`, cached process-wide). When the duck calls which sound is described in [Chapter 13](13-micro-duck.md) and in `docs/walker.md`.
+Because synthesis on a phone can cost a few tens of milliseconds per sound (long enough to starve the audio output), `GameWorld::warm_walker_voices()` pre-warms each duck's sounds: one synthesis per frame, most frequent first (`duck_voice_warm`, cached process-wide). When the duck calls which sound is described in [Chapter 13](13-plumo.md) and in `docs/walker.md`.
 
 ## 7.7 Sound in the game: `SoundBank` and `GameAudio`
 
@@ -401,7 +401,7 @@ With `engine_sound = "auto"`, `engine_sound_for(controller)` picks the loop by m
 |---|---|
 | Hover Car, Flyer | `builtin:hover` |
 | Vehicle | `builtin:engine` |
-| Walker (Micro Duck) | `builtin:servo` |
+| Walker (Plumo) | `builtin:servo` |
 | Rolling, Character, Soldier | none |
 
 Further fields on the controller: `jump_sound` (`builtin:jump`), `boost_sound` (`builtin:boost`). Weapons have `fire_sound` (`builtin:smg`) and `reload_sound` (`builtin:reload`), health has `hit_sound` (`builtin:hit`) and `death_sound` (`builtin:down`), pickups `sound` (`builtin:pickup`), triggers `sound` (`"auto"`: matching the action).
@@ -440,7 +440,7 @@ The sequence in `GameWorld` (`src/game/runtime.cpp`):
 6. **Light impact:** for `builtin:impact` below 2.2 times the threshold, `builtin:impact_light` is played.
 7. **Pitch by mass:** `clamp(1.05 − log10(max(0.1, mass)) · 0.1, 0.7, 1.15)`. Heavy things sound lower; light ones only slightly higher, because strongly pitched-up knocks sound glassy.
 
-The Micro Duck sets its threshold to 0.12 m/s so that even light touches are audible. Breaking joints play `break_sound` (`builtin:break`) at the position of their actor.
+Plumo sets its threshold to 0.12 m/s so that even light touches are audible. Breaking joints play `break_sound` (`builtin:break`) at the position of their actor.
 
 ## 7.9 Level settings and the audio source
 

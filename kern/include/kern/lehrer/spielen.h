@@ -1,4 +1,4 @@
-// Spielen: the Micro Duck learns to play - see a ball and kick it, see a sock, pick it up, carry it
+// Spielen: Plumo learns to play - see a ball and kick it, see a sock, pick it up, carry it
 // off and spit it out (docs/lehrer.md). The network is the play layer's (game/walker_play.cpp,
 // play.onnx): 23 observations (the camera's detector, the left foot, the beak, the move running,
 // the carry, gravity, how long it has stood still or walked) -> 9 actions (walk, head, beak, kick, pick, neck), 25 Hz,

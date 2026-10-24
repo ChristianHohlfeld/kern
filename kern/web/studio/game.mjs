@@ -121,11 +121,11 @@ export class StudioEngine {
       this.e.kern_free(ptr);
     }
   }
-  /** Loads the robot's policy set (microduck/<file>.onnx next to the page; the dev page reads the
+  /** Loads the robot's policy set (pollen/<file>.onnx next to the page; the dev page reads the
    *  repository's copy, so does the repository's single-file build in generated/) and Kern's own
    *  trained networks (policies/<file>.onnx: jump.onnx, play.onnx, docs/lehrer.md). A file that fails is fetched again later; until then the move it
    *  drives is unavailable (the duck stands and says why). */
-  async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/microduck/", "../../policies/"] : /\/generated\/[^/]*$/.test(location.pathname) ? ["../kern/third_party/microduck/", "../kern/policies/"] : ["microduck/", "policies/"]) {
+  async loadPolicies(bases = /\/kern\/web\/studio\//.test(location.pathname) ? ["../../third_party/pollen/", "../../policies/"] : /\/generated\/[^/]*$/.test(location.pathname) ? ["../kern/third_party/pollen/", "../kern/policies/"] : ["pollen/", "policies/"]) {
     if (!this.trainedWatched) { this.trainedWatched = true; this.watchTrainedPolicies(); }
     if (this.policiesLoading) return this.policiesLoading;
     // A file that failed is asked for again later (5 s, 10 s, 20 s ... at most every minute).
@@ -134,7 +134,7 @@ export class StudioEngine {
     if (!files.length) return;
     for (const f of files) retry.set(f, {at: Infinity, n: retry.get(f)?.n ?? 0});
     this.policiesLoading = Promise.all(files.map(async file => {
-      // Kern's own networks live in policies/, Pollen's in microduck/ (no request that must fail).
+      // Kern's own networks live in policies/, Pollen's in pollen/ (no request that must fail).
       for (const base of bases.filter(b => /policies\/$/.test(b) === KERN_POLICIES.has(file))) {
         try {
           const r = await fetch(base + file);

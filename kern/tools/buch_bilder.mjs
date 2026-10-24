@@ -34,12 +34,12 @@ if (want("studio-play.png")) {
 }
 if (want("duck-level.png") || want("duck-play.png") || want("duck-close.png")) {
   const {ctx, page, cmd} = await studio();
-  await cmd({cmd: "new", template: "microDuck"});
+  await cmd({cmd: "new", template: "plumo"});
   await wait(8000);
   if (want("duck-level.png")) await shot(page, "duck-level.png");
   if (want("duck-close.png")) {  // the duck up close (the cover), without the viewport's buttons and status line
     const level = JSON.parse(await page.evaluate(() => window.KernStudio.command({cmd: "packageText"}).text));
-    const p = level.actors.find(a => a.name && a.name.startsWith("Micro Duck")).transform.position;
+    const p = level.actors.find(a => a.name && a.name.startsWith("Plumo")).transform.position;
     const [ox, oy, oz] = [1.25, 0.5, 0.62];
     await cmd({cmd: "viewCamera", position: [p[0] + ox, p[1] + oy, p[2] + oz],
                yaw: Math.atan2(-oy, -ox) * 180 / Math.PI, pitch: -Math.atan2(oz - 0.3, Math.hypot(ox, oy)) * 180 / Math.PI});
@@ -48,7 +48,7 @@ if (want("duck-level.png") || want("duck-play.png") || want("duck-close.png")) {
     const r = await page.evaluate(() => window.KernStudio.viewportRect(0));
     await page.screenshot({path: path.join(out, "duck-close.png"), clip: {x: r.x, y: r.y + 40, width: r.width, height: r.height - 76}, timeout: 600000});
     console.log("duck-close.png");
-    await cmd({cmd: "new", template: "microDuck"});
+    await cmd({cmd: "new", template: "plumo"});
     await wait(6000);
   }
   if (want("duck-play.png")) {  // simulated: the duck is autonomous and plays on its own

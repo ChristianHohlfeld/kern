@@ -40,7 +40,7 @@ Die Seite enthält keine Editorlogik. Sie zeichnet die Panels aus dem JSON von `
 | Statusleiste | Konsole (`help`), Statusmeldung, Physik-Statistik, Auswahl |
 
 Beispiel-Levels (File › Example Levels und File › New Level): Orb Run, Physics Lab, Shooting Range,
-Micro Duck, Basic, Empty.
+Plumo, Basic, Empty.
 
 **Menüs:** Mit der Maus klappen Untermenüs beim Überfahren neben dem Menü auf, nie darüber. Passt
 daneben kein Platz, oder wird getippt (Touch, Stift), öffnet ein Tipp das Untermenü an Ort und
@@ -118,7 +118,7 @@ Fehler wie verwaiste Referenzen oder ungültige Werte verhindern Play; Warnungen
 
 ## Place Actors
 
-Shapes: Cube, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp, Empty Actor · Lights: Point Light · Physics: Physics Cube, Physics Sphere, Physics Barrel, Crate Stack, Pendulum, Hinged Door, Chain, See-Saw, Sock · Players: Soldier, Character, Hover Car, Rolling Ball, Drone, Micro Duck, Micro Duck (Rollers) · Gameplay: Orb, Star, Health Pack, Ammo Box, Goal, Hazard, Damage Zone, Checkpoint, Jump Pad, Teleporter, Message Trigger, Moving Platform, Spinner, Target Dummy, Explosive Barrel · Audio: Audio Source, Ambient Wind, City Ambience, Radio · World: Procedural City (Liste: `src/studio/catalog.cpp`).
+Shapes: Cube, Sphere, Cylinder, Cone, Capsule, Plane, Torus, Ramp, Empty Actor · Lights: Point Light · Physics: Physics Cube, Physics Sphere, Physics Barrel, Crate Stack, Pendulum, Hinged Door, Chain, See-Saw, Sock · Players: Soldier, Character, Hover Car, Rolling Ball, Drone, Plumo, Plumo (Rollers) · Gameplay: Orb, Star, Health Pack, Ammo Box, Goal, Hazard, Damage Zone, Checkpoint, Jump Pad, Teleporter, Message Trigger, Moving Platform, Spinner, Target Dummy, Explosive Barrel · Audio: Audio Source, Ambient Wind, City Ambience, Radio · World: Procedural City (Liste: `src/studio/catalog.cpp`).
 
 ## Sound
 
@@ -243,7 +243,7 @@ Im Editor und in Simulate steuert man die Kamera wie in einem 3D-Betrachter am H
 ## Beobachten und Anfassen (Observer-Kamera)
 
 Mit **World Settings → Observer camera** startet Play nicht hinter dem Spieler, sondern mit einer
-freien Kamera: Das Spiel läuft, man fliegt herum und schaut zu. Das Beispiel-Level Micro Duck nutzt
+freien Kamera: Das Spiel läuft, man fliegt herum und schaut zu. Das Beispiel-Level Plumo nutzt
 das.
 
 - **Desktop:**
@@ -269,7 +269,7 @@ das.
 ## Tests
 
 - `kern/tests/run.sh studio`: Start mit Orb Run, Fly- und Orbit-Navigation, jedes Katalog-Element platzieren und simulieren, Gizmo-Drag mit Undo/Redo und Alt-Duplikat, Tastenkürzel, Befehle, Menüs, Dialoge, Outliner-Hierarchie und Ordner, Play mit F8 und Esc, Keep Simulation Changes, Speichern/Laden, Texturen, Autosave (nur bei ungespeicherten Änderungen, Löschen nach Speichern und Undo, `restore`), Einstellungen (Standardwerte, nur eigene Entscheidungen, Laden, Zurücksetzen), Packaging, Player-Modus
-- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Einstellungen (Constraints standardmäßig aus, Speichern und Neuladen, Reset im Studio-Dialog), Handy hoch und quer (Play/Simulate/Pause/Stop in jedem Zustand mit einem Tipp erreichbar), Level öffnen auf Android über den Dateidialog, Farbwähler bleibt beim Ziehen offen, Micro Duck am Handy beobachten und den Ball mit dem Finger anheben, Modul-Version und schmales Fenster
+- `kern/tests/e2e/studio_e2e.mjs`: Browser-Test (Playwright) der Single-File-Version: Menüs, Fly Mode mit rechter Maustaste und WASD, Werkzeuge, Outliner, Details-Bearbeitung mit Undo, Content Drawer (Klick und Drag-and-drop), Kontextmenü, Play mit HUD und Fahren, Eject, Simulate, Quad-Layout, neues Level aus Vorlage, Hilfe, exportiertes Spiel, Wiederherstellen (Neuladen ohne Änderung: kein Angebot; mit ungespeicherter Änderung: Angebot, Restore, Dismiss), Einstellungen (Constraints standardmäßig aus, Speichern und Neuladen, Reset im Studio-Dialog), Handy hoch und quer (Play/Simulate/Pause/Stop in jedem Zustand mit einem Tipp erreichbar), Level öffnen auf Android über den Dateidialog, Farbwähler bleibt beim Ziehen offen, Plumo am Handy beobachten und den Ball mit dem Finger anheben, Modul-Version und schmales Fenster
 
 ## Logic: Blueprints, die C++ sind
 
@@ -356,7 +356,7 @@ Actors werden repliziert, auch an Spieler, die später dazukommen.
   - Spiel: Respawn und Lag-Kompensation im Online-Spiel.
   - Optik: Andere Spieler sehen die animierte Gelenkfigur mit Waffe, dazu Mündungsfeuer, Tracer,
     Einschusslöcher und Splitter.
-- **Micro Duck:** Pollen Robotics' zweibeiniger Roboter mit seinem echten, trainierten Netz
+- **Plumo:** Kerns zweibeinige Roboter-Ente auf dem echten, trainierten Netz von Pollen Robotics
   (velstand v8).
   - Steuerung: W/S laufen, A/D drehen, Leertaste quakt.
   - Ohne Eingabe läuft sie autonom: Sie erkundet den Raum mit Kopf-ToF und Kamera, weicht
@@ -364,7 +364,7 @@ Actors werden repliziert, auch an Spieler, die später dazukommen.
   - Oben rechts im Viewport zeigt Studio ihre Kopfkamera und das ToF-Gitter (Show › Robot Camera).
   - Logic steuert sie mit den Knoten der Kategorie Robots (Walk, Look, Robot ToF, Robot Camera Sees …).
   - Beim Einfügen stellt Studio die Physik auf 100 Hz mit 16 Sub-Steps.
-  - Beispiel-Level **Micro Duck**: ein Zimmer in ihrem Maßstab (2,5 × 2,5 m echt) mit Möbeln und
+  - Beispiel-Level **Plumo**: ein Zimmer in ihrem Maßstab (2,5 × 2,5 m echt) mit Möbeln und
     einem Ball. Die Ente läuft autonom. Der Level-Blueprint lässt sie quaken, sobald ihre
     Kopfkamera den Ball sieht.
   - Details: [`walker.md`](walker.md).

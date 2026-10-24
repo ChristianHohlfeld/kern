@@ -29,7 +29,7 @@ Die CPU-Schalter wählen nur Befehle aus, sie ändern kein Ergebnis: Das Netz bl
 dasselbe wie im Browser und im Studio ([Kapitel 14](14-lehrer.md#147-determinismus)). Wie Kern selbst
 gebaut wird, steht in [Kapitel 2](02-bauen-und-testen.md).
 
-Beim Start lädt `kern_lehrer` Pollens Netze aus `third_party/microduck/` (oder `--policies DIR`); sie
+Beim Start lädt `kern_lehrer` Pollens Netze aus `third_party/pollen/` (oder `--policies DIR`); sie
 werden für Warmstart (velstand), Vorbild und Spielschicht (Kick, Aufheben) gebraucht.
 
 ## 15.2 Alle Befehle
@@ -347,7 +347,7 @@ sowie `--out`.
 kern/build/kern_lehrer --demo-spur --netz play_geuebt.onnx --seed 120
 ```
 
-`--demo-spur` spielt das Micro-Duck-Level des Studios mit 60-Hz-Frames, wie das Studio es spielt (hier
+`--demo-spur` spielt das Plumo-Level des Studios mit 60-Hz-Frames, wie das Studio es spielt (hier
 120 s; `--seed` ist bei diesem Befehl die Dauer in Sekunden), mit `kern/policies/jump.onnx` und dem
 angegebenen Spielnetz (sonst `kern/policies/play.onnx`). Einmal pro Sekunde: Position, Zustand,
 fahrendes Netz, was der Tracker über Ball und Socke weiß, hält, Stillstand, Gehzeit und die Antwort
@@ -365,7 +365,7 @@ Kerns eigene Netze haben feste Dateinamen: `jump.onnx` und `play.onnx` (`KERN_PO
 2. **Aus dem Browser-Lehrer:** Die Lehrer-Seite speichert ihr Netz auf demselben Gerät (IndexedDB
    „kern-lehrer“). Das Studio lädt es beim Start und übernimmt jedes neue sofort, auch in offenen
    Tabs. Das gilt für den Sprung (die Seite trainiert keine Spielschicht).
-3. **Prüfen:** Micro-Duck-Level öffnen, Play, Taste **7** (Sprung) bzw. die Ente in Ruhe lassen
+3. **Prüfen:** Plumo-Level öffnen, Play, Taste **7** (Sprung) bzw. die Ente in Ruhe lassen
    (Spielschicht: Autonomous und Kern extras an, Ball oder Socke in Sicht). Die Browser-Konsole meldet
    „Kern: trained network jump.onnx loaded“ für ein Netz aus dem Lehrer und eine Warnung, wenn eine
    Datei nicht lädt.

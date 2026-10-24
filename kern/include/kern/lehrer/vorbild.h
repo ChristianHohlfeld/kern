@@ -37,7 +37,7 @@ struct JumpDemo {
 };
 std::string to_json(const JumpDemo& d);
 bool jump_demo_from_json(std::string_view text, JumpDemo& out, std::string* error = nullptr);
-/// The demonstration found for the Micro Duck with the XL330 profile (built in).
+/// The demonstration found for Plumo with the XL330 profile (built in).
 JumpDemo builtin_jump_demo();
 
 /// Acts as the demonstration: velstand until the crouch (15 % of the phase) and from half the phase

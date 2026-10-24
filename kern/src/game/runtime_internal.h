@@ -49,7 +49,7 @@ struct GameWorld::SimJoint {
   f32 servo_target = 0, servo_stiffness = 0, servo_damping = 0, servo_friction = 0, servo_torque = 1;
 };
 
-/// A walker's controller state (walker.cpp): the Micro Duck's velstand policy and its servo bus.
+/// A walker's controller state (walker.cpp): Plumo's velstand policy and its servo bus.
 struct GameWorld::WalkerBrain {
   ActorId actor = 0;
   physics::Body trunk;

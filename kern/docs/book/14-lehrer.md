@@ -1,12 +1,12 @@
 # 14 The Lehrer
 
-The Lehrer ("teacher") is Kern's own training system for the Micro Duck. Simulation, learning
+The Lehrer ("teacher") is Kern's own training system for Plumo. Simulation, learning
 algorithm and export run in C++ on Kern's engine and Box3D, without Python and without PyTorch. It
 learns natively on all cores (headless on a server, too) and as WebAssembly in the browser, on
 desktop and phone. A run produces the same network bit for bit everywhere.
 
 The duck in the Lehrer is the same as in the Studio: the same `GameWorld`, the same servos, sensors
-and 50 Hz controller, the same physics with 16 sub-steps ([Chapter 13](13-micro-duck.md)). A network
+and 50 Hz controller, the same physics with 16 sub-steps ([Chapter 13](13-plumo.md)). A network
 that learns here therefore runs unchanged in the Studio. It is exported in the format of Pollen's
 networks and, like them, can go onto the robot.
 
@@ -191,7 +191,7 @@ Like Pollen's velocity and kick recipes. All values per episode, as long as `ran
 | Area | What | Values (`Task::Noise`, task) |
 |---|---|---|
 | Start | yaw, tilt, sole friction | yaw ±180°, roll/pitch ±3°, sole friction × 0.7 … 1.3 |
-| Build (`vary_micro_duck`) | trunk mass and inertia | × 0.95 … 1.05 |
+| Build (`vary_plumo`) | trunk mass and inertia | × 0.95 … 1.05 |
 | | centre of mass of trunk / head per axis | ±3 mm / ±3 mm; for the jump, curriculum up to ±15 / ±10 mm |
 | Servos (profile) | separate values per servo within the spreads | XL330: friction and armature ±10 % |
 | | bus delay | 15 … 30 ms |
@@ -690,7 +690,7 @@ floating-point ordering that depends on the number of threads (sums in a fixed o
 
 ## 14.8 Learning the play layer
 
-The play layer (`play.onnx`, [Chapter 13](13-micro-duck.md#1311-the-play-layer-walker_playcpp))
+The play layer (`play.onnx`, [Chapter 13](13-plumo.md#1311-the-play-layer-walker_playcpp))
 learns like the jump: a demonstration shows the way, the network imitates it from its own sensors
 (DAgger), and then it practises (PPO).
 
@@ -771,7 +771,7 @@ answer follows from what it sees now and how long it has been standing. It decid
   before: a twitch backwards is no reason to back off. If the target is not in the right place (sock: ±8 mm ahead,
   ±12 mm sideways; ball: ±2 cm), it backs off at full speed and approaches again.
 - **The target for the sock** is the measured bite position (`bite_spot`, below); for the ball,
-  9 cm in front of and 4.2 cm beside the left foot (`microduck_ball_kick_env_cfg.py`), corrected by
+  9 cm in front of and 4.2 cm beside the left foot (`Pollen's kick training configuration`), corrected by
   the ball radius and measured from the foot, because the kick is trained from the default pose.
 - **Motion request as a ramp:** the request to kick or pick rises from −1 to +1 over the last half
   second of standing still (it is full at 1.5 s of standing still). A ramp instead of a single
@@ -875,7 +875,7 @@ steps with 16 Box3D sub-steps each. The bottleneck is Box3D's joint solver. 8 su
 times faster but measurably change gait and motions, and are therefore not used.
 
 In the Studio: 3 of 3 real jumps, rise 9.0 mm, flight 120 ms, tilt 8°, after which the duck stands
-and walks again (test `micro_duck_jumps_for_real_in_the_studio`).
+and walks again (test `plumo_jumps_for_real_in_the_studio`).
 
 ## 14.10 ONNX export and metadata
 
@@ -890,7 +890,7 @@ obs [1, n] ─ Sub(obs_mean) ─ Div(obs_div) ─ Gemm(w0, b0, transB) ─ Elu(�
 `parse_onnx_policy` (test `lehrer_exports_onnx_like_pollens_networks`: to within 10⁻⁴ of the actor
 in the Lehrer), and ONNX Runtime, the robot's runtime, loads it as well.
 
-**Metadata** for motion networks (`micro_duck_metadata(task)`), the same keys as Pollen's:
+**Metadata** for motion networks (`plumo_metadata(task)`), the same keys as Pollen's:
 
 | Key | Value |
 |---|---|
@@ -957,11 +957,11 @@ itself, the page shows the duck steps/s.
 | `lehrer_ppo_learns_to_reach` | PPO learns a simple task |
 | `lehrer_ppo_learns_from_collectors_elsewhere` | collecting and learning separated |
 | `lehrer_duck_env_runs_episodes_headless` | velstand holds the duck via the Lehrer path; the same episode bit for bit |
-| `micro_duck_observation_between_ticks_is_what_its_controller_sees` | observation between ticks |
+| `plumo_observation_between_ticks_is_what_its_controller_sees` | observation between ticks |
 | `determinism_is_bit_identical_across_builds_and_platforms` | fingerprint |
 | `lehrer_runs_the_same_on_any_number_of_workers` | 1, 2, 4 workers → the same network |
 | `lehrer_exports_onnx_like_pollens_networks` | export |
-| `micro_duck_jumps_with_a_network_trained_in_kern`, `micro_duck_jumps_for_real_in_the_studio` | jump |
+| `plumo_jumps_with_a_network_trained_in_kern`, `plumo_jumps_for_real_in_the_studio` | jump |
 | `lehrer_calibrates_a_servo_from_bench_logs`, `lehrer_replays_robot_logs_against_the_simulation` | calibration ([Chapter 16](16-calibration.md)) |
 
 ---

@@ -9,15 +9,15 @@ This product includes software and data developed by others:
 - Earcut, Copyright (c) 2024 Mapbox, ISC License (port in kern/src/geo/earcut.cpp).
 - musl libm functions, Copyright (c) 2005-2020 Rich Felker, et al., MIT License
   (kern/third_party/musl_math).
-- Micro Duck model description (MJCF), control policies (ONNX), policy manifest and pick-up
-  detector, Copyright Pollen Robotics, Apache License 2.0 (kern/third_party/microduck,
+- Plumo model description (MJCF), control policies (ONNX), policy manifest and pick-up
+  detector, Copyright Pollen Robotics, Apache License 2.0 (kern/third_party/pollen,
   from github.com/pollen-robotics/microduck, github.com/pollen-robotics/microduck_rl and
   huggingface.co/pollen-robotics/microduck-policies).
-- C++ ports of Pollen Robotics' microduck code (idle look-around, autonomous brain, voice
+- C++ ports of Pollen Robotics' robot code (idle look-around, autonomous brain, voice
   synthesiser), Copyright Pollen Robotics, Apache License 2.0, modified by Christian Heinrich
   Hohlfeld (kern/src/game/walker_brain.cpp, kern/src/audio/duck_voice.cpp).
 
-The Micro Duck's visual appearance in Kern is Kern's own design (tools/kern_duck.py); its
+Plumo's visual appearance in Kern is Kern's own design (tools/kern_duck.py); its
 colliders are coarse measured envelopes (tools/kern_duck_envelopes.json). Pollen Robotics' 3D
 model files are not included. Kern is not affiliated with or endorsed by Pollen Robotics.
 

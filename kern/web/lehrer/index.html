@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#151516">
-<meta name="description" content="Kern Lehrer: bringt dem Micro Duck auf diesem Gerät neue Bewegungen bei, in Kerns eigener Engine und Physik.">
+<meta name="description" content="Kern Lehrer: bringt Plumo auf diesem Gerät neue Bewegungen bei, in Kerns eigener Engine und Physik.">
 <title>Kern Lehrer</title>
 <style>
 :root {
@@ -49,7 +49,7 @@ details p { margin: 6px 0; }
 <main>
   <header>
     <h1>Kern Lehrer</h1>
-    <p>Bringt dem Micro Duck auf diesem Gerät neue Bewegungen bei: Kerns Engine und Box3D, PPO in C++.</p>
+    <p>Bringt Plumo auf diesem Gerät neue Bewegungen bei: Kerns Engine und Box3D, PPO in C++.</p>
     <a href="../editor/">Kern Studio</a>
   </header>
   <section class="panel">
@@ -95,7 +95,7 @@ details p { margin: 6px 0; }
     <p>Der Sprung lernt in zwei Schritten: Zuerst ahmt das Netz ein Vorbild nach, einen Sprung, den eine Suche (CMA-ES) in derselben Physik gefunden hat. Danach übt es mit PPO und allen Variationen (Massen, Schwerpunkte, Servos, Sensoren), bis es den Sprung selbst sicher kann. Zur Laufzeit gibt es nur das Netz.</p>
     <p>Jeder Worker führt seine eigenen Enten in Kerns Engine (dieselben Servos, Sensoren und derselbe 50-Hz-Regler wie im Kern Studio) und handelt mit der aktuellen Policy. Der Lerner sammelt ihre Schritte und verbessert die Policy mit PPO, dem Rezept, mit dem Pollen Robotics die Netze des Roboters trainiert. Heraus kommt eine ONNX-Datei im Format von Pollens Netzen; Kern Studio und der Roboter selbst können sie laden.</p>
     <p>Diesen Tab offen lassen, solange er lernt; ein Handy ans Ladekabel. Mehr Worker nutzen mehr Kerne. Gleicher Seed und gleich viele Enten ergeben Bit für Bit dasselbe Netz, auf jedem Gerät.</p>
-    <p>Alle 25 Iterationen wird das Netz auf diesem Gerät für Kern Studio gespeichert: Die Bewegung „jump“ des Micro Duck (Logik-Knoten Robot Move, Bewegung „jump“) nutzt dann das neueste Sprung-Netz, in offenen Studio-Tabs sofort.</p>
+    <p>Alle 25 Iterationen wird das Netz auf diesem Gerät für Kern Studio gespeichert: Die Bewegung „jump“ von Plumo (Logik-Knoten Robot Move, Bewegung „jump“) nutzt dann das neueste Sprung-Netz, in offenen Studio-Tabs sofort.</p>
   </details>
 </main>
 <script type="module" src="../kern/web/lehrer/lehrer.mjs"></script>

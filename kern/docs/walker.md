@@ -1,14 +1,14 @@
-# Walker: die Micro Duck mit ihrer echten Policy
+# Walker: Plumo mit ihrer echten Policy
 
-Die Micro Duck ist Pollen Robotics' zweibeiniger Roboter: 25 cm groß, 0,74 kg, 14 Servos
+Plumo ist Kerns Roboter-Ente, gebaut auf Pollen Robotics' Open-Source-Laufroboter: 25 cm groß, 0,74 kg, 14 Servos
 (XL330) in der Policy, dazu ein Mundservo. Kern lässt sie mit genau dem neuronalen Netz laufen,
 mit dem der echte Roboter läuft: `velstand` v8. Das Netz steht, läuft, dreht und steht nach einem
 Sturz wieder auf. Dieses Dokument beschreibt den Vertrag zwischen Netz und Simulation. Wer daran
 etwas ändert, liest vorher auch `docs/physics.md`.
 
-Code: `src/game/walker.cpp`. Daten: `src/game/micro_duck_model.inc` und
-`src/game/micro_duck_velstand.inc`, beide von `tools/micro_duck_import.py` erzeugt. Quellen und
-Lizenzen stehen in `third_party/microduck/README.md`.
+Code: `src/game/walker.cpp`. Daten: `src/game/plumo_model.inc` und
+`src/game/plumo_velstand.inc`, beide von `tools/plumo_import.py` erzeugt. Quellen und
+Lizenzen stehen in `third_party/pollen/README.md`.
 
 ## 1. Grundsatz: die Physik nicht umgehen
 
@@ -24,7 +24,7 @@ Kern dieselbe Physik rechnet. Deshalb gilt:
 - **Fester Zeitschritt nach Glenn Fiedler („Fix Your Timestep").** Die Policy rechnet alle N
   Physikschritte, gezählt in Schritten statt in Wanduhrzeit. Der Lauf ist deterministisch: gleiche
   Eingaben ergeben Bit für Bit denselben Gang (Test
-  `micro_duck_stands_walks_and_turns_on_its_policy`).
+  `plumo_stands_walks_and_turns_on_its_policy`).
 
 ## 2. Modell
 
@@ -109,7 +109,7 @@ Grenze trainiert wurde. Kern folgt dem.
 - **Aktion:** Ziel = Home + Aktion. Skalierung 1 und kein Filter, wie im Training.
 - **Netz:** (obs − mean) / Divisor, dann Schichten mit 512, 256 und 128 ELU-Neuronen, dann
   linear 14. Die Gewichte sind exakte float32-Hex-Literale.
-  - `micro_duck_policy_matches_the_onnx_reference` prüft das Netz gegen eine float64-Referenz bis
+  - `plumo_policy_matches_the_onnx_reference` prüft das Netz gegen eine float64-Referenz bis
     2·10⁻⁵.
 - **Steuerung:**
   - W/S: vx
@@ -117,14 +117,14 @@ Grenze trainiert wurde. Kern folgt dem.
   - Leertaste: Quaken
   - Ohne Spieler (Simulate) steht die Ente bei Kommando 0.
 
-## 6. Gemessen (Test `micro_duck_stands_walks_and_turns_on_its_policy`)
+## 6. Gemessen (Test `plumo_stands_walks_and_turns_on_its_policy`)
 
 | Fall | Kern | Pollen (MuJoCo, v8) |
 |---|---|---|
 | Kommando 0 | steht 8 s, driftet unter 2 mm | steht |
 | vx = 0,4 m/s | ≈ 0,135 m/s echt (ohne Armatur 0,105) | ≈ 0,17 m/s |
 | ωz = 1 rad/s im Stand | ≈ 0,61 rad/s echt (ohne Armatur 0,52) | ≈ 0,97 rad/s |
-| Zappeln beim Laufen (Effektivwert der Winkelgeschwindigkeit, Test `micro_duck_holds_itself_steady`) | Rumpf 1,0 rad/s, Kopf 1,9 rad/s (ohne Armatur 3,6 und 6,7) | – |
+| Zappeln beim Laufen (Effektivwert der Winkelgeschwindigkeit, Test `plumo_holds_itself_steady`) | Rumpf 1,0 rad/s, Kopf 1,9 rad/s (ohne Armatur 3,6 und 6,7) | – |
 | liegt auf Bauch oder Rücken | steht nach höchstens 12 s wieder | steht auf |
 
 **Was fehlt, und warum:**
@@ -150,7 +150,7 @@ Grenze trainiert wurde. Kern folgt dem.
 
 ## 7. Neu importieren
 
-Siehe `third_party/microduck/README.md`. Der Import prüft:
+Siehe `third_party/pollen/README.md`. Der Import prüft:
 
 - Gelenknamen und -reihenfolge;
 - Home-Pose gegen `default_joint_pos`;
@@ -167,7 +167,7 @@ festlegt (Sites `head_camera`, `tof`, `imu`, vom Import übernommen).
 
 ### Kopf-ToF
 
-Wie der VL53L8CX des Roboters (Quellen: `kinematics/src/tof.rs`, `tof/` im microduck-Repo):
+Wie der VL53L8CX des Roboters (Quellen: `kinematics/src/tof.rs`, `tof/` in Pollens Repository):
 
 | Eigenschaft | Wert |
 |---|---|
@@ -285,9 +285,9 @@ oder eine von ihm gestartete Bewegung läuft: Es gibt Twist, Kopf und Schnabel v
 Kick und Ground Pick. Steuert jemand die Ente (Stick, Telefon, Taste) oder ein Logic-Kommando, wartet
 das Netz. Das Beispiel-Level schaltet es ein.
 
-*[gemessen]* Tests `micro_duck_roams_on_its_own_with_its_tof`, `micro_duck_plays_ball_as_pollens_brain_does`
+*[gemessen]* Tests `plumo_roams_on_its_own_with_its_tof`, `plumo_plays_ball_as_pollens_brain_does`
 (nur Pollens Software: sieht, läuft an, richtet aus, kickt; der Ball rollt weg),
-`micro_duck_plays_with_a_ball_on_its_own` und `micro_duck_goes_for_a_sock_and_bites` (Spielnetz).
+`plumo_plays_with_a_ball_on_its_own` und `plumo_goes_for_a_sock_and_bites` (Spielnetz).
 
 ### Blick in die Runde (Idle-Look-around)
 
@@ -308,7 +308,7 @@ Stick:
 - **Nicht übernommen:** Schnabel und Atmen. Kerns Ente hat keinen Mund-Servo, und das Atmen gilt
   nur für das Steh-Netz. Beides wird wie im Original berechnet, aber nicht angewendet.
 
-*[gemessen]* Test `micro_duck_looks_around_when_left_alone`: In den ersten Sekunden steht der Kopf
+*[gemessen]* Test `plumo_looks_around_when_left_alone`: In den ersten Sekunden steht der Kopf
 still. Danach schwenkt der Blick der Kamera um über 0,2 rad (gemessen 1,1 rad), und die Ente bleibt
 stehen.
 
@@ -332,7 +332,7 @@ Wie robotd (`[pickup]`, seit dem v2-Modell standardmäßig an; duck-control `pic
 Schwerkraft, Gelenke minus Home, Gelenkgeschwindigkeiten, Sollwert des vorigen Ticks minus Home,
 Ströme, Pause-Flag) und gibt p(gehalten). Kern rechnet das Netz selbst (`parse_onnx_pickup`,
 deterministisch, `kern::dm`); Abweichung zu onnxruntime auf Pollens Fixture-Fenstern unter 1e-5
-(Test `micro_duck_pickup_detector_matches_onnxruntime`).
+(Test `plumo_pickup_detector_matches_onnxruntime`).
 
 - Pause: p > 0,8 für 5 Ticks. Dann läuft kein Netz, die Sollwerte rampen in 300 ms vom letzten
   Sollwert auf `PAUSE_POSE` (die mittlere Standhaltung der Lauf-Policy). `walker_driving` meldet
@@ -348,11 +348,11 @@ deterministisch, `kern::dm`); Abweichung zu onnxruntime auf Pollens Fixture-Fens
 Hochheben in Kern Studio (Play, Ente am Rumpf greifen): Der Griff hält den Rumpf in seiner
 Ausrichtung wie eine Hand, statt ihn am Punkt pendeln zu lassen.
 
-*[gemessen]* Test `micro_duck_pauses_in_the_hand_and_walks_when_put_down`: 20 s autonom ohne eine
+*[gemessen]* Test `plumo_pauses_in_the_hand_and_walks_when_put_down`: 20 s autonom ohne eine
 falsche Pause; 15 cm hochgehoben pausiert sie nach etwa 0,5 s und bleibt pausiert; abgesetzt
 läuft sie weiter und fällt nicht.
 
-*[gemessen]* Test `micro_duck_roams_on_its_own_with_its_tof`: In einem 1,5 × 1,5 m großen Raum
+*[gemessen]* Test `plumo_roams_on_its_own_with_its_tof`: In einem 1,5 × 1,5 m großen Raum
 (echte Größe) mit einer Kiste erkundet die Ente in 45 s die Fläche. Sie wendet vor den Wänden und
 fällt nie.
 
@@ -394,14 +394,14 @@ läuft per Logic und dreht weg, sobald der ToF etwas näher als 1,6 m sieht.
   - Schnabelpolster: Reibung 1. Sie greifen.
   - Schalen von Rumpf und Kopf: Reibung 0,5. Darauf liegt eine gestürzte Ente und rutscht nicht
     wie auf Eis. Die Schalen berühren die eigene Ente nie.
-- *[gemessen]* Test `micro_duck_stands_on_the_floor`: Die Sohlen stehen 0,3–0,6 mm im Boden. Das
+- *[gemessen]* Test `plumo_stands_on_the_floor`: Die Sohlen stehen 0,3–0,6 mm im Boden. Das
   liegt innerhalb von Box3Ds Kontakt-Slop von 5 mm. Früher waren die Sohlen Quader aus den
   Mesh-Maßen und standen 2,8 mm (echt) zu tief, deshalb schwebte die sichtbare Sohle.
 
 ## 12. Alle Bewegungen (Policy-Set, `manifest.json`)
 
-Kern lädt dieselben `.onnx`-Dateien wie der Roboter (`third_party/microduck/`, Apache-2.0).
-`velstand.onnx` ist eingebaut, die anderen lädt der Editor aus `editor/microduck/`.
+Kern lädt dieselben `.onnx`-Dateien wie der Roboter (`third_party/pollen/`, Apache-2.0).
+`velstand.onnx` ist eingebaut, die anderen lädt der Editor aus `editor/pollen/`.
 `WalkerPolicy` liest das ONNX-Format selbst (rsl_rl-Actor: Normalisierer, dann Gemm und ELU).
 
 Die Ablaufsteuerung folgt `robotd/src/control.rs`:
@@ -433,18 +433,18 @@ Die Ablaufsteuerung folgt `robotd/src/control.rs`:
   - *[gemessen]* Mit 0,9 und Tiefpass kippen die Kicks um, mit 1,0 ohne Filter stehen sie.
   - Umschaltbar pro Ente: Details › Controller › „Actions to servo goals“ (`actions`:
     `training` oder `robot` = Scale 0,9, Tiefpass Kopf 0,5 / Beine 0,7 wie `robotd-params`).
-    Test `micro_duck_walks_with_the_robot_daemons_action_profile`: auch so steht und geht sie.
-- **Rollschuhe:** Katalogeintrag „Micro Duck (Rollers)“ (Rollen-MJCF
+    Test `plumo_walks_with_the_robot_daemons_action_profile`: auch so steht und geht sie.
+- **Rollschuhe:** Katalogeintrag „Plumo (Rollers)“ (Rollen-MJCF
   `robot_groundcontact_rollers_backlash.xml`).
   - Die Knöchel tragen Kufen statt Füßen.
   - Je zwei freie Räder sind Scharniere ohne Antrieb, mit Lagerträgheit 0,0001 kg·m².
   - Die Reifen berühren den Boden als Mesh-Hülle, Reibung 1.
   - Die Ente steht 23,5 mm (echt) höher.
 - **Gelenkgrenzen:** Alle 15 Servo-Gelenke haben harte Box3D-Grenzen aus dem MJCF.
-  - *[gemessen]* Test `micro_duck_runs_every_move_of_its_set`: Bei allen Moves überschreitet kein
+  - *[gemessen]* Test `plumo_runs_every_move_of_its_set`: Bei allen Moves überschreitet kein
     Gelenk seine Grenze um mehr als 0,004 rad.
 
-*[gemessen]* Test `micro_duck_runs_every_move_of_its_set`:
+*[gemessen]* Test `plumo_runs_every_move_of_its_set`:
 
 | Move | Ergebnis |
 |---|---|
@@ -484,7 +484,7 @@ nur als Referenz für die Werte.
 
 **Kopf nach unten:** Nacken negativ und Kopf-Pitch positiv neigen nach unten. Nur Kopf 1,1: Kamera
 56° nach unten, sieht 10–30 cm vor dem Rumpf. Nacken −1,1 und Kopf 1,1: 87°, sieht 6–15 cm, also
-die Socke an der Greifstelle (Test `micro_duck_camera_sees_the_floor_in_front_when_looking_down`).
+die Socke an der Greifstelle (Test `plumo_camera_sees_the_floor_in_front_when_looking_down`).
 Beim Anlauf auf die Socke senkt sie den Nacken nicht: Das verlagert das Gewicht nach vorn, die
 Füße setzen nach, und die Greifstelle ist verloren.
 
@@ -526,7 +526,7 @@ apirrone/microduck_sounds portiert. Es gibt keine Samples und kein Netz.
     Haltemoment, minus Dämpfung × Drehzahl), als Anteil am Haltemoment: die Last, gegen die er arbeitet.
   - Lautstärke folgt der Arbeit (Last × Drehzahl) und leise der Haltelast, die Tonhöhe der Drehzahl
     der Motoren und etwas der Last. Gemessen: stehend Last 0,02 und Arbeit 0, gehend Last 0,06 und
-    Arbeit 1,2 (Test `micro_duck_servo_load_drives_its_sound`). Leise, unter Schritten und Stimme.
+    Arbeit 1,2 (Test `plumo_servo_load_drives_its_sound`). Leise, unter Schritten und Stimme.
 - **Berührungen:** Die Gehäuse und Servo-Housings klingen bei jeder Berührung kurz und massiv nach Kunststoff
   (`builtin:plastic`), mit dem Boden wie miteinander. Die Sohlen klingen als leiser, kleiner
   Schritt (`builtin:plastic_step`, als Impact Sound ihrer Collider): dumpf und leise, ein Schritt
@@ -536,4 +536,4 @@ apirrone/microduck_sounds portiert. Es gibt keine Samples und kein Netz.
     und leicht ist.
   - Beim Gehen sind es etwa zwei bis drei Schritte pro Sekunde. Ein Tappen kommt erst, wenn sie
     fällt, rollt oder sich selbst berührt.
-  - Gemessen im Test `micro_duck_steps_and_taps_sound`.
+  - Gemessen im Test `plumo_steps_and_taps_sound`.

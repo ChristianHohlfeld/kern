@@ -2,7 +2,7 @@
 
 Netze, die Kern selbst trainiert hat (Kern Lehrer, `docs/lehrer.md`), im Format von Pollens Netzen
 (ONNX, Bewegungen mit 61 Beobachtungen → 14 Aktionen wie Pollens). Das Studio lädt sie wie Pollens
-Netze aus `third_party/microduck/`.
+Netze aus `third_party/pollen/`.
 
 | Datei | Bewegung | Wie entstanden |
 |---|---|---|

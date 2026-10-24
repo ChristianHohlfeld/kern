@@ -256,7 +256,7 @@ KERN_EXPORT(kern_lehrer_learn) const char* kern_lehrer_learn(const u8* data, u32
 /// The learner's actor as an ONNX file in the shape of Pollen's networks.
 KERN_EXPORT(kern_lehrer_export_onnx) const u8* kern_lehrer_export_onnx() {
   if (!g || !g->learner) return nullptr;
-  g->bytes = export_onnx(g->learner->actor(), g->learner->actor_normalizer(), micro_duck_metadata(g->task));
+  g->bytes = export_onnx(g->learner->actor(), g->learner->actor_normalizer(), plumo_metadata(g->task));
   g->length = static_cast<u32>(g->bytes.size());
   return g->bytes.data();
 }

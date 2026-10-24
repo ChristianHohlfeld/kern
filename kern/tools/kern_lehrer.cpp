@@ -1,4 +1,4 @@
-// kern_lehrer: trains a Micro Duck policy headless on all cores (docs/lehrer.md).
+// kern_lehrer: trains a Plumo policy headless on all cores (docs/lehrer.md).
 //
 //   kern/tools/lehrer.sh                      builds kern/build/kern_lehrer (native, optimised)
 //   kern_lehrer --task jump --iterations 600 --out jump.onnx
@@ -438,7 +438,7 @@ int examples(const Options& o) {
   return 0;
 }
 
-/// --demo-spur [--netz play.onnx] [--seed SECONDS]: the Studio's Micro Duck example level, played
+/// --demo-spur [--netz play.onnx] [--seed SECONDS]: the Studio's Plumo example level, played
 /// as the Studio plays it (60 Hz frames); once a second what the duck does.
 int demo_trace(const Options& o) {
   // Kern's networks as the Studio loads them: kern/policies/ (or --netz for the play network).
@@ -456,7 +456,7 @@ int demo_trace(const Options& o) {
   Renderer renderer;
   renderer.set_headless();
   game::GameWorld w(renderer);
-  game::Level l = game::micro_duck_level();
+  game::Level l = game::plumo_level();
   w.sync(l);
   if (!w.start(l, game::SimMode::play)) return 1;
   const game::ActorId duck = l.world.player;
@@ -482,16 +482,16 @@ int demo_trace(const Options& o) {
 }  // namespace
 
 /// Pollen's moves beyond velstand (pick, kicks, sit ...): the robot's own ONNX files, from the
-/// repository (third_party/microduck) or --policies DIR.
+/// repository (third_party/pollen) or --policies DIR.
 void load_pollen_policies(const std::string& dir_in) {
   std::string dir = dir_in;
   if (dir.empty()) {
     dir = __FILE__;
-    dir = dir.substr(0, dir.find_last_of('/')) + "/../third_party/microduck/";
+    dir = dir.substr(0, dir.find_last_of('/')) + "/../third_party/pollen/";
   }
   if (!dir.empty() && dir.back() != '/') dir += '/';
   json::Value m;
-  if (!json::parse(game::micro_duck_manifest(), m)) return;
+  if (!json::parse(game::plumo_manifest(), m)) return;
   for (const json::Value& p : m["policies"].items()) {
     const std::string file = p["file"].as_string();
     if (game::walker_policy(file)) continue;
@@ -669,7 +669,7 @@ int main(int argc, char** argv) {
     (void)r;
     // What imitation alone gives (and where practice can start again from: --resume).
     const std::string stem = o.out.size() > 5 && o.out.substr(o.out.size() - 5) == ".onnx" ? o.out.substr(0, o.out.size() - 5) : o.out;
-    write_file(stem + "_nachgeahmt.onnx", export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task)));
+    write_file(stem + "_nachgeahmt.onnx", export_onnx(ppo.actor(), ppo.actor_normalizer(), plumo_metadata(o.task)));
     if (!o.checkpoint.empty()) write_file(o.checkpoint + ".nachgeahmt", ppo.save());
   }
   FILE* log = o.log.empty() ? nullptr : std::fopen(o.log.c_str(), o.resume.empty() ? "w" : "a");
@@ -694,7 +694,7 @@ int main(int argc, char** argv) {
     if (evaluated && rep.jumps >= 4 && !jumped) {
       jumped = true;
       std::printf("FIRST REAL JUMP at iteration %d: %lld steps, %.0f s (%d threads)\n", s.iteration, static_cast<long long>(s.steps), seconds, threads);
-      write_file(o.out, export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task)));
+      write_file(o.out, export_onnx(ppo.actor(), ppo.actor_normalizer(), plumo_metadata(o.task)));
     }
     std::fflush(stdout);
     if (log) {
@@ -707,10 +707,10 @@ int main(int argc, char** argv) {
       char name[64];
       std::snprintf(name, sizeof name, "_it%05d.onnx", it);
       const std::string stem = o.out.size() > 5 && o.out.substr(o.out.size() - 5) == ".onnx" ? o.out.substr(0, o.out.size() - 5) : o.out;
-      write_file(stem + name, export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task)));
+      write_file(stem + name, export_onnx(ppo.actor(), ppo.actor_normalizer(), plumo_metadata(o.task)));
     }
     if (it % o.save_every == 0 || it == o.iterations) {
-      if (!jumped || !o.stop_after_jump) write_file(o.out, export_onnx(ppo.actor(), ppo.actor_normalizer(), micro_duck_metadata(o.task)));
+      if (!jumped || !o.stop_after_jump) write_file(o.out, export_onnx(ppo.actor(), ppo.actor_normalizer(), plumo_metadata(o.task)));
       if (!o.checkpoint.empty()) write_file(o.checkpoint, ppo.save());
     }
     if (jumped && o.stop_after_jump) break;

@@ -1,4 +1,4 @@
-// Kern's play layer for the Micro Duck (docs/lehrer.md, "Spielen"): ball and sock, learned.
+// Kern's play layer for Plumo (docs/lehrer.md, "Spielen"): ball and sock, learned.
 //
 // Pollen's networks are the duck's moves (walk, ground pick, kicks ...); none of them sees. What to
 // do with a ball or a sock in front of the camera - look at it, walk up to it, kick it, pick it up,

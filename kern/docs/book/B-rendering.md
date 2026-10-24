@@ -27,7 +27,7 @@ The code lives in:
 
 ### B.1.1 Why there are several spaces
 
-A model – say the torso of the Micro Duck – is described once in its own coordinate system. But it
+A model – say the torso of Plumo – is described once in its own coordinate system. But it
 stands at a particular place in the world, is seen by a camera and finally ends up on particular
 pixels. Each of these steps is a change of coordinate system:
 

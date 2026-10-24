@@ -1,6 +1,6 @@
-# Micro Duck: Modell und Policies (Pollen Robotics)
+# Robotermodell und Policies von Pollen Robotics (für Plumo)
 
-Quellen für Kerns Micro Duck (`src/game/walker.cpp`, Doku: `docs/walker.md`).
+Quellen für Kerns Plumo (`src/game/walker.cpp`, Doku: `docs/walker.md`).
 
 | Datei | Herkunft | Lizenz |
 |---|---|---|
@@ -29,13 +29,13 @@ Kollisionshüllen (11–40 Punkte je Teil, `tools/kern_duck_envelopes.json`).
 Neu erzeugen (aus dem Repository-Root, mit einem Checkout von microduck_rl für die STL-Maße):
 
 ```
-python3 -I tools/micro_duck_import.py kern/third_party/microduck/robot_allcollisions_backlash.xml \
-    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game
+python3 -I tools/plumo_import.py kern/third_party/pollen/robot_allcollisions_backlash.xml \
+    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/pollen/velstand.onnx kern/src/game
 python3 -I tools/kern_duck.py
 ```
 
-Ergebnis: `src/game/micro_duck_model.inc` (Glieder, Gelenke, Massen, Trägheiten, Sensoren aus dem
-MJCF) und `src/game/micro_duck_velstand.inc`. Aus den STL-Dateien liest das Werkzeug nur Maße
+Ergebnis: `src/game/plumo_model.inc` (Glieder, Gelenke, Massen, Trägheiten, Sensoren aus dem
+MJCF) und `src/game/plumo_velstand.inc`. Aus den STL-Dateien liest das Werkzeug nur Maße
 (Ausdehnung, tiefster Punkt, Masseverteilung des Schnabels); keine Geometrie wird übernommen. Danach
 erzeugt `tools/kern_duck.py` Kerns eigene Meshes und die Kollider aus den gemessenen Hüllen
 (braucht numpy).

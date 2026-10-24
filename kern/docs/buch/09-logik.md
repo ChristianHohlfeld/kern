@@ -345,7 +345,7 @@ trainierten Bereiche; übersteuert das eigene Verhalten) · `walker.look` Look (
 Nicken bis 63°) · `walker.autonomous` Set Autonomous · `walker.skill` Robot Move (`sit`, `pick`,
 `kick_left`, `kick_right`, `roulade`, `jump`) · `walker.beak` · `walker.pet` · `walker.hear` ·
 `walker.holding` · `walker.quack` Chirp · `walker.tof` Robot ToF · `walker.sees` Robot Camera Sees ·
-`walker.state` Robot State. Einzelheiten in [Kapitel 13](13-micro-duck.md).
+`walker.state` Robot State. Einzelheiten in [Kapitel 13](13-plumo.md).
 
 ---
 
@@ -596,9 +596,9 @@ mit Timer. „On State Entered (any)“ zeigt `Current State` als Meldung.
 Begin Play schaltet die Autonomie des Roboters ab. Alle 0,25 s: Sieht der ToF etwas näher als 1,6 m,
 dreht er auf der Stelle (45 °/s für 0,6 s), sonst geht er geradeaus (0,3 m/s).
 
-### Micro Duck zwitschert beim Ball
+### Plumo zwitschert beim Ball
 
-Der Level-Graph des Beispiel-Levels Micro Duck (`micro_duck_level` in `demos.cpp`):
+Der Level-Graph des Beispiel-Levels Plumo (`plumo_level` in `demos.cpp`):
 
 ```
 Every 0,25 s ─▶ Branch( Robot Camera Sees(Ball).visible AND NOT Ball Seen )

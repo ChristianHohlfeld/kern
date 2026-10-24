@@ -427,7 +427,7 @@ f32 PickupDetector::run(const f32* window) const {
 
 const PickupDetector* pickup_detector() {
   static const u8 kBytes[] = {
-#include "../../third_party/microduck/pickup_detector.inc"
+#include "../../third_party/pollen/pickup_detector.inc"
   };
   static const std::unique_ptr<PickupDetector> d = [] {
     auto p = std::make_unique<PickupDetector>();
@@ -459,9 +459,9 @@ std::vector<std::string> walker_policy_files() {
   return out;
 }
 
-const char* micro_duck_manifest() {
+const char* plumo_manifest() {
   static const char* const kManifest =
-#include "../../third_party/microduck/micro_duck_manifest.inc"
+#include "../../third_party/pollen/plumo_manifest.inc"
       ;
   return kManifest;
 }

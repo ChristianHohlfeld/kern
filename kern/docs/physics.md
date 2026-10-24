@@ -41,7 +41,7 @@ Punkte mit *[gemessen]* sind mit einem Kern-Test belegt.
 - `b3SetLengthUnitsPerMeter` verstellt die Toleranzen für die **ganze** Welt. Kern nutzt das nicht, weil
   in einem Level Autos und Roboter zusammen vorkommen.
 
-*[gemessen]* Micro Duck in echter Größe (2–4 cm große Glieder): Der Rumpf sank innerhalb von 10 Frames
+*[gemessen]* Plumo in echter Größe (2–4 cm große Glieder): Der Rumpf sank innerhalb von 10 Frames
 9 cm durch die Beine, selbst mit verschweißten Gelenken. In 4-facher Größe halten die Gelenke.
 
 ### Ist die 4-fache Ente noch der echte Roboter?
@@ -124,7 +124,7 @@ ein anderes S.
   chains will stretch less with more sub-steps" (`box3d:docs/simulation.md:155-159`).
   - *[gemessen]* Hüfte der Ente bei 4 Sub-Steps: Die Gelenklücke wuchs unter Last auf 5 cm und federte
     zurück. Bei 16 Sub-Steps bleibt sie unter 1 mm.
-  - Studio stellt beim Einfügen eines Roboters 16 Sub-Steps und dessen Schrittrate ein (Micro Duck:
+  - Studio stellt beim Einfügen eines Roboters 16 Sub-Steps und dessen Schrittrate ein (Plumo:
     100 Hz, `kWalkerStepHz`) und meldet das.
 - Die Gelenksteifigkeit ist **durch die Sub-Step-Rate gedeckelt**: `constraintHertz` wird auf 0,25 ×
   Sub-Step-Rate begrenzt, Kontakt-Hertz auf 0,125 × (`box3d:src/joint.c:1484-1486`,

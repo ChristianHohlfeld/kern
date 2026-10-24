@@ -11,7 +11,7 @@ unübersetzt wiedergegeben. Die Liste mit Herkunft und Änderungen steht im Repo
 | Box3D | Erin Catto | MIT |
 | Earcut (C++-Portierung) | Mapbox | ISC |
 | musl-Mathematikfunktionen | Rich Felker und andere | MIT |
-| Micro-Duck-Robotermodell (MJCF), Policies, Pick-up-Erkennung, portierte Software | Pollen Robotics | Apache License 2.0 |
+| Plumo-Robotermodell (MJCF), Policies, Pick-up-Erkennung, portierte Software | Pollen Robotics | Apache License 2.0 |
 
 Das Buch selbst steht nicht unter diesen Lizenzen (siehe [Impressum](00-impressum.md)).
 

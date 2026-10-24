@@ -341,7 +341,7 @@ trained ranges; overrides the robot's own behavior) · `walker.look` Look (head:
 up to 63°) · `walker.autonomous` Set Autonomous · `walker.skill` Robot Move (`sit`, `pick`,
 `kick_left`, `kick_right`, `roulade`, `jump`) · `walker.beak` · `walker.pet` · `walker.hear` ·
 `walker.holding` · `walker.quack` Chirp · `walker.tof` Robot ToF · `walker.sees` Robot Camera Sees ·
-`walker.state` Robot State. Details in [Chapter 13](13-micro-duck.md).
+`walker.state` Robot State. Details in [Chapter 13](13-plumo.md).
 
 ---
 
@@ -591,9 +591,9 @@ a timer. "On State Entered (any)" shows `Current State` as a message.
 Begin Play turns off the robot's autonomy. Every 0.25 s: if the ToF sees something closer than
 1.6 m, it turns on the spot (45 °/s for 0.6 s), otherwise it walks straight ahead (0.3 m/s).
 
-### Micro Duck chirps at the ball
+### Plumo chirps at the ball
 
-The level graph of the Micro Duck sample level (`micro_duck_level` in `demos.cpp`):
+The level graph of Plumo sample level (`plumo_level` in `demos.cpp`):
 
 ```
 Every 0.25 s ─▶ Branch( Robot Camera Sees(Ball).visible AND NOT Ball Seen )

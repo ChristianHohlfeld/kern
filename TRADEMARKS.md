@@ -20,6 +20,6 @@ truthfully that something uses, is based on or was made with Kern. Without writt
 not call a modified version, fork, product or service "Kern", use the logo for it, or suggest that
 it comes from or is endorsed by the owner. Forks need their own name and logo.
 
-Fremde Marken (zum Beispiel Micro Duck, Pollen Robotics, Box3D, Unreal Engine, WebAssembly,
+Fremde Marken (zum Beispiel Pollen Robotics, Box3D, Unreal Engine, WebAssembly,
 WebGL, ONNX) gehören ihren Inhabern; Kern ist mit ihnen nicht verbunden. Other trademarks belong
 to their owners; Kern is not affiliated with them.

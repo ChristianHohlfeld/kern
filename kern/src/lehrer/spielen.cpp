@@ -84,7 +84,7 @@ PlayEnv::PlayEnv(u64 seed, bool randomize) : impl_(std::make_unique<Impl>()), rn
   l.world.ground = true;
   l.world.ground_friction = 1.0f;
   l.world.ground_surface = "floor";
-  impl_->duck = game::add_micro_duck(l, {0, 0, 0});
+  impl_->duck = game::add_plumo(l, {0, 0, 0});
   game::ControllerComponent& c = *l.find(impl_->duck)->controller;
   c.autonomous = true;   // the play layer works where the autonomy works
   c.kern_extras = true;  // Kern's play layer on
@@ -120,7 +120,7 @@ void PlayEnv::reset() {
   m.sock_parts.clear();
   m.other_socks.clear();
   auto add_sock = [&](Vec3 at, std::vector<game::ActorId>& ids) {
-    std::vector<game::Actor> parts = game::micro_duck_sock_actors();
+    std::vector<game::Actor> parts = game::plumo_sock_actors();
     const game::ActorId first = l.next_id;
     for (std::size_t i = 0; i < parts.size(); ++i) {
       game::Actor a = parts[i];
@@ -186,13 +186,13 @@ void PlayEnv::reset() {
     v.trunk_mass = rng_.uniform(0.95f, 1.05f);
     v.trunk_com = {rng_.uniform(-0.005f, 0.005f), rng_.uniform(-0.005f, 0.005f), rng_.uniform(-0.005f, 0.005f)};
     v.head_com = {rng_.uniform(-0.003f, 0.003f), rng_.uniform(-0.003f, 0.003f), rng_.uniform(-0.003f, 0.003f)};
-    game::vary_micro_duck(l, m.duck, v);
+    game::vary_plumo(l, m.duck, v);
     const game::ServoProfile servo = game::xl330_profile();
     for (i32 link = 1; link <= kActions + 1; ++link) {
       game::ServoProfile p = servo;
       p.friction *= rng_.uniform(1 - servo.spread_friction, 1 + servo.spread_friction);
       p.armature *= rng_.uniform(1 - servo.spread_armature, 1 + servo.spread_armature);
-      game::set_micro_duck_servo(l, m.duck, link, p);
+      game::set_plumo_servo(l, m.duck, link, p);
     }
     l.find(m.duck)->controller->servo_delay = rng_.uniform(servo.delay_min, servo.delay_max);
   }

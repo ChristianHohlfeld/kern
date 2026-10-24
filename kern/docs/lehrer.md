@@ -1,6 +1,6 @@
-# Der Lehrer: eigene Netze für den Micro Duck
+# Der Lehrer: eigene Netze für Plumo
 
-Kern trainiert Policies für den Micro Duck selbst. Alles läuft in C++ auf Kerns eigener Engine und
+Kern trainiert Policies für Plumo selbst. Alles läuft in C++ auf Kerns eigener Engine und
 Box3D: Simulation, Lernverfahren, Export. Es gibt keine Python- oder PyTorch-Abhängigkeit. Gelernt
 wird beim Nutzer: nativ auf allen Kernen (auch headless auf einem Server), im Browser auf Desktop
 und Handy und später direkt im Studio.
@@ -36,7 +36,7 @@ exportiert (61 Beobachtungen, 14 Aktionen) und kann wie diese auf den Roboter.
   des Lehrers statt eines Netzes. Die Servos bekommen sie wie trainiert: Grundstellung + Aktion,
   Skalierung 1, kein Tiefpass, mit der Totzeit des Servoprofils.
 - **Beobachtung:** `walker_observation` liefert zwischen zwei Takten genau, was der Regler beim
-  nächsten Takt sieht (Test `micro_duck_observation_between_ticks_is_what_its_controller_sees`).
+  nächsten Takt sieht (Test `plumo_observation_between_ticks_is_what_its_controller_sees`).
   Die Befehlsplätze 48–60 schreibt die Aufgabe (einheitliches Layout, wie Pollens Fertigkeiten).
 - **Messwerte für Belohnung und Critic:** `walker_probe`, in Robotereinheiten (nicht in der
   4-fachen Weltgröße): Rumpf-Lage und -Geschwindigkeit, Sohlen am Boden, Fußhöhe, Eigenkontakt,
@@ -162,8 +162,8 @@ beieinander:
   (`--spielen-ueben`).
 - **Variation:** Mit steiferen Servos und rutschigeren Sohlen fällt Pollens Gang beim Drehen auf der
   Stelle öfter.
-- Tests: `micro_duck_plays_with_a_ball_on_its_own` (Ball 30 cm vor der Ente: gekickt, rollt weg) und
-  `micro_duck_goes_for_a_sock_and_bites` (geht zur Socke, steht, hebt auf, beißt) – Studio-Physik,
+- Tests: `plumo_plays_with_a_ball_on_its_own` (Ball 30 cm vor der Ente: gekickt, rollt weg) und
+  `plumo_goes_for_a_sock_and_bites` (geht zur Socke, steht, hebt auf, beißt) – Studio-Physik,
   Bild für Bild, nur das Netz entscheidet.
 
 Befehle:

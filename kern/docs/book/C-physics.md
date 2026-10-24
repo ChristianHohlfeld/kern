@@ -163,7 +163,7 @@ flowchart LR
 
 **In Kern:** `GameWorld::step` (`src/game/runtime.cpp`):
 
-- $h = 1/\text{step\_hz}$, 60 Hz by default, 100 Hz for the Micro Duck (`kWalkerStepHz`).
+- $h = 1/\text{step\_hz}$, 60 Hz by default, 100 Hz for Plumo (`kWalkerStepHz`).
 - A frame is limited to 0.25 s, with at most 0.1 s of simulation per frame ("spiral of death": a step
   that takes longer than $h$ would otherwise never catch up). If the simulation still falls behind,
   whole steps are dropped; the phase is preserved.
@@ -179,7 +179,7 @@ default 4, for robots 16, `kWalkerSubsteps`). Each sub-step integrates and solve
 Smaller steps make joint chains stiffer: according to `docs/physics.md`, the joint gap at the duck's
 hip grew to 5 cm under load with 4 sub-steps; with 16 it stays below 1 mm.
 
-For the Micro Duck: 100 Hz step, 16 sub-steps, hence a sub-step of
+For Plumo: 100 Hz step, 16 sub-steps, hence a sub-step of
 $h = 1/1600\,\text{s} = 0.625$ ms.
 
 ---
@@ -264,7 +264,7 @@ The tolerances are fixed in metres (`box3d:include/box3d/constants.h`):
 | Speculative distance | 20 mm |
 | Contact recycling | 50 mm |
 
-That is why moving bodies should be between 0.1 m and 10 m in size. The Micro Duck, with limbs of
+That is why moving bodies should be between 0.1 m and 10 m in size. Plumo, with limbs of
 2–4 cm, is simulated in Kern **scaled up by a factor of 4** (`kWalkerScale = 4`), with Froude
 similarity: lengths ×4, masses ×64, times ×2 (`docs/physics.md`, Section 1). Real units are used
 towards the outside (the networks' observations, logs).
@@ -372,7 +372,7 @@ float pair_friction(float fa, uint64_t ma, float fb, uint64_t mb) {
 | cotton on wood/laminate floor | 0.4 | fabric on wood 0.3–0.5 |
 
 All other pairs fall back to
-$\sqrt{\mu_A\mu_B}$. What for? The Micro Duck picks up a sock with its beak (`spielen.cpp`): whether
+$\sqrt{\mu_A\mu_B}$. What for? Plumo picks up a sock with its beak (`spielen.cpp`): whether
 the grip holds depends precisely on these pairs – pad on sock must grip, sock on floor must slide. A
 single friction coefficient per shape cannot represent both at the same time.
 
@@ -517,7 +517,7 @@ $$\Delta\lambda = -m_\text{eff}\left(\text{massScale}\cdot v_n + \text{bias}\rig
 - $v_\text{max}$: upper limit of this push-out velocity (`contact_speed`, Kern: 3 m/s),
 - massScale + impulseScale = 1: between "hard" (massScale 1) and "not at all" (impulseScale 1).
 
-**Example** with Kern's contact values ($f = 30$ Hz, $\zeta = 10$) for the Micro Duck
+**Example** with Kern's contact values ($f = 30$ Hz, $\zeta = 10$) for Plumo
 ($h = 1/1600$ s): $h\omega = 0.1178$, $2\zeta + h\omega = 20.118$, hence biasRate
 $= 9.37\,\text{s}^{-1}$, massScale $= 0.703$, impulseScale $= 0.297$. A penetration of 1 mm is
 pushed out at $0.703 \cdot 9.37 \cdot 0.001 \approx 6.6$ mm/s – gently rather than abruptly. This
@@ -553,7 +553,7 @@ limits (according to `docs/physics.md`, Section 3, and in the code):
   `b3MinFloat( joint->constraintHertz, 0.25f * context->inv_h )`),
 - contact hertz to $0.125 \cdot$ sub-step rate (`box3d:src/physics_world.c`).
 
-For the Micro Duck (1600 sub-steps/s) that means at most 400 Hz for joints and 200 Hz for contacts;
+For Plumo (1600 sub-steps/s) that means at most 400 Hz for joints and 200 Hz for contacts;
 Kern's servo joints use a softness of 240 Hz in the world. Stiffer joints can only be had with more
 sub-steps. Kern additionally keeps springs below half the sub-step frequency (Nyquist:
 `max_hertz = 0.5 · step_hz · substeps` in `create_joints`).
@@ -572,7 +572,7 @@ makes a rigid part **one** body with several shapes instead of welding bodies to
 
 ### C.7.1 What a position servo does
 
-A hobby servo such as the Micro Duck's Dynamixel XL330 receives a **target angle** and controls the
+A hobby servo such as Plumo's Dynamixel XL330 receives a **target angle** and controls the
 motor so that the joint reaches it. Inside, this is a **control loop**: it measures the angle,
 compares it with the target and produces a torque.
 
@@ -676,7 +676,7 @@ The **rotor inertia** (armature) is a mass property: a disc on the joint axis (`
 Section 5). The **dead time** is a queue: every physics step pushes the current targets onto the back
 and hands the ones at the front to the servos (`walker.cpp`, "the servos get the command sent `delay`
 steps ago"). The length is $\text{round}(\tau_d \cdot \sqrt{S} \cdot \text{step\_hz})$ – for the
-Micro Duck with 20 ms, $\sqrt{4} = 2$ (time scaling) and 100 Hz, that is 4 world steps.
+Plumo with 20 ms, $\sqrt{4} = 2$ (time scaling) and 100 Hz, that is 4 world steps.
 
 All values are kept in a **device profile** (`ServoProfile` in `servo.h`): $K$, $D$, $F$, $T$,
 armature, dead time, and for training their spreads. The same function `servo_step` drives the

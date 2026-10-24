@@ -1,6 +1,6 @@
 # 16 Calibration: from simulation to the real robot
 
-A network that learns in the Lehrer (Kern's trainer) is meant to run on the real Micro Duck. For
+A network that learns in the Lehrer (Kern's trainer) is meant to run on the real Plumo. For
 that, the simulation has to match the real robot, and the network must not rely on anything the
 simulation does not know precisely. Kern pursues three routes to this:
 
@@ -28,7 +28,7 @@ itself rather than written into the code as numbers.
 
 A position servo such as the Dynamixel XL330 is simulated as follows, with the same function
 `game::servo_step` in the Studio, in the Lehrer and on the test bench
-([Section 13.4](13-micro-duck.md#134-the-servo-model)):
+([Section 13.4](13-plumo.md#134-the-servo-model)):
 
 ```
 torque = clamp(K · (target − angle), −T, T) − D · velocity
@@ -55,7 +55,7 @@ there as float32 in double precision, rounded here):
 {
   "kind": "servo",
   "name": "xl330",
-  "source": "Pollen Robotics microduck_rl: BAM m6 model of the XL330-M288 at 7.4 V, MJCF armature",
+  "source": "Pollen Robotics Pollen's training repository: BAM m6 model of the XL330-M288 at 7.4 V, MJCF armature",
   "stiffness": 0.554, "damping": 0.053, "friction": 0.0048, "torque": 0.963,
   "armature": 0.0018, "delay": 0.02,
   "spreadStiffness": 0, "spreadDamping": 0, "spreadFriction": 0.1, "spreadTorque": 0,
@@ -79,7 +79,7 @@ for (i32 link = 1; link <= kActions + 1; ++link) {        // 14 policy servos an
   game::ServoProfile p = servo;
   p.stiffness = spread(servo.stiffness, servo.spread_stiffness);
   ...
-  game::set_micro_duck_servo(l, duck_, link, p);
+  game::set_plumo_servo(l, duck_, link, p);
 }
 controller->servo_delay = servo.delay_max > servo.delay_min ? rng_.uniform(servo.delay_min, servo.delay_max) : servo.delay;
 ```
@@ -133,7 +133,7 @@ time,target,angle
 `simulate_servo(profile, log)` builds the servo with its load in Box3D, in the same environment as
 the duck:
 
-- **the same scaling** (scale 4, Froude factors as in [Section 13.3](13-micro-duck.md#133-the-model)),
+- **the same scaling** (scale 4, Froude factors as in [Section 13.3](13-plumo.md#133-the-model)),
 - **the same step rate** (100 Hz world, 16 sub-steps; one step = 5 ms real),
 - **the same joint softness** as the duck's servo joints (constraint 240 Hz, damping ratio 2),
 - a fixed base, a link with the mass and centre of mass of the load, inertia of the load plus
@@ -303,7 +303,7 @@ measures them in the simulation, just as you would measure them on the real robo
 
 The **pair friction** of the surfaces (TPU beak pad on cotton 0.8, cotton on cotton 0.5, cotton on
 wooden floor 0.4), on the other hand, is hard-coded: static friction values of dry material pairs,
-justified in the code with their typical ranges ([Section 13.3](13-micro-duck.md#133-the-model)).
+justified in the code with their typical ranges ([Section 13.3](13-plumo.md#133-the-model)).
 They are candidates for a measurement on the real material.
 
 ## 16.7 Limits and next steps
@@ -314,7 +314,7 @@ They are candidates for a measurement on the real material.
   `servo_step` gets a backlash range.
 - **Armature** is a disc that turns with the link, not a geared rotor; if the parent link rotates
   about the same axis, the inertia is slightly too large
-  ([Section 13.3](13-micro-duck.md#133-the-model)).
+  ([Section 13.3](13-plumo.md#133-the-model)).
 - **Known gap:** in Kern, `kick_right` sometimes tips over after the kick. Candidates: backlash,
   contact softness, foot friction – a case for matching against a robot log.
 - **IMU:** noise and latency are part of the training variation (`Task::Noise`). A dedicated IMU

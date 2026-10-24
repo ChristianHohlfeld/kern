@@ -18,7 +18,7 @@ include/kern/game/demos.h      built-in levels
 include/kern/game/sound.h      SoundBank, GameAudio
 include/kern/game/touch.h      InputArbiter, TouchControls
 include/kern/game/net_game.h   multiplayer (Chapter 10)
-include/kern/game/walker.h     Micro Duck (Chapter 13)
+include/kern/game/walker.h     Plumo (Chapter 13)
 src/game/level.cpp             model and .klevel
 src/game/runtime.cpp           GameWorld: presentation, Box3D, controllers, rules
 src/game/soldier.cpp           soldier: movement, weapon, health, camera
@@ -261,7 +261,7 @@ velocity, at most `max_motor_force`, with `servo_friction` joint friction
 
 The walker keys are only written when `mode = walker` (`kernExtras` and `rollers` only when `true`,
 `servoDelay` only when ≠ 0.02). On reading, `gait` is normalized to `velstand`/`alpha` and `actions`
-to `training`/`robot`. What the walker fields do is described in [Chapter 13](13-micro-duck.md).
+to `training`/`robot`. What the walker fields do is described in [Chapter 13](13-plumo.md).
 
 ### Weapon (`WeaponComponent`, `weapon`)
 
@@ -698,7 +698,7 @@ For rolling ball, character and flyer, movement is **camera-relative**. The mode
 | **Character** | Box3D's **character mover** ([Chapter 6](06-physics.md)): the body becomes kinematic, the capsule is sized from its shapes (feet at the lowest, head at the highest point, step height 22 % of the height), Quake-style ground movement, gravity 1.5× (snappier). The body turns smoothly toward the direction of travel and follows via `set_target_pose`. Footsteps by stride length; triggers and pickups via the touched planes. |
 | **Flyer** | target velocity including up/down, acceleration as a force that cancels gravity; yaw toward the camera direction. |
 | **Soldier** | character mover with real gravity (jump 3.6 m/s → 0.66 m), see 8.13. |
-| **Walker** | the input goes to the robot's controller, which drives its servos with the trained policy ([Chapter 13](13-micro-duck.md)). |
+| **Walker** | the input goes to the robot's controller, which drives its servos with the trained policy ([Chapter 13](13-plumo.md)). |
 
 Common to all: boost is a reserve 0..1 (−0.45/s while boosting, +0.12/s otherwise); landings after a
 free fall above 3.5 m/s play `builtin:land`; jumps and boost play their sounds.
@@ -821,12 +821,12 @@ Tests: `game_soldier_moves_shoots_and_respawns`, `soldier_art_in_play`,
 ## 8.14 Walkers
 
 A walker is an articulated robot that walks on its own servos, driven by a control policy – the
-Micro Duck with the trained network from Pollen Robotics. At start, the GameWorld creates a
+Plumo with the trained network from Pollen Robotics. At start, the GameWorld creates a
 controller state for every walker controller (`create_walkers`) and drives it every step
 (`drive_walkers`: sensors, behavior, network every four physics steps, command delay) along with the
 servos (`drive_servos`). On top of that there is a large interface for sensors, commands, training
 and the game layer (`walker_sensors`, `walker_command`, `walker_skill`, `walker_probe`,
-`set_walker_action` …). All of this is described in [Chapter 13](13-micro-duck.md).
+`set_walker_action` …). All of this is described in [Chapter 13](13-plumo.md).
 
 ---
 
@@ -952,12 +952,12 @@ Levels and File › New Level.
 | `orb_run_level()` | **Orb Run** | Procedural city with traffic; a Box3D hovercar (1200 kg, box collider, friction 0.25; cabin, spoiler, four glowing thrusters and headlights as welded-in children) with a chase camera; 24 energy orbs (pickups with a 2.4 m sensor sphere, rotator, mover, light) on the streets; goal `collectAll`; late afternoon with a 480 s day length – the run ends at night; music `music_drive`, ambience `city`. Studio starts with this level. |
 | `physics_lab_level()` | **Physics Lab** | All joint types and kinds of motion: pyramid of crates (started asleep), pendulum on a distance joint, door on a hinge with limits and a closing spring, rope bridge of 12 planks (three middle joints break at 60,000 N), turntable with a motor (45°/s) and three riders, lift on a slider with motor and limit, a self-driving rover on four wheel joints with suspension and drive; the player is a rolling ball, plus five stars, a rotating hazard sweeper and a goal; goal `reachGoal`. |
 | `shooting_range_level()` | **Shooting Range** | First-person-shooter range: soldier with rifle, health and head; eight target dummies (health with fast regeneration, head tag) at 10–60 m, cover, pushable crates and a barrel, a tower with a ramp; goal 150 points; playable unchanged in multiplayer. |
-| `micro_duck_level()` | **Micro Duck** | A room at the robot's scale (2.5 × 2.5 m real, i.e. 10 × 10 m in the world): wooden floor (friction 1, surface `floor`), walls, shoebox, books, crate, flower pot, a light ball (rolling resistance 0.03), two socks; the duck autonomous and with Kern's play network; 100 Hz, 16 sub-steps, no endless ground; **observer camera**; a level graph makes the duck chirp as soon as its head camera sees the ball. |
+| `plumo_level()` | **Plumo** | A room at the robot's scale (2.5 × 2.5 m real, i.e. 10 × 10 m in the world): wooden floor (friction 1, surface `floor`), walls, shoebox, books, crate, flower pot, a light ball (rolling resistance 0.03), two socks; the duck autonomous and with Kern's play network; 100 Hz, 16 sub-steps, no endless ground; **observer camera**; a level graph makes the duck chirp as soon as its head camera sees the ball. |
 | `basic_level()` | **Basic** | ground 40 × 40 m and a cube. |
 | `empty_level()` | **Empty** | nothing, not even an endless ground. |
 
 Tests: `game_world_orb_run_play`, `game_world_physics_lab`, `game_shooting_range_template`,
-`micro_duck_example_level_runs`, `studio_starts_with_orb_run`.
+`plumo_example_level_runs`, `studio_starts_with_orb_run`.
 
 ---
 

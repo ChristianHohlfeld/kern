@@ -115,7 +115,7 @@ Im Browser ruft `now_ms()` den Import `kern_env.now` (`performance.now()`), nati
 `std::chrono::steady_clock`. `now_ms()` dient Zeitbudgets und Messungen, etwa wenn die Sound-Bank
 eingebaute Klänge für eine begrenzte Zeit vorrechnet (`src/game/sound.cpp`). **In die Simulation
 gehört sie nicht**: Simulationen zählen feste Schritte, keine Wanduhrzeit, sonst wären sie nicht
-deterministisch ([Kapitel 6](06-physik.md), [Kapitel 13](13-micro-duck.md)).
+deterministisch ([Kapitel 6](06-physik.md), [Kapitel 13](13-plumo.md)).
 
 ### Kleine Helfer
 
@@ -197,7 +197,7 @@ hineingibt.
 ## 3.2 `kern::json` – `json.h`
 
 Kern braucht JSON überall: Levels (`.klevel`), das Protokoll zwischen Studio und Seite, Servoprofile,
-Demonstrationen des Lehrers, das Policy-Manifest der Micro Duck. `kern::json` ist ein eigenes,
+Demonstrationen des Lehrers, das Policy-Manifest von Plumo. `kern::json` ist ein eigenes,
 kleines Dokumentmodell mit drei Zusagen (Kopfkommentar von `json.h`):
 
 1. **Objekte behalten ihre Schlüsselreihenfolge.** Ein Dokument, das dieser Formatierer oder

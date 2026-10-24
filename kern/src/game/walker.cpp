@@ -1,13 +1,14 @@
 // Walkers: articulated robots that move on their own hinge servos, driven by a control policy.
 //
-// The Micro Duck is Pollen Robotics' 25 cm, 14-servo biped (github.com/pollen-robotics/microduck).
+// Plumo is Kern's duck: a 25 cm, 14-servo biped built on Pollen Robotics' open-source robot
+// (model, policies and code under Apache-2.0, github.com/pollen-robotics).
 // It walks, turns, stands and gets up with "velstand", a neural network trained in MuJoCo
 // (pollen-robotics/microduck_rl, Apache-2.0). Kern runs that network unchanged, on the model it was
 // trained on (robot_allcollisions_backlash.xml: bodies, joints, masses, inertia tensors, colliding
 // parts), with the observation, action and servo conventions of training. docs/walker.md has the
 // whole contract, the measurements and what differs from MuJoCo.
 //
-// Generated data (tools/micro_duck_import.py): micro_duck_model.inc, micro_duck_velstand.inc.
+// Generated data (tools/plumo_import.py): plumo_model.inc, plumo_velstand.inc.
 #include <algorithm>
 #include "kern/core/dmath.h"
 #include <cmath>
@@ -65,9 +66,9 @@ struct DuckSiteDef {
   Vec3 x, y, z;          // the site frame's axes (x = where the camera / ToF looks, z = up)
 };
 
-#include "micro_duck_model.inc"
+#include "plumo_model.inc"
 #include "duck_colliders.inc"  // Kern's own collider shapes (tools/kern_duck.py)
-#include "micro_duck_velstand.inc"
+#include "plumo_velstand.inc"
 
 constexpr i32 kLinkCount = static_cast<i32>(sizeof kDuckLinks / sizeof kDuckLinks[0]);
 constexpr i32 kJoints = 14;
@@ -99,7 +100,7 @@ constexpr f32 kActuatorDelay = 0.02f;     // command -> servo latency (training:
 constexpr f32 kMaxForward = 0.4f, kMaxStrafe = 0.3f, kMaxTurn = 1.0f, kCommandAlpha = 0.2f;
 constexpr f32 kHeadRange[4] = {1.10f, 1.10f, 1.40f, 0.31f};  // head command limits (training)
 
-// Head sensors (microduck: kinematics/src/tof.rs, tof/, mediad/src/camera.rs).
+// Head sensors (Pollen's robot code: kinematics/src/tof.rs, tof/, mediad/src/camera.rs).
 constexpr int kTofSide = 8;                 // 8 x 8 zones
 constexpr f32 kTofFov = 45 * rt::kDegree;   // per axis
 constexpr f32 kTofMaxRange = 4.0f;          // VL53L8CX, metres (real)
@@ -172,8 +173,8 @@ void add_armature(f32 inertia[6], Vec3 ax, f32 armature) {
 
 }  // namespace
 
-ActorId add_micro_duck(Level& l, Vec3 at, bool rollers) {
-  std::vector<Actor> parts = micro_duck_actors(rollers);
+ActorId add_plumo(Level& l, Vec3 at, bool rollers) {
+  std::vector<Actor> parts = plumo_actors(rollers);
   const ActorId base = l.next_id;
   for (std::size_t i = 0; i < parts.size(); ++i) {
     Actor a = parts[i];
@@ -189,7 +190,7 @@ ActorId add_micro_duck(Level& l, Vec3 at, bool rollers) {
   return base;
 }
 
-void vary_micro_duck(Level& level, ActorId trunk, const DuckVariation& v) {
+void vary_plumo(Level& level, ActorId trunk, const DuckVariation& v) {
   const f32 S = kDuckScale;
   if (Actor* a = level.find(trunk); a && a->body) {
     a->body->mass *= v.trunk_mass;
@@ -219,11 +220,11 @@ ServoProfile xl330_profile() {
   return p;
 }
 
-void set_micro_duck_servo(Level& level, ActorId trunk, i32 link, const ServoProfile& p) {
+void set_plumo_servo(Level& level, ActorId trunk, i32 link, const ServoProfile& p) {
   const Actor* t = level.find(trunk);
   Actor* a = level.find(trunk + static_cast<ActorId>(link));
   if (!t || !t->controller || !a || !a->body || link < 1 || link >= kLinkCount) return;
-  // Exactly as micro_duck_actors and scaled() build it (the nominal profile gives the same bits).
+  // Exactly as plumo_actors and scaled() build it (the nominal profile gives the same bits).
   const f32 s = kDuckScale, s3 = s * s * s, s4 = s3 * s, s5 = s4 * s, rs = std::sqrt(s);
   (void)s3;
   const f32* base = kDuckLinks[link].inertia;
@@ -243,12 +244,12 @@ void set_micro_duck_servo(Level& level, ActorId trunk, i32 link, const ServoProf
   }
 }
 
-void set_micro_duck_servos(Level& level, ActorId trunk, const ServoProfile& p) {
-  for (i32 link = 1; link < kLinkCount; ++link) set_micro_duck_servo(level, trunk, link, p);
+void set_plumo_servos(Level& level, ActorId trunk, const ServoProfile& p) {
+  for (i32 link = 1; link < kLinkCount; ++link) set_plumo_servo(level, trunk, link, p);
   if (Actor* t = level.find(trunk); t && t->controller) t->controller->servo_delay = p.delay;
 }
 
-std::vector<Actor> micro_duck_sock_actors() {
+std::vector<Actor> plumo_sock_actors() {
   // A crumpled sock, real size x kWalkerScale: seven 12.5 mm lumps of fabric in a loose heap 3.4 cm
   // high (four on the floor, two on them, one on top), each lump tied to its neighbours by a soft
   // spring (Box3D distance joints): it gives under the beak, and what the beak pinches pulls the rest
@@ -293,7 +294,7 @@ std::vector<Actor> micro_duck_sock_actors() {
   return out;
 }
 
-std::vector<Actor> micro_duck_actors(bool rollers) {
+std::vector<Actor> plumo_actors(bool rollers) {
   std::vector<Actor> out;  // parent / joint target = index + 1 (the catalog's convention)
   const Vec3 root = kDuckLinks[0].pos;
   auto roller_ankle = [&](i32 link) -> const DuckRollerDef* {
@@ -306,7 +307,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
     const DuckLinkDef& l = kDuckLinks[i];
     const DuckRollerDef* blade = roller_ankle(i);  // on rollers the ankle carries the blade
     Actor a;
-    a.name = i == 0 ? "Micro Duck" : l.joint;  // links are named after their servo joint
+    a.name = i == 0 ? "Plumo" : l.joint;  // links are named after their servo joint
     a.transform.position = i == 0 ? l.pos + Vec3{0, 0, rollers ? kDuckRollerRaise : 0.0f} : l.pos - root;
     a.parent = i == 0 ? 0 : 1;  // the links are children of the trunk in the outliner
     a.body = BodyComponent{};
@@ -433,7 +434,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
       out.push_back(std::move(wa));
     }
     out[0].controller->rollers = true;
-    out[0].name = "Micro Duck (Rollers)";
+    out[0].name = "Plumo (Rollers)";
   }
   return scaled(std::move(out));
 }
@@ -441,7 +442,7 @@ std::vector<Actor> micro_duck_actors(bool rollers) {
 // ---------------------------------------------------------------------------
 // the policy
 
-void micro_duck_policy(const f32 observation[61], f32 action[14]) {
+void plumo_policy(const f32 observation[61], f32 action[14]) {
   // rsl_rl's exported actor: (obs - mean) / divisor, then 512 / 256 / 128 ELU layers and a linear
   // output (ONNX Gemm with transB: y = W x + b, W stored [out][in]).
   static_assert(kVelstandDims[0] == 61 && kVelstandDims[4] == 14, "velstand: 61 observations, 14 actions");
@@ -539,7 +540,7 @@ const PolicySet& policy_set() {
     out.pick = {"alpha_ground_pick.onnx", 4, 0.7f, 1.0f};
     out.crouch = {"roller_crouch.onnx", 3, 0.7f, 0.8f};
     json::Value m;
-    if (!json::parse(micro_duck_manifest(), m)) return out;
+    if (!json::parse(plumo_manifest(), m)) return out;
     for (const json::Value& p : m["policies"].items()) {
       const std::string file = p["file"].as_string(), kind = p["kind"].as_string(), mode = p["mode"].as_string();
       const json::Value& cmd = p["command"];
@@ -695,7 +696,7 @@ void GameWorld::create_walkers() {
     for (i32 j = 0; j < kJoints; ++j) if (w->joint[j]) w->bodies[j + 1] = w->joint[j]->b;
     if (w->mouth) w->bodies[kMouthLink] = w->mouth->b;
     if (found != kJoints) {
-      events_.push_back("Walker \"" + a.name + "\" needs the Micro Duck's 14 servo joints - it stands still");
+      events_.push_back("Walker \"" + a.name + "\" needs Plumo's 14 servo joints - it stands still");
       continue;
     }
     const f32 hz = clamp(level_.world.step_hz, 15.0f, 480.0f), slow = std::sqrt(kDuckScale);
@@ -1206,7 +1207,7 @@ void GameWorld::run_controller(WalkerBrain& w, f32 obs[61]) {
     // Its network is not loaded (the page fetches the set, and fetches again after a failure): no
     // other network stands in for it - the servos hold the home pose, and the duck says why once.
     const std::string file = w.rollers ? "roller.onnx" : "alpha_walking.onnx";
-    if (w.driving != "waiting") say("Micro Duck: " + file + " is not loaded yet, it stands until it is");
+    if (w.driving != "waiting") say("Plumo: " + file + " is not loaded yet, it stands until it is");
     std::fill(std::begin(w.action), std::end(w.action), 0.0f);
     w.driving = "waiting";
   } else {

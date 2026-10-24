@@ -94,7 +94,7 @@ Many games need nothing beyond the building blocks above. For custom behavior th
 4. **Compile** (F7) checks the graph; **Viewport** takes you back.
 
 More templates: a door that opens on **Interact** (key F), a spawner, a traffic light as a state machine
-and a behavior for the Micro Duck. All nodes are explained in [Chapter 9](09-logic.md).
+and a behavior for Plumo. All nodes are explained in [Chapter 9](09-logic.md).
 
 ### Step 7: Sound
 
@@ -679,7 +679,7 @@ A level from Studio also runs in a page of your own without exporting. `kern/web
 (`generated/kern_studio.wasm`, built with `--studio`).
 
 `kern/web/studio/play.html` shows this in a few lines; it plays a built-in level, chosen with
-`?level=orbRun` (default), `physicsLab`, `shootingRange`, `microDuck` or `basic`:
+`?level=orbRun` (default), `physicsLab`, `shootingRange`, `plumo` or `basic`:
 
 ```js
 import {startGame, PLAYER_STYLE, PLAYER_BODY} from "./game.mjs";
@@ -698,7 +698,7 @@ const game = await startGame({levelText, url: "./kern_studio.wasm"});
 
 `startGame` expects a canvas with the id `gl` (or `canvas:`) as well as the elements from `PLAYER_BODY`
 (HUD, loading indicator, hint, restart button, error field). It starts the module in player mode, opens
-the level, loads the Micro Duck networks if needed, starts Play and returns an object that is also
+the level, loads Plumo networks if needed, starts Play and returns an object that is also
 available as `window.KernGame`:
 
 | Member | Purpose |
@@ -779,8 +779,8 @@ Upload the exported HTML file to any web space, put it into a repository with Gi
 directly. It runs offline, in full screen, with keyboard, mouse, gamepad and on phones with touch
 controls.
 
-- **With the Micro Duck:** put the folders `microduck/` (Pollen's networks from
-  `kern/third_party/microduck/*.onnx`) and `policies/` (`kern/policies/*.onnx`) next to the HTML file;
+- **With Plumo:** put the folders `pollen/` (Pollen's networks from
+  `kern/third_party/pollen/*.onnx`) and `policies/` (`kern/policies/*.onnx`) next to the HTML file;
   otherwise every movement except walking is missing
   ([Chapter 11](11-studio.md#1114-loading-policies-jumponnx-playonnx)).
 - **Online game:** the address with `?host=<room>` opens the game as host, `?join=<room>` joins. For
@@ -807,7 +807,7 @@ done
 ```
 
 In the process, Studio ends up as `_site/editor/index.html` with a manifest, service worker, icons,
-`build.json` and the network folders `microduck/` and `policies/`; `kern/web/studio/` with `play.html`
+`build.json` and the network folders `pollen/` and `policies/`; `kern/web/studio/` with `play.html`
 and `generated/kern_studio.wasm` are also put on the site. The published version is at
 https://christianhohlfeld.github.io/kern/.
 

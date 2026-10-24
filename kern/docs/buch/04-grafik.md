@@ -493,7 +493,7 @@ Zur Laufzeit setzt `Renderer::set_shadow_filter(taps)` die Filterstufe. Die Stud
 
 **Lichtbasis.** Aus der Sonnenrichtung `dir` entsteht eine Orthonormalbasis `right`, `up` (Hilfsvektor +Z, bei fast senkrechter Sonne +Y).
 
-**An die Sicht angepasst: die Schattendistanz.** `Renderer::set_shadow_distance(m)` (Standard 0 = aus) legt fest, wie weit die Karte in die Sicht reicht. Die Spiel-Laufzeit setzt sie in jedem Frame aus `WorldSettings::shadow_distance` (World Settings › **Shadow distance**, Standard 80 m; das Micro-Duck-Level nimmt 10 m für scharfe Schatten von Ente, Ball und Wänden). Mit einer Schattendistanz und einer perspektivischen Kamera deckt die Karte die **umschließende Kugel des Sichtkegels** von der Near-Plane bis zur Schattendistanz ab (stabile Schattenkarte nach Valient 2008). Für einen symmetrischen Kegel mit den Tangenten der halben Öffnungswinkel `th`, `tv` gilt:
+**An die Sicht angepasst: die Schattendistanz.** `Renderer::set_shadow_distance(m)` (Standard 0 = aus) legt fest, wie weit die Karte in die Sicht reicht. Die Spiel-Laufzeit setzt sie in jedem Frame aus `WorldSettings::shadow_distance` (World Settings › **Shadow distance**, Standard 80 m; das Plumo-Level nimmt 10 m für scharfe Schatten von Ente, Ball und Wänden). Mit einer Schattendistanz und einer perspektivischen Kamera deckt die Karte die **umschließende Kugel des Sichtkegels** von der Near-Plane bis zur Schattendistanz ab (stabile Schattenkarte nach Valient 2008). Für einen symmetrischen Kegel mit den Tangenten der halben Öffnungswinkel `th`, `tv` gilt:
 
 ```cpp
 const f32 n = camera.near, f = max_of(camera.near + 0.1f, min_of(shadow_distance_, camera.far));

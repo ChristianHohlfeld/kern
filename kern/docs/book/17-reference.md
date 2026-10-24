@@ -288,7 +288,7 @@ commands for `kern_studio_command` are described in [Chapter 11](11-studio.md) (
 | `const char* kern_studio_pending_textures()` | textures that need decoded pixels: `["tex1", …]` |
 | `const char* kern_studio_texture_source(const char* id, u32 length)` | source of a texture |
 | `i32 kern_studio_texture_pixels(const char* id, u32 length, i32 width, i32 height, const u8* rgba)` | hand over decoded pixels |
-| `const char* kern_studio_pending_policies()` | Micro Duck policy files still missing (from `manifest.json`, plus `jump.onnx` and `play.onnx`) – only if the level contains a walker |
+| `const char* kern_studio_pending_policies()` | Plumo policy files still missing (from `manifest.json`, plus `jump.onnx` and `play.onnx`) – only if the level contains a walker |
 | `i32 kern_studio_load_policy(const char* file, u32 length, const u8* data, u32 bytes)` | an `.onnx` file; 1 if it is an rsl_rl actor that Kern can evaluate |
 | `i32 kern_studio_audio_init(u32 sample_rate)` | start the mixer at the output device's rate |
 | `const f32* kern_studio_audio_render(u32 frames)` | `frames` (at most 16384) stereo frames, interleaved |
@@ -379,7 +379,7 @@ After reading all options, the program loads Pollen's policies (`--policies`) an
 | 11 | `--spielen-spur` | one play episode, decision by decision |
 | 12 | `--biss-fenster` | measure where the beak grips a sock |
 | 13 | `--halt-messen` | measure how far the duck keeps walking after "stop" |
-| 14 | `--demo-spur` | play the Studio's Micro Duck example level |
+| 14 | `--demo-spur` | play the Studio's Plumo example level |
 | 15 | `--spielen` | play network through imitation (DAgger) |
 | 16 | (otherwise) | **training** of `--task` |
 
@@ -400,7 +400,7 @@ exits with code 2.
 | `--iterations N` | 600 | training: last iteration. With `--kalibrieren` generations (default 80), `--vorbild-suchen` generations (default 120), `--spielen-ueben` iterations (default 300) – in each case unless a value other than 600 is given |
 | `--episodes N` | 10 | episodes for `--eval`, `--vorbild-pruefen`, `--spielen-pruefen` |
 | `--out FILE` | `<task>.onnx` | output. `--kalibrieren`: `<profile>_calibrated.json`; `--spielen`: `play.onnx`; `--spielen-ueben`: `play_geuebt.onnx` |
-| `--policies DIR` | `kern/third_party/microduck/` (relative to the source path at build time) | Pollen's ONNX files |
+| `--policies DIR` | `kern/third_party/pollen/` (relative to the source path at build time) | Pollen's ONNX files |
 | `--profil FILE` | XL330 | servo profile (JSON) for training, start value of calibration, matching |
 
 **Training (PPO) – overrides the recipe** (`recipe.h`; [Chapter 14](14-lehrer.md))
@@ -481,7 +481,7 @@ before practice).
 | `--netz play.onnx` | play network for `--spielen-spur` and `--demo-spur` ("network") |
 | `--biss-fenster` | where the beak gets hold of a sock ("bite window") |
 | `--halt-messen` | how far the duck keeps walking after "stop" ("measure stopping") |
-| `--demo-spur` | the Studio's Micro Duck example level with 60 Hz frames, one line per second with state, observation and the play network's answer; networks from `kern/policies/`, `--seed` is the duration in seconds (default 120). The environment variable `KERN_JUMP_AT=<s>` triggers the jump in second s (key 7) ("demo trace") |
+| `--demo-spur` | the Studio's Plumo example level with 60 Hz frames, one line per second with state, observation and the play network's answer; networks from `kern/policies/`, `--seed` is the duration in seconds (default 120). The environment variable `KERN_JUMP_AT=<s>` triggers the jump in second s (key 7) ("demo trace") |
 
 ### Examples
 
@@ -525,7 +525,7 @@ fields are described in [Chapter 8](08-game-runtime.md).
 
 ### ONNX policies
 
-Kern reads and writes **rsl_rl actors** in the format Pollen Robotics exports for the Micro Duck
+Kern reads and writes **rsl_rl actors** in the format Pollen Robotics exports for Plumo
 (`include/kern/game/walker_policy.h`, `include/kern/lehrer/onnx_export.h`).
 
 **Graph** (opset 17, IR version 8):
@@ -546,9 +546,9 @@ obs [1, n] → Sub(obs_mean) → Div(obs_div) → (Gemm, Elu(alpha 1))* → Gemm
 float32`, `expected Elu after a hidden Gemm`, `unsupported ONNX operator`, `the output layer is not
 linear`. The metadata is read along with it (`WalkerPolicy::metadata`, `meta(key)`); the runtime
 parameters of a motion (kind, duration, command encoding, `action_scale` …) come from the policy
-manifest `third_party/microduck/manifest.json`, which is built in (`micro_duck_manifest()`).
+manifest `third_party/pollen/manifest.json`, which is built in (`plumo_manifest()`).
 
-**Metadata on export** (`micro_duck_metadata(task)`):
+**Metadata on export** (`plumo_metadata(task)`):
 
 | Key | Value |
 |---|---|
@@ -569,12 +569,12 @@ Box3D)`, `rate_hz` = `25`, `observation_names` (23 names from `ball_known` to `w
 **The pick-up detector** (`pickup_detector.onnx`, robotd) has a different shape: input a window of
 50 × 63 features, normalise and mask, a Gather of the columns it reads, three Conv1d with ELU, then
 Gemm, ELU, Gemm, Sigmoid; output p(held). It is read by `parse_onnx_pickup` (`PickupDetector`); it
-is built in as bytes (`third_party/microduck/pickup_detector.inc`, `pickup_detector()`),
-[Chapter 13](13-micro-duck.md).
+is built in as bytes (`third_party/pollen/pickup_detector.inc`, `pickup_detector()`),
+[Chapter 13](13-plumo.md).
 
-**Where the files live:** Pollen's set in `kern/third_party/microduck/` (`velstand.onnx` and
+**Where the files live:** Pollen's set in `kern/third_party/pollen/` (`velstand.onnx` and
 `pickup_detector.onnx` are also built in), Kern's own networks in `kern/policies/` (`jump.onnx`, `play.onnx`). On the published site
-they are in `editor/microduck/` and `editor/policies/`. A network trained in the browser is stored by
+they are in `editor/pollen/` and `editor/policies/`. A network trained in the browser is stored by
 the Lehrer page in IndexedDB ("kern-lehrer"); on the same device it replaces the bundled one
 ([Chapter 14](14-lehrer.md), [Chapter 15](15-your-own-models.md)).
 
@@ -648,18 +648,18 @@ Details in [Chapter 16](16-calibration.md) and `docs/kalibrierung.md`.
 | **Determinism fingerprint** | hash per control tick over the state of the walking duck; reference in `kern/tests/determinism_fingerprint.txt` |
 | **`dm`** | `kern::dm`, deterministic transcendental functions from musl |
 | **Domain randomisation / variation** | training with random deviations in build, servos, sensors and start |
-| **DuckEnv** | Lehrer environment: one Micro Duck in a `GameWorld` of its own |
+| **DuckEnv** | Lehrer environment: one Plumo in a `GameWorld` of its own |
 | **Error channel** | `fail()` / `last_error()` instead of exceptions (German: *Fehlerkanal*) |
 | **GameWorld** | displays a level with the renderer and plays it on Box3D |
 | **GTAO** | Ground-Truth Ambient Occlusion (after XeGTAO) in the renderer |
 | **HostTransport** | transport whose datagrams are moved by the browser page (BroadcastChannel, WebSocket relay) |
 | **JIT (logic)** | compilation of a logic graph into a WebAssembly module at runtime |
 | **`.klevel`** | file format of a level (JSON, `"format": "kern-level"`) |
-| **Lehrer** | Kern's training system for Micro Duck networks; German for "teacher" ([Chapter 14](14-lehrer.md)) |
+| **Lehrer** | Kern's training system for Plumo networks; German for "teacher" ([Chapter 14](14-lehrer.md)) |
 | **Learner** | the part of PPO that learns from rollouts (German: *Lerner*) |
 | **Logic graph** | blueprint-style program of nodes and connections; runs in the interpreter, as JIT or as exported C++ |
 | **LoopbackNetwork** | in-process network for tests and multiplayer in the editor |
-| **Micro Duck** | bipedal robot by Pollen Robotics; simulated in Kern with its real networks |
+| **Plumo** | Kern's two-legged robot duck, built on Pollen Robotics' open-source robot and its real networks |
 | **NetGame** | multiplayer over Kern Net: authoritative server, snapshots, interpolation |
 | **NightWindows** | shader extension for lit windows at night |
 | **ONNX** | exchange format for the networks; Kern reads and writes the rsl_rl actor shape |
@@ -676,9 +676,9 @@ Details in [Chapter 16](16-calibration.md) and `docs/kalibrierung.md`.
 | **Servo profile** | parameters of a servo type (K, D, F, T, A, dead time, spreads) as JSON (German: *Servoprofil*) |
 | **ShaderExtension** | GLSL snippet at fixed hook points of the standard shader, with which games add their own looks ([Chapter 4](04-graphics.md)) |
 | **Span** | non-owning view of contiguous elements (`kern::Span`) |
-| **Substeps** | sub-steps of the Box3D solver per world step; 16 for the Micro Duck |
+| **Substeps** | sub-steps of the Box3D solver per world step; 16 for Plumo |
 | **Tier (logic)** | execution tier of a graph: `interpreter`, `compiling`, `compiled (WebAssembly)`, `native C++` |
-| **velstand** | Pollen's walking and standing network for the Micro Duck; built into Kern |
+| **velstand** | Pollen's walking and standing network for Plumo; built into Kern |
 | **Viewmodel layer** | render layer after a depth clear, e.g. for gizmos |
 | **Vorbild** | demonstration that the network imitates first (jump, play); German for "role model" |
 | **Walker** | controller type for articulated robots driven by a policy |

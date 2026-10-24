@@ -119,8 +119,8 @@ header.write_text(r"""
 """ % ("[variant=british]{english}" if a.en else "[spelling=new]{german}", logo_tex.as_posix()))
 title = "Kern – The Book" if a.en else "Kern – Das Buch"
 titlepage = work / "titlepage.tex"
-sub = ("The engine, Kern Studio, the Micro Duck and the Lehrer" if a.en
-       else "Die Engine, Kern Studio, die Micro Duck und der Lehrer")
+sub = ("The engine, Kern Studio, Plumo and the Lehrer" if a.en
+       else "Die Engine, Kern Studio, die Ente Plumo und der Lehrer")
 titlepage.write_text(r"""
 \thispagestyle{empty}
 \begin{center}

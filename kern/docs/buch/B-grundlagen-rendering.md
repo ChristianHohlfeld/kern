@@ -27,7 +27,7 @@ Der Code liegt in:
 
 ### B.1.1 Warum es mehrere Räume gibt
 
-Ein Modell – etwa der Rumpf des Micro Duck – wird einmal in seinem eigenen Koordinatensystem
+Ein Modell – etwa der Rumpf von Plumo – wird einmal in seinem eigenen Koordinatensystem
 beschrieben. Es steht aber an einer bestimmten Stelle der Welt, wird von einer Kamera gesehen und
 landet schließlich auf bestimmten Pixeln. Jeder dieser Schritte ist ein Wechsel des
 Koordinatensystems:

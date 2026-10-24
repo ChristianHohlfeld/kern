@@ -115,7 +115,7 @@ In the browser, `now_ms()` calls the import `kern_env.now` (`performance.now()`)
 `std::chrono::steady_clock`. `now_ms()` is meant for time budgets and measurements, for instance when
 the sound bank precomputes built-in sounds within a limited time (`src/game/sound.cpp`). **It does
 not belong in the simulation**: simulations count fixed steps, not wall-clock time; otherwise they
-would not be deterministic ([Chapter 6](06-physics.md), [Chapter 13](13-micro-duck.md)).
+would not be deterministic ([Chapter 6](06-physics.md), [Chapter 13](13-plumo.md)).
 
 ### Small Helpers
 
@@ -195,7 +195,7 @@ Both are `constexpr` and purely integer-based: the result depends only on the by
 ## 3.2 `kern::json` – `json.h`
 
 Kern needs JSON everywhere: levels (`.klevel`), the protocol between the Studio and the page, servo
-profiles, the Lehrer's demonstrations, the Micro Duck's policy manifest. `kern::json` is a small
+profiles, the Lehrer's demonstrations, Plumo's policy manifest. `kern::json` is a small
 document model of its own with three guarantees (header comment of `json.h`):
 
 1. **Objects keep their key order.** A document written by this formatter or by JavaScript's

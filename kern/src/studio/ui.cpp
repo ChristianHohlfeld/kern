@@ -107,7 +107,7 @@ game::Level template_level(const std::string& name) {
   if (name == "orbRun") return game::orb_run_level();
   if (name == "physicsLab") return game::physics_lab_level();
   if (name == "shootingRange") return game::shooting_range_level();
-  if (name == "microDuck") return game::micro_duck_level();
+  if (name == "plumo") return game::plumo_level();
   if (name == "empty") return game::empty_level();
   return game::basic_level();
 }
@@ -409,7 +409,7 @@ json::Value Studio::menu_json(std::string_view name) const {
     recent.push(entry("Orb Run", cmd("new", "template", "orbRun"), "", editing));
     recent.push(entry("Physics Lab", cmd("new", "template", "physicsLab"), "", editing));
     recent.push(entry("Shooting Range", cmd("new", "template", "shootingRange"), "", editing));
-    recent.push(entry("Micro Duck", cmd("new", "template", "microDuck"), "", editing));
+    recent.push(entry("Plumo", cmd("new", "template", "plumo"), "", editing));
     recent.push(entry("Basic", cmd("new", "template", "basic"), "", editing));
     recent.push(entry("Empty", cmd("new", "template", "empty"), "", editing));
     m.push(submenu("Example Levels", std::move(recent)));
@@ -615,8 +615,8 @@ json::Value Studio::dialog_json(std::string_view name, const json::Value& args) 
   if (name == "new") {
     d.set("title", "New Level");
     json::Value cards = json::Value::array();
-    const char* ids[] = {"orbRun", "physicsLab", "shootingRange", "microDuck", "basic", "empty"};
-    const char* labels[] = {"Orb Run", "Physics Lab", "Shooting Range", "Micro Duck", "Basic", "Empty"};
+    const char* ids[] = {"orbRun", "physicsLab", "shootingRange", "plumo", "basic", "empty"};
+    const char* labels[] = {"Orb Run", "Physics Lab", "Shooting Range", "Plumo", "Basic", "Empty"};
     const char* help[] = {"Procedural night city, Box3D hover car, 24 orbs to collect",
                           "Every Box3D joint: hinge, slider, wheel, rope bridge, motor, stacks",
                           "First-person Soldier (desktop, gamepad, touch), targets, cover - multiplayer ready",

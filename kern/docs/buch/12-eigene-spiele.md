@@ -93,7 +93,7 @@ Viele Spiele brauchen nichts weiter als die Bausteine oben. Für eigenes Verhalt
 4. **Compile** (F7) prüft den Graphen, **Viewport** führt zurück.
 
 Weitere Vorlagen: eine Tür, die auf **Interact** (Taste F) öffnet, ein Spawner, eine Ampel als State
-Machine und ein Verhalten für die Micro Duck. Alle Knoten erklärt [Kapitel 9](09-logik.md).
+Machine und ein Verhalten für Plumo. Alle Knoten erklärt [Kapitel 9](09-logik.md).
 
 ### Schritt 7: Ton
 
@@ -679,7 +679,7 @@ Ein Level aus Studio läuft auch ohne Export in einer eigenen Seite. `kern/web/s
 (`generated/kern_studio.wasm`, gebaut mit `--studio`).
 
 `kern/web/studio/play.html` zeigt das in wenigen Zeilen; es spielt ein eingebautes Level, gewählt mit
-`?level=orbRun` (Standard), `physicsLab`, `shootingRange`, `microDuck` oder `basic`:
+`?level=orbRun` (Standard), `physicsLab`, `shootingRange`, `plumo` oder `basic`:
 
 ```js
 import {startGame, PLAYER_STYLE, PLAYER_BODY} from "./game.mjs";
@@ -698,7 +698,7 @@ const game = await startGame({levelText, url: "./kern_studio.wasm"});
 
 `startGame` erwartet ein Canvas mit der Id `gl` (oder `canvas:`) sowie die Elemente aus `PLAYER_BODY`
 (HUD, Ladeanzeige, Hinweis, Neustart-Knopf, Fehlerfeld). Es startet das Modul im Spieler-Modus, öffnet das
-Level, lädt bei Bedarf die Netze der Micro Duck, startet Play und gibt ein Objekt zurück, das auch als
+Level, lädt bei Bedarf die Netze von Plumo, startet Play und gibt ein Objekt zurück, das auch als
 `window.KernGame` bereitsteht:
 
 | Mitglied | Zweck |
@@ -781,7 +781,7 @@ Die exportierte HTML-Datei lädt man auf einen beliebigen Webspace, legt sie in 
 Pages oder verschickt sie direkt. Sie läuft offline, im Vollbild, mit Tastatur, Maus, Gamepad und auf
 Telefonen mit Touch-Steuerung.
 
-- **Mit Micro Duck:** die Ordner `microduck/` (Pollens Netze aus `kern/third_party/microduck/*.onnx`) und
+- **Mit Plumo:** die Ordner `pollen/` (Pollens Netze aus `kern/third_party/pollen/*.onnx`) und
   `policies/` (`kern/policies/*.onnx`) neben die HTML-Datei legen, sonst fehlen alle Bewegungen außer dem
   Laufen ([Kapitel 11](11-studio.md#1114-policies-laden-jumponnx-playonnx)).
 - **Online-Spiel:** Die Adresse mit `?host=<raum>` öffnet das Spiel als Host, `?join=<raum>` tritt bei.
@@ -808,7 +808,7 @@ done
 ```
 
 Studio landet dabei als `_site/editor/index.html` mit Manifest, Service Worker, Icons, `build.json` und den
-Netzordnern `microduck/` und `policies/`; `kern/web/studio/` mit `play.html` und `generated/kern_studio.wasm`
+Netzordnern `pollen/` und `policies/`; `kern/web/studio/` mit `play.html` und `generated/kern_studio.wasm`
 kommen ebenfalls auf die Seite. Die veröffentlichte Fassung steht unter https://christianhohlfeld.github.io/kern/.
 
 ### Prüfliste vor dem Veröffentlichen

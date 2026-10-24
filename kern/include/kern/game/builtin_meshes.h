@@ -1,6 +1,6 @@
 // Built-in meshes: triangle meshes compiled into the engine, referenced by name from a
-// MeshComponent (Shape::mesh, MeshComponent::asset). Today these are the Micro Duck's links
-// ("duck/<MJCF body>", Pollen Robotics, CC BY-NC-SA 4.0: kern/third_party/microduck).
+// MeshComponent (Shape::mesh, MeshComponent::asset). Today these are Plumo's links
+// ("duck/<MJCF body>", Pollen Robotics, CC BY-NC-SA 4.0: kern/third_party/pollen).
 #pragma once
 
 #include <string>
