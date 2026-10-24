@@ -2,7 +2,7 @@
 
 Kern Studio ist der Editor der Kern-Engine. Er arbeitet wie eine Game Engine im Stil der Unreal Engine: Levels aus Actors mit Komponenten, Viewports mit Unreal-Navigation, Transform-Gizmos, Outliner und Details-Panel. Play und Simulate laufen direkt im Viewport. Rendern, Box3D-Physik, Steuerung und Spielregeln laufen im selben C++-Code, mit dem auch exportierte Spiele laufen.
 
-- Live: https://christianhohlfeld.github.io/kern/editor/
+- Live: https://kernengine.de/editor/
 - Bauen: `tools/build_studio.sh` → `generated/studio.html` (eine Datei, läuft offline)
 - Entwickeln: Repository statisch ausliefern, `kern/web/studio/index.html` öffnen (lädt `generated/kern_studio.wasm`)
 

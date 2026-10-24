@@ -6,7 +6,7 @@ name: CI
 #   build   Kern Studio + example games (parallel ThinLTO, object cache kept between runs)
 #   e2e     the browser test against the built Studio
 #   deploy  main only: publishes the site to the gh-pages branch
-#           https://christianhohlfeld.github.io/kern/
+#           https://kernengine.de/ (custom domain via the CNAME file)
 on:
   push:
     branches: [main]
@@ -147,6 +147,7 @@ jobs:
           set -euo pipefail
           cd _site
           touch .nojekyll
+          echo kernengine.de > CNAME  # the custom domain; without this file every publish would drop it
           git init -q -b gh-pages
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
