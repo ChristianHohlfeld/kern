@@ -1,6 +1,6 @@
 # 11 Kern Studio
 
-Kern Studio is the editor of the Kern engine. It works like the Unreal Engine: a level consists of
+Kern Studio is the editor of the Kern engine. It works like the Unreal Engine (Kern is not a product of Epic Games): a level consists of
 actors, each actor carries components, and you edit it in viewports with Unreal navigation and
 transform gizmos, in the Outliner, Details and World Settings. **Play** and **Simulate** run directly in
 the viewport, and a finished level becomes a single HTML file that runs anywhere, with one click.
@@ -960,7 +960,7 @@ everything; nothing stays stuck down.
 
 ### 11.12.3 Gamepad
 
-Gamepads with an Xbox layout (the browser's standard mapping) work in editor Play and in the exported
+Gamepads with the standard layout (the browser's standard mapping) work in editor Play and in the exported
 game, with dead zones and curves as in SpawnCity:
 
 | Input | Effect |
@@ -985,7 +985,7 @@ The Micro Duck is Pollen Robotics' two-legged robot, running on its real, traine
 model, servos and networks work is described in [Chapter 13](13-micro-duck.md); this section is about
 controlling it in Studio.
 
-![The Micro Duck example level: a room at the duck's scale](../buch/bilder/duck-level.png)
+![The Micro Duck example level: a room at the duck's scale (duck shown in this book's own design)](../buch/bilder/duck-level.png)
 
 **The example level** (File › Example Levels › Micro Duck): a room at its scale with furniture, a ball
 and two socks. The duck walks autonomously. Even without extras it plays ball as in Pollen's original
@@ -1030,7 +1030,7 @@ viewport (Window › Show › **Robot Camera**, on by default):
   for floor, yellow for too close, dark for nothing; plus the smallest distance in real meters or
   "clear".
 
-![The Micro Duck in Play with head camera and ToF grid](../buch/bilder/duck-play.png)
+![The Micro Duck in Play with head camera and ToF grid (duck shown in this book's own design)](../buch/bilder/duck-play.png)
 
 ---
 
@@ -1065,7 +1065,9 @@ replaces the bundled one without copying any file.
 
 On publishing, the CI copies the networks to `editor/microduck/` and `editor/policies/`. If you host an
 exported game with a duck yourself, put these two folders next to the HTML file
-([11.16](#1116-exporting-a-game)).
+([11.16](#1116-exporting-a-game)). The licence of `microduck/` (`kern/third_party/microduck/LICENSE`)
+and the `NOTICE` go with it; a game with the duck's look is non-commercial
+([Chapter 12](12-your-own-games.md#126-publishing)).
 
 ---
 
@@ -1180,7 +1182,9 @@ At the bottom there is a hint with the key bindings, hidden on touch devices.
 
 **What is not in the file:** the Micro Duck's on-demand networks ([11.14](#1114-loading-policies-jumponnx-playonnx)).
 Walking works without them because `velstand.onnx` is built in. For sitting, kicking, jumping and the play
-layer, the folders `microduck/` and `policies/` belong next to the HTML file.
+layer, the folders `microduck/` and `policies/` belong next to the HTML file, together with the
+licence of `microduck/` (`kern/third_party/microduck/LICENSE`) and the `NOTICE`. A game with the duck's
+look is non-commercial ([Chapter 12](12-your-own-games.md#126-publishing)).
 
 ---
 
@@ -1359,7 +1363,8 @@ The page also provides `window.KernStudio`: `command(c)`, `state`, `status`, `ke
 `viewportRect(i)` and more. Through it, the browser test `kern/tests/e2e/studio_e2e.mjs` drives Studio
 with Playwright: menus, fly mode, tools, Outliner, Details with undo, Content Drawer, context menu, Play,
 Simulate, layouts, templates, logic, Micro Duck, multiplayer, export, restore, settings, phone layouts
-and the Android file dialog. Most of the images in this chapter come from this test.
+and the Android file dialog. Most of the images in this chapter come from this test; in the figures the duck shows this
+book's own design.
 
 How to use the building blocks yourself is shown in [Chapter 12](12-your-own-games.md); all commands and
 functions are collected in [Chapter 17](17-reference.md).

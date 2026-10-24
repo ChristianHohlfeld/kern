@@ -1,6 +1,6 @@
 # 11 Kern Studio
 
-Kern Studio ist der Editor der Kern-Engine. Er arbeitet wie die Unreal Engine: Ein Level besteht aus
+Kern Studio ist der Editor der Kern-Engine. Er arbeitet wie die Unreal Engine (Kern ist kein Produkt von Epic Games): Ein Level besteht aus
 Actors, jeder Actor trägt Komponenten, man bearbeitet ihn in Viewports mit Unreal-Navigation und
 Transform-Gizmos, in Outliner, Details und World Settings. **Play** und **Simulate** laufen direkt im
 Viewport, und ein fertiges Level wird mit einem Klick zu einer einzigen HTML-Datei, die überall läuft.
@@ -981,7 +981,7 @@ Die Micro Duck ist Pollen Robotics' zweibeiniger Roboter, der auf seinen echten,
 Wie Modell, Servos und Netze funktionieren, beschreibt [Kapitel 13](13-micro-duck.md); hier geht es um die
 Bedienung im Studio.
 
-![Das Beispiel-Level Micro Duck: ein Zimmer im Maßstab der Ente](bilder/duck-level.png)
+![Das Beispiel-Level Micro Duck: ein Zimmer im Maßstab der Ente (Ente in der eigenen Gestaltung dieses Buchs)](bilder/duck-level.png)
 
 **Das Beispiel-Level** (File › Example Levels › Micro Duck): ein Zimmer in ihrem Maßstab mit Möbeln, einem
 Ball und zwei Socken. Die Ente läuft autonom. Schon ohne Zusätze spielt sie Ball wie in Pollens
@@ -1025,7 +1025,7 @@ sieht (Window › Show › **Robot Camera**, standardmäßig an):
 - **TOF 8×8** – das 8×8-Gitter ihres Abstandssensors: rot ein Hindernis (heller, je näher), grün Boden,
   gelb zu nah, dunkel nichts; dazu der kleinste Abstand in echten Metern oder „clear".
 
-![Die Micro Duck im Play mit Kopfkamera und ToF-Gitter](bilder/duck-play.png)
+![Die Micro Duck im Play mit Kopfkamera und ToF-Gitter (Ente in der eigenen Gestaltung dieses Buchs)](bilder/duck-play.png)
 
 ---
 
@@ -1060,7 +1060,9 @@ ersetzt damit das mitgelieferte, ohne dass man eine Datei kopiert.
 
 Beim Veröffentlichen kopiert die CI die Netze nach `editor/microduck/` und `editor/policies/`. Wer ein
 exportiertes Spiel mit Ente selbst hostet, legt diese beiden Ordner neben die HTML-Datei
-([11.16](#1116-spiel-exportieren)).
+([11.16](#1116-spiel-exportieren)). Zu `microduck/` gehören die Lizenz (`kern/third_party/microduck/LICENSE`)
+und die NOTICE; ein Spiel mit dem Aussehen der Ente ist nur nicht kommerziell nutzbar
+([Kapitel 12](12-eigene-spiele.md)).
 
 ---
 
@@ -1149,7 +1151,9 @@ Panelgrößen und den Content Drawer zurück. Levels bleiben unberührt.
 Die Datei ist ein vollständiges Spiel: Sie enthält das Engine-Modul als Base64, `kern.mjs` und `game.mjs`
 als ein Inline-Modul und das Level als JSON. Sie braucht keinen Server und kein Netz und läuft auch von
 `file://`. Beim Start lädt sie das Modul im Spieler-Modus (`kern_studio_init(…, player_only = 1)`): kein
-Editor, nur das Level, sofort im Play.
+Editor, nur das Level, sofort im Play. Das Modul enthält Pollens 3D-Modelle der Micro Duck
+(CC BY-NC-SA 4.0, nicht kommerziell), außer es wurde kommerziell gebaut (`KERN_COMMERCIAL=1
+tools/build_studio.sh`); siehe [Kapitel 12](12-eigene-spiele.md).
 
 ![Das exportierte Orb Run als eigenständige HTML-Datei](bilder/game.png)
 
@@ -1177,7 +1181,9 @@ Rechner ([11.17](#1117-multiplayer)). Scheitert der Verbindungsaufbau, spielt ma
 
 **Was nicht in der Datei steckt:** Die nachladbaren Netze der Micro Duck ([11.14](#1114-policies-laden-jumponnx-playonnx)).
 Das Laufen funktioniert ohne sie, weil `velstand.onnx` eingebaut ist. Für Sitzen, Kicken, Springen und die
-Spielschicht gehören die Ordner `microduck/` und `policies/` neben die HTML-Datei.
+Spielschicht gehören die Ordner `microduck/` und `policies/` neben die HTML-Datei. Zu `microduck/` gehören
+die Lizenz (`kern/third_party/microduck/LICENSE`) und die NOTICE; ein Spiel mit dem Aussehen der Ente ist
+nur nicht kommerziell nutzbar ([Kapitel 12](12-eigene-spiele.md)).
 
 ---
 
@@ -1356,7 +1362,7 @@ Die Seite stellt außerdem `window.KernStudio` bereit: `command(c)`, `state`, `s
 `kern/tests/e2e/studio_e2e.mjs` Studio mit Playwright: Menüs, Fly Mode, Werkzeuge, Outliner, Details mit
 Undo, Content Drawer, Kontextmenü, Play, Simulate, Layouts, Vorlagen, Logik, Micro Duck, Multiplayer,
 Export, Wiederherstellen, Einstellungen, Telefon-Layouts und Android-Dateidialog. Die Bilder dieses Kapitels
-stammen zum großen Teil aus diesem Test.
+stammen zum großen Teil aus diesem Test; in den Abbildungen zeigt die Ente die eigene Gestaltung des Buchs.
 
 Wie man die Bausteine selbst nutzt, zeigt [Kapitel 12](12-eigene-spiele.md); alle Befehle und Funktionen
 sammelt [Kapitel 17](17-referenz.md).

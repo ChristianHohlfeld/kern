@@ -3,7 +3,8 @@
 The Lehrer ("teacher") is Kern's own training system for the Micro Duck. Simulation, learning
 algorithm and export run in C++ on Kern's engine and Box3D, without Python and without PyTorch. It
 learns natively on all cores (headless on a server, too) and as WebAssembly in the browser, on
-desktop and phone. A run produces the same network bit for bit everywhere.
+desktop and phone. A run produces the same network bit for bit on all platforms checked in CI (GCC/x86, Apple clang/ARM,
+WebAssembly).
 
 The duck in the Lehrer is the same as in the Studio: the same `GameWorld`, the same servos, sensors
 and 50 Hz controller, the same physics with 16 sub-steps ([Chapter 13](13-micro-duck.md)). A network
@@ -643,8 +644,8 @@ best values).
 
 ## 14.7 Determinism
 
-A simulation, a training run or a replayed robot log comes out the same everywhere: natively on x86
-and ARM (GCC, Clang, Apple clang) and as WebAssembly in every browser. A simulation error is thus a
+A simulation, a training run or a replayed robot log comes out the same on all platforms checked in
+CI (GCC/x86, Apple clang/ARM, WebAssembly). A simulation error is thus a
 fixed, reproducible error and not noise that looks different from machine to machine.
 
 ### What it takes
@@ -908,7 +909,7 @@ DAgger + PPO on Box3D)`, `rate_hz` = `25` and the names of the 23 observations a
 
 ## 14.11 The Lehrer in the browser
 
-![The Lehrer page in the browser](../buch/bilder/lehrer.png)
+![The Lehrer page in the browser (German user interface)](../buch/bilder/lehrer.png)
 
 `kern/build.sh --lehrer` builds `kern_lehrer.wasm`: engine, Box3D, game runtime, `src/lehrer` and
 the C interface (`lehrer_api.cpp`). The page `/lehrer/` (`web/lehrer/`) loads it once and gives the

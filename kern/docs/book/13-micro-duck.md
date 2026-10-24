@@ -19,7 +19,7 @@ layer and controls. How to train networks yourself is covered in
 [Chapter 15](15-your-own-models.md); how the simulation is matched to the real robot, in
 [Chapter 16](16-calibration.md).
 
-![The Micro Duck level in the Studio](../buch/bilder/duck-level.png)
+![The Micro Duck level in the Studio (duck shown in this book's own design)](../buch/bilder/duck-level.png)
 
 ## 13.1 Where the code lives
 
@@ -46,7 +46,7 @@ therefore applies fixed rules to the duck:
 - A servo consists only of Box3D's own joint features: the implicitly solved joint spring and a
   motor with target speed 0 for friction (Section 13.4).
 - Fixed time step, counted in steps rather than wall-clock time. Identical inputs produce a gait
-  that is identical bit for bit, on every platform (determinism, [Chapter 14](14-lehrer.md#147-determinism)).
+  that is identical bit for bit on all platforms checked in CI (determinism, [Chapter 14](14-lehrer.md#147-determinism)).
 
 The physics itself (Box3D, contacts, joints) is described in [Chapter 6](06-physics.md).
 
@@ -583,7 +583,7 @@ over instead of Pollen's BallPlay (Section 13.10); Kern's former hand-written co
 Carry has been removed. The play layer itself contains no hand-written play logic; around the
 network there is only perception.
 
-![The duck at play](../buch/bilder/duck-play.png)
+![The duck at play (duck shown in this book's own design)](../buch/bilder/duck-play.png)
 
 ### Where it sits
 
@@ -750,7 +750,7 @@ walk up, stand, pick, bite) check in Studio physics that only the network makes 
 
 ## 13.12 Controls in the Studio
 
-![Phone controls](../buch/bilder/phone-play-390.png)
+![Touch controls on a phone (shown for Orb Run; the duck shows its own buttons)](../buch/bilder/phone-play-390.png)
 
 The inputs end up in `PlayInput::robot`, a bit field of the robot keys being held:
 

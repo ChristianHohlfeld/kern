@@ -22,29 +22,36 @@ the book may be used under the software's licence.
 and examples) is open source under the Apache License 2.0 and available free of charge:
 <https://christianhohlfeld.github.io/kern/>, source code at
 <https://github.com/ChristianHohlfeld/kern>. The names "Kern", "Kern Studio", "Kern Lehrer" and the
-Kern logo are excluded from the licence. Courses and integration licences for schools and
-companies are offered separately by the rights holder.
+Kern logo are excluded from the licence. Also excepted from the Apache licence are the Micro Duck
+3D models by Pollen Robotics contained in Kern Studio (CC BY-NC-SA 4.0, non-commercial); they are
+not included in integration licences either. A commercial build (`kern/build.sh --commercial`)
+leaves them out. Courses and integration licences for schools and companies are offered separately
+by the rights holder.
 
 **Third-party components.** Kern uses, and this book describes, Box3D (Erin Catto, MIT), Earcut
-(Mapbox, ISC), musl math (MIT) and the Micro Duck's robot model, policies and ported software by
-Pollen Robotics (Apache 2.0). They remain under their own licences; the licence texts are in
-[Appendix D](D-licences.md). Kern Studio shows the duck with Pollen's 3D models (CC BY-NC-SA 4.0,
-non-commercial); they are neither included nor shown in this book. The figures of the duck in this
-book show the author's own design.
+(Mapbox, ISC), musl math (MIT), Intel XeGTAO (MIT), three.js (MIT) and the Micro Duck's robot
+model, policies and ported software by Pollen Robotics (Apache 2.0). They remain under their own
+licences; the licence texts are in [Appendix D](D-licences.md). Kern Studio shows the duck with
+Pollen's 3D models (CC BY-NC-SA 4.0, non-commercial); they are neither included nor shown in this
+book. The pictures of the duck in this book, including the Studio screenshots, were made with the
+author's own design and do not show Pollen's 3D models.
 
 **Trademarks.** "Micro Duck" (also "Microduck") names Pollen Robotics' (Hugging Face) robot, which
 Kern simulates; the name is used only descriptively. This book and Kern are not products of Pollen
 Robotics or Hugging Face and are neither endorsed nor reviewed by them. Other trademarks
-and product names (among them Box3D, Unreal Engine, WebAssembly, WebGL, ONNX, GitHub, Amazon)
+and product names (among them Box3D, Unreal Engine, WebAssembly, WebGL, ONNX, GitHub, Amazon, Dynamixel
+(ROBOTIS), MuJoCo, Intel, Xbox)
 belong to their owners and are used only descriptively.
 
-**How it was made.** The software and the text were created with the help of AI tools; concept,
-selection, review and responsibility lie with the author.
+**How it was made.** Most of the software and the text was written by an AI system (Claude by
+Anthropic) under the author's direction. Idea, architecture, choice of components, review and
+responsibility lie with the author; see [About the Author](E-about-the-author.md).
 
 **Liability.** All information, programs and instructions were prepared and checked with care,
 without guarantee of correctness or completeness. Anyone who builds, calibrates or operates robots
 following this book does so at their own risk; author and rights holder are liable only for intent
-and gross negligence and for injury to life, body or health.
+and gross negligence and for injury to life, body or health, and under mandatory statutory
+provisions, in particular product liability law.
 
 ## Contents
 
@@ -53,4 +60,4 @@ and gross negligence and for injury to life, body or health.
 | **Part I – The Engine** | [1 Introduction](01-introduction.md) · [2 Building and Testing](02-building-and-testing.md) · [3 Foundations](03-foundations.md) · [4 Graphics](04-graphics.md) · [5 Scene and Geometry](05-scene-and-geometry.md) · [6 Physics](06-physics.md) · [7 Audio](07-audio.md) · [8 Game Runtime](08-game-runtime.md) · [9 Logic](09-logic.md) · [10 Networking](10-networking.md) |
 | **Part II – Using Kern** | [11 Kern Studio](11-studio.md) · [12 Your Own Games](12-your-own-games.md) |
 | **Part III – Robots and Learning** | [13 The Micro Duck](13-micro-duck.md) · [14 The Lehrer](14-lehrer.md) · [15 Training Your Own Models](15-your-own-models.md) · [16 Calibration](16-calibration.md) · [17 Reference](17-reference.md) |
-| **Appendices – Background** | [A Neural Networks and Reinforcement Learning](A-neural-networks.md) · [B Real-Time Rendering](B-rendering.md) · [C Physics Simulation](C-physics.md) · [D Licences](D-licences.md) |
+| **Appendices – Background** | [A Neural Networks and Reinforcement Learning](A-neural-networks.md) · [B Real-Time Rendering](B-rendering.md) · [C Physics Simulation](C-physics.md) · [D Licences](D-licences.md) · [About the Author](E-about-the-author.md) |

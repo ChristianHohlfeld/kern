@@ -137,7 +137,7 @@ Two details are worth a closer look:
 
 - `expm1(z)` computes $e^z - 1$ accurately, even for small $|z|$, where `exp(z) - 1` loses digits.
 - It is `kern::dm::expm1`, not `std::expm1`: Kern's deterministic maths library (musl, see A.11.10
-  and [Appendix C](C-physics.md)), so that the result is bit-identical on every platform.
+  and [Appendix C](C-physics.md)), so that the result is bit-identical on all platforms checked in CI.
 
 The backward pass needs the derivative. For $z \le 0$, $\text{ELU}'(z) = e^z$, and because
 $h = e^z - 1$, we have $e^z = h + 1$. So there is no need to store $z$ at all; the output is enough.

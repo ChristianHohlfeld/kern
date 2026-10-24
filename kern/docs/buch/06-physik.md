@@ -100,10 +100,12 @@ S = 4 (`game::kWalkerScale` in `include/kern/game/walker.h`, im Code als `kDuckS
 | Beschleunigung, Schwerkraft | 1 | ×1 | g bleibt 9,81 m/s² |
 | Frequenzen (Federn, Kontakt- und Gelenkweichheit) | 1/√S | ×½ | |
 
-**Ist die 4-fache Ente noch der echte Roboter?** Ja. Die Skalierung ist ein Wechsel der Einheiten,
+**Verhält sich die 4-fache Ente noch wie das Modell des echten Roboters?** Im Rahmen der
+Modellgenauigkeit ja: Die Skalierung ist ein Wechsel der Einheiten,
 kein größerer Roboter: Wird jede Größe mit ihrer Dimension skaliert, rechnet Box3D dieselbe
 Bewegung. Was nach außen geht, ist in echten Einheiten: `walker_probe`, die Beobachtungen der Netze,
-Logs und Kalibrierung ([Kapitel 16](16-kalibrierung.md)).
+Logs und Kalibrierung ([Kapitel 16](16-kalibrierung.md)). Simulationsergebnisse sind keine Garantie
+für sicheres Verhalten auf echter Hardware.
 
 Der Test `physics_scale_is_a_unit_system` (`tests/test_main.cpp`) baut ein kleines Servo-Bein
 (72 g Rumpf, zwei 5-cm-Glieder, Federservos mit Reibung) in 1-, 4- und 8-facher Größe:
@@ -381,7 +383,7 @@ Der Micro Duck nutzt alle drei ([Kapitel 13](13-micro-duck.md)):
 Die Sohlen und Gehäuse der Ente haben **keine** Oberfläche: Sie behalten die Reibwerte, mit denen
 die Policy trainiert wurde (Sohlen 1,0 auf einem Boden mit 1,0 ergibt √(1 · 1) = 1).
 
-![Das Beispiel-Level Micro Duck: Holzboden, Ball und zwei Socken mit eigener Paar-Reibung](bilder/duck-level.png)
+![Das Beispiel-Level Micro Duck: Holzboden, Ball und zwei Socken mit eigener Paar-Reibung (Ente in der eigenen Gestaltung dieses Buchs)](bilder/duck-level.png)
 
 ---
 
@@ -713,8 +715,8 @@ Gelenkweichheit von `min(240 Hz, max_hertz)` mit Dämpfungsgrad 2.
 
 ## 6.14 Determinismus
 
-Kern ist Bit für Bit deterministisch – nicht nur auf derselben Maschine, sondern über Plattformen
-(x86, ARM, WebAssembly in jedem Browser). Die Physik trägt dazu bei:
+Kern ist Bit für Bit deterministisch – nicht nur auf derselben Maschine, sondern auf allen in der CI
+geprüften Plattformen (GCC/x86, Apple clang/ARM, WebAssembly). Die Physik trägt dazu bei:
 
 - fester Zeitschritt, Simulationszeit als Schrittzähler, Eingaben pro Schritt (6.13);
 - `workerCount = 1`: keine Reihenfolge, die von Threads abhängt;
@@ -739,7 +741,7 @@ Threads abhängt; keine `-ffast-math`-Optionen.
 
 `docs/physics.md` ist verbindlich für jeden Code in Kern, der Bodies, Shapes, Joints oder Motoren
 anlegt – **zu lesen, bevor man `src/physics` oder `src/game/runtime.cpp` ändert oder einen Roboter,
-ein Fahrzeug oder einen Ragdoll-Preset baut.** Die Regeln stützen sich auf drei Quellen: Erins eigene
+ein Fahrzeug oder einen Ragdoll-Preset baut.** Die Regeln stützen sich auf drei Quellen: Erin Cattos eigene
 Dokumentation und Samples (zitiert als `box3d:datei:zeile`), seine Blogposts und GDC-Vorträge auf
 box2d.org, und Messungen in Kern (*[gemessen]*, jeweils mit einem Kern-Test belegt). Hier sind sie
 vollständig zusammengestellt, jede mit ihrem Grund.
@@ -758,7 +760,7 @@ vollständig zusammengestellt, jede mit ihrem Grund.
 
 | Regel | Warum |
 |---|---|
-| Schwere Körper nicht an leichten aufhängen; Nachbarmassen innerhalb von etwa 10:1. | Extreme Verhältnisse führen zu „joint stretching“ (Box2D v2.4 `docs/loose_ends.md`, `box3d:docs/loose_ends.md:133-134`). Erins Lösung für einen Panzer mit 467:1: leichte Teile schwerer, schwere leichter machen ([Diskussion #132](https://github.com/erincatto/box3d/discussions/132)). |
+| Schwere Körper nicht an leichten aufhängen; Nachbarmassen innerhalb von etwa 10:1. | Extreme Verhältnisse führen zu „joint stretching“ (Box2D v2.4 `docs/loose_ends.md`, `box3d:docs/loose_ends.md:133-134`). Erin Cattos Lösung für einen Panzer mit 467:1: leichte Teile schwerer, schwere leichter machen ([Diskussion #132](https://github.com/erincatto/box3d/discussions/132)). |
 | Ein starres Teil ist **ein** Body mit mehreren Shapes. **No-Go:** Bodies zusammenschweißen. | „the approximate solver cannot hold many bodies together rigidly“ (`box3d:docs/simulation.md:1523-1526`). Kern schweißt Kinder, die nur ein Mesh haben, als Shapes in den nächsten Vorfahren mit Body ein. |
 | Leichten Gliedern eine Mindestmasse geben, statt den Solver zu verstellen. | Die 5-g-Hüftbügel der Ente wiegen in echter Größe mindestens 20 g (×64 bei S = 4). |
 
@@ -779,7 +781,7 @@ vollständig zusammengestellt, jede mit ihrem Grund.
 |---|---|
 | Jeden Preset mit Gelenken **in seiner Ruhepose bauen**; Limits müssen die Null enthalten. | Der Nullwinkel liegt dort, wo die Frames übereinstimmen (`box3d:docs/simulation.md:1414-1417`). |
 | Revolute-Gelenke drehen um die Z-Achse des Frames; Kern baut den Frame aus der Achse im Actor (`frame_from_axis`). | Eine Konvention statt Rechnen von Hand. |
-| Eigenkollision: verbundene Bodies kollidieren nicht (ohne `collideConnected`); den Rest mit einer negativen Kollisionsgruppe pro Roboter oder Filter-Joints für einzelne Paare filtern. | So macht es Erins Ragdoll (`box3d:shared/human.c:399-410`). |
+| Eigenkollision: verbundene Bodies kollidieren nicht (ohne `collideConnected`); den Rest mit einer negativen Kollisionsgruppe pro Roboter oder Filter-Joints für einzelne Paare filtern. | So macht es Erin Cattos Ragdoll (`box3d:shared/human.c:399-410`). |
 | Die Standardwerte `constraintHertz = 60` und Dämpfung 2 nicht anfassen; Kern erhöht sie nur für Servogelenke, zusammen mit der Sub-Step-Grenze. | `box3d:src/joint.c:30-31`; höhere Werte ohne Sub-Steps wirken nicht oder werden instabil. |
 
 ### Motoren, Servos und Reibung (§5)
@@ -790,13 +792,13 @@ vollständig zusammengestellt, jede mit ihrem Grund.
 | Positionsservos sind die **Gelenkfeder** des Revolute-Joints mit Zielwinkel (`b3RevoluteJoint_SetTargetAngle`). | Implizit gelöst, bei jeder Steifigkeit stabil. |
 | Steifigkeit (N·m/rad) und Dämpfung (N·m·s/rad) sind physikalische Servowerte; `set_joint_spring` rechnet sie an der Grenze um. | Eine Umrechnung, wie `revolute_joint.c`. |
 | Das Haltemoment entsteht durch Begrenzen des Fehlers auf Moment / Steifigkeit. | So sättigt die PWM eines Dynamixel. |
-| **Nicht** Erins anderes Rezept `motorSpeed = gain × Fehler` mit Maximalmoment für Roboter mit trainierter Policy. | Das ist eine starre Geschwindigkeitsregelung (`box3d:docs/simulation.md:1240-1243`); die Policy hat einen nachgiebigen PD-Servo gelernt. |
+| **Nicht** Erin Cattos anderes Rezept `motorSpeed = gain × Fehler` mit Maximalmoment für Roboter mit trainierter Policy. | Das ist eine starre Geschwindigkeitsregelung (`box3d:docs/simulation.md:1240-1243`); die Policy hat einen nachgiebigen PD-Servo gelernt. |
 | **No-Go: die Physik umgehen.** Keine Zusatzmomente, die etwas „nachbilden“; keine gesetzten Geschwindigkeiten an Bodies mit Gelenken oder Kontakten; keine Gyros, Sperren oder Stützkräfte für Roboter. | In der echten Welt gibt es sie auch nicht – eine Policy, die mit Hilfskräften läuft, läuft am echten Gerät nicht. |
 | Rotorträgheit eines Getriebes (MuJoCo „armature“) ist eine Masse-Eigenschaft: eine Scheibe auf der Gelenkachse, die das Glied trägt. Was Box3D gar nicht abbilden kann, wird dokumentiert, nicht vorgetäuscht. | `docs/walker.md` §6; ein rein axialer Tensor wäre kein realer starrer Körper, und Box3D gewinnt damit Energie (`add_armature` in `walker.cpp`). |
-| **Gelenkreibung** ist ein Motor mit Geschwindigkeit 0 und kleinem Maximalmoment. | Erins Rezept (`box3d:docs/simulation.md:1431-1434`); sein Ragdoll nutzt 5 N·m × einen Faktor pro Gelenk (`box3d:shared/human.c:347-393`). |
+| **Gelenkreibung** ist ein Motor mit Geschwindigkeit 0 und kleinem Maximalmoment. | Erin Cattos Rezept (`box3d:docs/simulation.md:1431-1434`); sein Ragdoll nutzt 5 N·m × einen Faktor pro Gelenk (`box3d:shared/human.c:347-393`). |
 | Kontaktreibung pro Shape; zwei Materialien kombiniert Box3D als √(a·b) (Reibung) und max (Restitution); Paare mit eigenem Wert über `Surface`. | 6.6, 6.7. |
 | Rollwiderstand für runde Dinge (Kugeln, Kapseln; auf Hüllen wirkt er mit einem Viertel des Innenradius); Roboterfüße breit, flach, mit hoher Reibung. | 6.7. |
-| Einen Körper weich aufrecht halten: **Parallel-Joint** (Hertz, Dämpfung, Maximalmoment), keine überschriebenen Geschwindigkeiten. | Erins Weg (`box3d:shared/human.c:526-605`). |
+| Einen Körper weich aufrecht halten: **Parallel-Joint** (Hertz, Dämpfung, Maximalmoment), keine überschriebenen Geschwindigkeiten. | Erin Cattos Weg (`box3d:shared/human.c:526-605`). |
 
 ### Kräfte, Geschwindigkeiten, Dämpfung (§6)
 
@@ -894,7 +896,7 @@ void servo_step(physics::World& world, const physics::Joint& joint, f32 target,
   ist. So übersteigt K × Fehler nie das Höchstmoment T – wie die sättigende PWM des Servos. Die
   Feder ist implizit und bei jeder Steifigkeit stabil.
 - **Reibung:** ein Motor mit Geschwindigkeit 0, dessen maximales Moment die Reibung F ist
-  (Erins Gelenkreibung).
+  (Erin Cattos Gelenkreibung).
 - Alle Werte in Einheiten der Welt (bei Walkern skaliert, siehe unten).
 
 `GameWorld::drive_servos` ruft `servo_step` jeden Physikschritt für jedes ungebrochene Servo-Gelenk.
@@ -933,7 +935,7 @@ nicht festlegen konnte. Profile sind JSON (`to_json`, `servo_profile_from_json`)
 `spreadArmature`, `delayMin`, `delayMax`. Werte außerhalb ihrer Bereiche werden abgelehnt,
 Steifigkeit und Moment müssen positiv sein.
 
-`game::xl330_profile()` ist der XL330-M288 so, wie Pollen Robotics ihn trainiert (BAM-Modell „m6“
+`game::xl330_profile()` ist der XL330-M288 so, wie Pollen Robotics ihn trainiert (BAM – Better Actuator Models von Rhoban, Modell „m6“, wie in Pollens Training;
 bei 7,4 V):
 
 | Parameter | Wert |

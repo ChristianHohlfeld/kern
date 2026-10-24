@@ -16,6 +16,12 @@ Box3D bleibt dabei unangetastet; es rechnet starre Körper, Gelenke und Kontakte
 eintragen** – Größen, die aus Modell und Physik folgen, misst der Lehrer selbst, statt sie als Zahl
 in den Code zu schreiben.
 
+> **Sicherheit.** Servos unter Last können schnell und kräftig ausschlagen: Prüfstand fest einspannen,
+> Arm und Gewicht sichern, Hände und Kabel aus dem Schwenkbereich, Strom begrenzen, Not-Aus griffbereit.
+> Die Betriebsspannung des Servoherstellers nie überschreiten. Lithium-Akkus nur mit geeignetem Ladegerät
+> und unter Aufsicht laden. Neue Netze zuerst mit gehaltenem oder aufgehängtem Roboter testen. Alles auf
+> eigenes Risiko (siehe [Impressum](00-impressum.md)).
+
 | Teil | Wo | Was |
 |---|---|---|
 | Gerätemodell Servo | `include/kern/game/servo.h`, `src/game/servo.cpp` | Gesetz des Positionsservos, Profil als JSON |
@@ -98,7 +104,7 @@ Aus `docs/kalibrierung.md`:
    ausbalancieren), Trägheit um den eigenen Schwerpunkt aus der Form rechnen (bei kleinen Gewichten
    klein gegen m·r²). Winkel 0 = Arm hängt senkrecht nach unten.
 2. **Servo wie im Roboter betreiben:** gleiche Firmware-Einstellungen (Positionsmodus, P/I/D-Gains,
-   Profil), gleiche Spannung (7,4 V), Return Delay Time 0, gleicher Bus-Takt.
+   Profil), gleiche Spannung (7,4 V, sofern der Hersteller diese Spannung für den Servo zulässt), Return Delay Time 0, gleicher Bus-Takt.
 3. **Signale** je Last, mit mindestens 100 Hz Positionsabfrage: Sprünge zwischen mehreren Winkeln
    (klein und groß, z. B. ±0,2 und ±0,9 rad), ein Chirp 0,5 → 4 Hz mit 0,5 rad Amplitude, ein Rechteck
    ±0,3 rad.
@@ -201,8 +207,9 @@ Sie zeigen das Format und eignen sich, die Werkzeugkette einmal durchzuspielen.
 
 ## 16.3 Abgleich: der ganze Roboter
 
-Der Roboter zeichnet je Regeltakt (50 Hz) auf, was sein Netz gesehen hat (61 Werte) und was es
-gesendet hat (14 Aktionen). Er steht zu Beginn still in Grundstellung.
+Vorausgesetzt ist ein Log, das je Regeltakt (50 Hz) die 61 Beobachtungen und 14 Aktionen enthält,
+beginnend still in Grundstellung. Ob und wie die Software des Roboters ein solches Log schreibt,
+beschreibt dieses Buch nicht.
 
 **Format** (`parse_robot_log`): eine Kopfzeile, dann je Takt 75 Zahlen – 61 Beobachtungen, 14
 Aktionen. `robot_log_csv` schreibt die Kopfzeile `obs0,…,obs60,act0,…,act13`.

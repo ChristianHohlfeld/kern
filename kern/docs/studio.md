@@ -351,7 +351,7 @@ Actors werden repliziert, auch an Spieler, die später dazukommen.
   *Player*.
 - **Soldat:** Ego-Shooter nach SpawnCity.
   - Bewegung: Gehen, Sprinten, Ducken, Springen.
-  - Waffen: Volt-SMG, Glock, Sniper oder 40-mm-Werfer mit Magazinen, Nachladen, Zielen über Kimme
+  - Waffen: Maschinenpistole, Pistole, Sniper oder 40-mm-Werfer mit Magazinen, Nachladen, Zielen über Kimme
     und Korn sowie Kopftreffern.
   - Spiel: Respawn und Lag-Kompensation im Online-Spiel.
   - Optik: Andere Spieler sehen die animierte Gelenkfigur mit Waffe, dazu Mündungsfeuer, Tracer,

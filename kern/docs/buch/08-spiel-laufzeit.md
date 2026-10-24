@@ -700,7 +700,7 @@ Bewegung ist bei Rolling Ball, Charakter und Flieger **kamerarelativ**. Die Modi
 | **Hovercar** | Gas als Kraft entlang der Fahrzeugachse (rückwärts 1,25-fach, Boost +42 m/s²), Höchstgeschwindigkeit als Gegenkraft, Rollwiderstand ohne Gas; **Seitenhaftung als Kraft** (stetige Impulse kämpfen gegen den Solver); Lenkung als Gierrate proportional zur Geschwindigkeit bis 9 m/s. Eine **Schwebefeder** über einem Box3D-Strahl hält `hover_height`. Sichtbares Wippen und Neigen sind nur Darstellung. |
 | **Vehicle** | wie Hovercar ohne Schwebefeder; angetrieben wird nur mit Bodenkontakt (Kugelprobe). |
 | **Rolling Ball** | Kraft in Bewegungsrichtung; **Sprung als Impuls** m · (`jump_speed` − v_z), nur am Boden; Höchstgeschwindigkeit als Gegenkraft. |
-| **Character** | Box3Ds **Character Mover** ([Kapitel 6](06-physik.md)): Der Body wird kinematisch, die Kapsel wird aus seinen Formen bemessen (Füße am tiefsten, Kopf am höchsten Punkt, Stufenhöhe 22 % der Höhe), Quake-artige Bodenbewegung, Schwerkraft 1,5-fach (knackiger). Der Körper dreht sich weich in Laufrichtung und folgt per `set_target_pose`. Schritte nach Schrittlänge; Trigger und Pickups über die berührten Ebenen. |
+| **Character** | Box3Ds **Character Mover** ([Kapitel 6](06-physik.md)): Der Body wird kinematisch, die Kapsel wird aus seinen Formen bemessen (Füße am tiefsten, Kopf am höchsten Punkt, Stufenhöhe 22 % der Höhe), Bodenbewegung wie in klassischen Ego-Shootern, Schwerkraft 1,5-fach (knackiger). Der Körper dreht sich weich in Laufrichtung und folgt per `set_target_pose`. Schritte nach Schrittlänge; Trigger und Pickups über die berührten Ebenen. |
 | **Flyer** | Zielgeschwindigkeit inklusive Hoch/Runter, Beschleunigung als Kraft, die die Schwerkraft aufhebt; Gieren zur Kamerarichtung. |
 | **Soldier** | Character Mover mit echter Schwerkraft (Sprung 3,6 m/s → 0,66 m), siehe 8.13. |
 | **Walker** | Die Eingabe geht an den Controller des Roboters, der seine Servos mit der trainierten Policy treibt ([Kapitel 13](13-micro-duck.md)). |
@@ -814,7 +814,7 @@ festen Schritten auf der Autorität.
   (gehen, laufen, Luft, zielen, tot), im Editor stehend, beim Spielen aus dem Pawn animiert; dazu
   die Waffe in der Hand mit Handschuhen und Ärmeln, Mündungsfeuer, Tracer, Einschusslöcher, Splitter
   und Hülsen. Alles ist reine Darstellung und ändert die Simulation nicht – Autorität, Replikas und
-  Editor zeigen dasselbe. Die Modelle (Volt-SMG, Glock, .50-Scharfschützengewehr, 40-mm-Werfer) sind
+  Editor zeigen dasselbe. Die Modelle (Maschinenpistole, Pistole, .50-Scharfschützengewehr, 40-mm-Werfer) sind
   prozedural aus Grundformen gebaut (`soldier_models.cpp`).
 
 Test: `game_soldier_moves_shoots_and_respawns`, `soldier_art_in_play`,
@@ -930,7 +930,7 @@ SpawnCitys Regeln:
 - `update` liefert die Eingabe eines Frames inklusive der Walker-Bits; `view()` beschreibt, was die
   Seite zeichnet.
 
-Gamepads (Xbox-Belegung) übergibt die Seite pro Frame an die Engine; Kern wendet Dead-Zones, Kurven
+Gamepads (Standardbelegung) übergibt die Seite pro Frame an die Engine; Kern wendet Dead-Zones, Kurven
 und die Zielraten des Soldaten an (`web/studio/game.mjs`, `GamepadInput`). Tests:
 `touch_controls_layout_and_sticks`, `input_device_arbiter_rules`, `studio_touch_play_without_pointer_lock`.
 

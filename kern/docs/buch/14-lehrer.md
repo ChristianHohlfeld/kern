@@ -3,12 +3,13 @@
 Der Lehrer ist Kerns eigenes Trainingssystem für die Micro Duck. Simulation, Lernverfahren und
 Export laufen in C++ auf Kerns Engine und Box3D, ohne Python und ohne PyTorch. Er lernt nativ auf
 allen Kernen (auch headless auf einem Server) und als WebAssembly im Browser, auf Desktop und Handy.
-Ein Lauf ergibt überall Bit für Bit dasselbe Netz.
+Ein Lauf ergibt auf allen in der CI geprüften Plattformen Bit für Bit dasselbe Netz.
 
 Die Ente im Lehrer ist dieselbe wie im Studio: dieselbe `GameWorld`, dieselben Servos, Sensoren und
 derselbe 50-Hz-Regler, dieselbe Physik mit 16 Sub-Steps ([Kapitel 13](13-micro-duck.md)). Ein Netz,
-das hier lernt, läuft deshalb unverändert im Studio. Es wird im Format von Pollens Netzen exportiert
-und kann wie diese auf den Roboter.
+das hier lernt, läuft deshalb unverändert im Studio. Es wird im Format von Pollens Netzen exportiert.
+Auf dem echten Roboter ist es nicht erprobt; wer ein selbst trainiertes Netz auf Hardware lädt, tut das
+auf eigenes Risiko ([Kapitel 16](16-kalibrierung.md)).
 
 Mit dem Lehrer sind Kerns eigene Netze entstanden: `policies/jump.onnx` (der Sprung) und
 `policies/play.onnx` (die Spielschicht). Dieses Kapitel erklärt, wie er gebaut ist und wie er
@@ -641,8 +642,8 @@ Neigung, Bestwerte).
 
 ## 14.7 Determinismus
 
-Eine Simulation, ein Trainingslauf oder ein abgespieltes Roboter-Log kommt überall gleich heraus:
-nativ auf x86 und ARM (GCC, Clang, Apple clang) und als WebAssembly in jedem Browser. Ein Fehler der
+Eine Simulation, ein Trainingslauf oder ein abgespieltes Roboter-Log kommt auf allen in der CI
+geprüften Plattformen (GCC/x86, Apple clang/ARM, WebAssembly) gleich heraus. Ein Fehler der
 Simulation ist damit ein fester, reproduzierbarer Fehler und kein Rauschen, das je nach Rechner
 anders aussieht.
 

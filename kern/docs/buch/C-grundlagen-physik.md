@@ -670,7 +670,7 @@ Die drei Teile:
    $\theta \pm T/K$ begrenzt; dann kann $K \cdot e$ nie über $T$ steigen – „a Dynamixel's duty cycle
    saturates the same way.“
 3. **Reibung als Motor.** Ein Gelenkmotor mit Sollgeschwindigkeit 0 und Höchstmoment $F$ hält das
-   Gelenk, bis mehr als $F$ anliegt – genau Coulomb-Reibung („Erin's joint friction“).
+   Gelenk, bis mehr als $F$ anliegt – genau Coulomb-Reibung (die Gelenkreibung aus Erin Cattos Box3D-Dokumentation).
 
 Box3D erwartet Federn aber nicht in N·m/rad, sondern als Frequenz und Dämpfungsgrad. Die Umrechnung
 macht `World::set_joint_spring` an der Grenze, mit der effektiven Masse aus C.5.1:

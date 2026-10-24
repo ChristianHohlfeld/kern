@@ -356,11 +356,11 @@ if (uGrade == 1) rgb = gradeColor(rgb);
 rgb = linearToSrgb(clamp(rgb, 0.0, 1.0));
 ```
 
-`acesFilmic` ist die Anpassung von three.js (r16x) an die ACES-RRT/ODT-Kurve, einschließlich des Faktors `uExposure / 0.6`. `gradeColor` ist Kerns Produktions-Grading auf dem bereits tonemappten Bild: Sättigung ×1,14, eine weiche S-Kurve (22 %), wärmere Lichter und kühlere Schatten. Im Szenenshader schaltet `RendererOptions::grade = false` es ab; im Bloom-Composite entscheidet `BloomOptions::grade` (die C-ABI setzt beide gleich, `kern_renderer_init`).
+`acesFilmic` ist die Anpassung von three.js (r16x; MIT, siehe Anhang D) an die ACES-RRT/ODT-Kurve, einschließlich des Faktors `uExposure / 0.6`. `gradeColor` ist Kerns Produktions-Grading auf dem bereits tonemappten Bild: Sättigung ×1,14, eine weiche S-Kurve (22 %), wärmere Lichter und kühlere Schatten. Im Szenenshader schaltet `RendererOptions::grade = false` es ab; im Bloom-Composite entscheidet `BloomOptions::grade` (die C-ABI setzt beide gleich, `kern_renderer_init`).
 
 ### Nebel
 
-Wie in three.js wird der Nebel **nach** der sRGB-Umwandlung angewendet, als `FogExp2`:
+Wie in three.js wird der Nebel **nach** der sRGB-Umwandlung angewendet, als `FogExp2` (MIT, siehe Anhang D):
 
 ```
 dist    = |P - eye|
@@ -525,7 +525,7 @@ Warum? Bewegt sich die Karte um Bruchteile eines Texels mit der Kamera, fallen S
 
 ```glsl
 if (uSunShadowEnabled == 1 && ndl > 0.0) {
-  // Normal Offset (Holbein 2011): einen Texel von der Fläche weg entlang der Normale nachschlagen,
+  // Normal Offset (Holbert 2011): einen Texel von der Fläche weg entlang der Normale nachschlagen,
   // mehr bei streifendem Licht – keine Akne ohne großen konstanten Bias.
   vec3 lookup = vWorld + n * (uSunShadowTexel.z * (0.6 + 1.4 * (1.0 - ndl)));
   vec4 clip = uSunShadowProjection * vec4(lookup, 1.0);
@@ -587,7 +587,7 @@ o = vec4(clamp(scene + present(h2 + b) - present(h), 0.0, 1.0), 1.0);
 
 ### 4.8.4 Ambient Occlusion (GTAO)
 
-Kern implementiert Ground-Truth Ambient Occlusion nach Jimenez, Wu, Pesce und Jarabo (2016) in der Form von Intels XeGTAO (`src/gfx/gtao.cpp`). Die Besonderheit liegt weniger im Verfahren als in der Einbettung: **Es gibt keinen Depth-Prepass und keinen zusätzlichen Geometriepass.**
+Kern implementiert Ground-Truth Ambient Occlusion nach Jimenez, Wu, Pesce und Jarabo (2016) in der Form von Intels XeGTAO (MIT, siehe Anhang D; `src/gfx/gtao.cpp`). Die Besonderheit liegt weniger im Verfahren als in der Einbettung: **Es gibt keinen Depth-Prepass und keinen zusätzlichen Geometriepass.**
 
 **Die Idee in drei Schritten:**
 

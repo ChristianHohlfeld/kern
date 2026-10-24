@@ -2,7 +2,7 @@
 
 This appendix explains how a rigid-body simulation works: what a body "is", how it is advanced in
 time, how collisions are detected and resolved, what friction and elasticity mean, how joints and
-servos work, and why a simulation can come out bit for bit the same on every computer. Kern simulates
+servos work, and why a simulation can come out bit for bit the same on different computers. Kern simulates
 with **Box3D**, Erin Catto's 3D successor to Box2D v3 (`third_party/box3d`), and puts a thin C++
 layer on top (`include/kern/physics/physics.h`, `src/physics/physics.cpp`). The topical chapter is
 [Chapter 6](06-physics.md); the binding rules for Kern's physics code are in `docs/physics.md`.
@@ -662,7 +662,7 @@ The three parts:
    to $\theta \pm T/K$; then $K \cdot e$ can never exceed $T$ – "a Dynamixel's duty cycle saturates
    the same way."
 3. **Friction as a motor.** A joint motor with target velocity 0 and maximum torque $F$ holds the
-   joint until more than $F$ is applied – exactly Coulomb friction ("Erin's joint friction").
+   joint until more than $F$ is applied – exactly Coulomb friction ("Erin Catto's joint friction").
 
 Box3D, however, expects springs not in N·m/rad but as a frequency and damping ratio. The conversion is
 done by `World::set_joint_spring` at the boundary, using the effective mass from C.5.1:

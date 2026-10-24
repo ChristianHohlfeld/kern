@@ -771,7 +771,15 @@ An exported Studio game needs none of this: it is a single file that also runs f
 > with a link is enough) and keeps the copyright notices. The names "Kern" and "Kern Studio" and the
 > logo are not part of the licence: "Made with Kern" is fine, calling your own product "Kern" is not
 > (`TRADEMARKS.md`). Third-party components keep their own licences (`kern/LICENSES.md`,
-> [Appendix D](D-licences.md)). The following sections describe the technical side.
+> [Appendix D](D-licences.md)).
+>
+> **Exception:** the Studio module and every game exported from it contain Pollen Robotics' Micro
+> Duck 3D models (CC BY-NC-SA 4.0, non-commercial). For a game that is sold or used commercially,
+> build with `KERN_COMMERCIAL=1 tools/build_studio.sh` (or `kern/build.sh --commercial`), which leaves
+> them out; the Micro Duck then has no look. Pollen's networks (Apache 2.0) may be shipped with their
+> licence and `NOTICE`.
+>
+> The following sections describe the technical side.
 
 ### Studio games
 
@@ -782,7 +790,9 @@ controls.
 - **With the Micro Duck:** put the folders `microduck/` (Pollen's networks from
   `kern/third_party/microduck/*.onnx`) and `policies/` (`kern/policies/*.onnx`) next to the HTML file;
   otherwise every movement except walking is missing
-  ([Chapter 11](11-studio.md#1114-loading-policies-jumponnx-playonnx)).
+  ([Chapter 11](11-studio.md#1114-loading-policies-jumponnx-playonnx)). The licence of `microduck/`
+  (`kern/third_party/microduck/LICENSE`) and the `NOTICE` go with it. A game with the duck's look is
+  non-commercial (see the rights note in 12.6).
 - **Online game:** the address with `?host=<room>` opens the game as host, `?join=<room>` joins. For
   players on different computers, `node tools/net_relay.mjs` runs on a reachable server (port 8790,
   package `ws`), and everyone appends `&relay=ws://server:8790`. Without a relay, only tabs of the same

@@ -40,7 +40,7 @@ Kern besteht aus diesen Teilen:
 | Spiel-Laufzeit | `kern::game` | `Level` (`.klevel`), `GameWorld`, Controller, Regeln, Sound, Touch, Walker (Micro Duck), Mehrspieler |
 | Logik | `kern::logic` | Blueprint-artige Graphen; Interpreter, JIT nach WebAssembly, Export als C++ |
 | Netzwerk | `kern::net` | Serialisierung, Zuverlässigkeit, Kanäle, Client/Server, Transporte |
-| Studio | `kern::studio` | der Editor im Unreal-Stil, komplett in C++ und ohne Browser testbar |
+| Studio | `kern::studio` | der Editor nach dem Vorbild verbreiteter Game-Engine-Editoren, komplett in C++ und ohne Browser testbar |
 | Lehrer | `kern::lehrer` | Umgebungen, MLP, PPO, DAgger, CMA-ES, ONNX-Export, Kalibrierung |
 | C-ABI | `src/api`, `src/studio/api.cpp`, … | flache `extern "C"`-Funktionen für den JavaScript-Host |
 | Plattformschicht | `kern/web/*.mjs` | Laden des Moduls, WebGL2-Importe, Eingabe, DOM – keine Engine-Logik |
@@ -92,8 +92,8 @@ Das Ergebnis: Was ein Spiel tut, steht in C++, ist nativ mit Sanitizern testbar
 ### Determinismus
 
 Eine Simulation, ein Trainingslauf oder ein abgespieltes Roboter-Log kommt in Kern überall gleich
-heraus: nativ auf x86 und ARM (GCC, Clang, Apple clang) und als WebAssembly in jedem Browser – Bit
-für Bit. Dafür sorgen (`docs/lehrer.md`, Abschnitt 7):
+heraus, Bit für Bit, auf allen in der CI geprüften Plattformen (GCC/x86, Apple clang/ARM,
+WebAssembly). Dafür sorgen (`docs/lehrer.md`, Abschnitt 7):
 
 - **Keine FMA-Zusammenfassung:** Kern, Box3D und die libm werden mit `-ffp-contract=off` übersetzt.
 - **Box3D im Skalar-Pfad** (`BOX3D_DISABLE_SIMD`), wie in WebAssembly.
@@ -303,7 +303,7 @@ ein Gerätemodell (`kern::game::ServoProfile`), ihre Netze ONNX-Dateien, die Ker
 rechnet (`kern::game::WalkerPolicy`), ihre Stimme kommt aus dem Mixer (`kern::audio`), Logik-Knoten
 der Kategorie *Robots* steuern sie (`kern::logic`), und im Studio sitzt sie als Actor in einem Level.
 
-![Das Micro-Duck-Level im Studio](bilder/duck-level.png)
+![Das Micro-Duck-Level im Studio (Ente in der eigenen Gestaltung dieses Buchs)](bilder/duck-level.png)
 
 ---
 

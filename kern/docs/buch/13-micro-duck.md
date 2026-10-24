@@ -20,7 +20,7 @@ Spielschicht und Steuerung. Wie man selbst Netze trainiert, steht in
 [Kapitel 15](15-eigene-modelle.md), wie die Simulation an den echten Roboter angeglichen wird, in
 [Kapitel 16](16-kalibrierung.md).
 
-![Das Micro-Duck-Level im Studio](bilder/duck-level.png)
+![Das Micro-Duck-Level im Studio (Ente in der eigenen Gestaltung dieses Buchs)](bilder/duck-level.png)
 
 ## 13.1 Wo der Code liegt
 
@@ -30,7 +30,7 @@ Spielschicht und Steuerung. Wie man selbst Netze trainiert, steht in
 | `include/kern/game/walker_policy.h`, `src/game/walker_policy.cpp` | `WalkerPolicy`: ONNX-Netze lesen und rechnen, Register der geladenen Netze, das eingebaute Manifest; robotds Pick-up-Detektor (`PickupDetector`, `parse_onnx_pickup`, `pickup_detector()`) |
 | `include/kern/game/servo.h`, `src/game/servo.cpp` | das Gerätemodell des Positionsservos und seine Profile |
 | `src/game/walker.cpp` | Aufbau des Modells, Regler (`run_controller`), Steuerung (`drive_walkers`, darin die Pick-up-Erkennung), Sensoren (`sense_walker`), Kamera, Stimme, Lehrer-Schnittstelle |
-| `src/game/walker_brain.cpp` | das autonome Gehirn (Port von Pollens `autod`, dazu BallPlay aus Pollens ursprünglicher Runtime) und der Idle-Blick |
+| `src/game/walker_brain.cpp` | das autonome Gehirn (Port von Pollens `autod`, dazu Kerns BallPlay, nach Pollens ursprünglicher Runtime nachgebaut) und der Idle-Blick |
 | `src/game/walker_play.cpp` | die Spielschicht: Detektor, Tracker, Beobachtung, Ausführung von `play.onnx` |
 | `include/kern/game/runtime.h` | die öffentliche API in `GameWorld` (Abschnitt „walkers“) |
 | `src/game/micro_duck_model.inc`, `micro_duck_velstand.inc` | vom Importwerkzeug erzeugte Modelldaten und das eingebaute velstand-Netz |
@@ -533,14 +533,14 @@ Streicheln kommen über die API. Zufall kommt aus einem Generator mit dem Actor 
 läuft auch die Autonomie deterministisch. Solange eine Bewegung läuft, die Ente sich setzt oder
 aufsteht oder gefallen ist, hält das Gehirn still.
 
-### BallPlay: aus Pollens ursprünglicher Runtime, standardmäßig an
+### BallPlay: nach Pollens ursprünglicher Runtime nachgebaut, standardmäßig an
 
-Pollens Runtime (`apirrone/microduck_runtime`, `autonomous.rs`) hatte einen Zustand BallPlay:
-„approach / line up / kick“. `autod` hat ihn nur weggelassen, weil der Daemon noch keinen
-Balldetektor hat (`docs/design/autonomous.md` §4). Der Code der Runtime ist nicht öffentlich. Kern
-baut BallPlay deshalb nach dieser Beschreibung nach, mit Pollens eigenem Kick-Netz
-(`ball_kick_left.onnx`) und der Ballposition aus dessen Training. BallPlay ist **standardmäßig an**:
-Es gehört zu Pollens Software in Kern, nicht zu Kern extras.
+Pollens frühere Runtime (`microduck_runtime`, nicht öffentlich; `autonomous.rs`) hatte einen Zustand
+BallPlay: „approach / line up / kick“. `autod` hat ihn nur weggelassen, weil der Daemon noch keinen
+Balldetektor hat (`docs/design/autonomous.md` §4). Kern baut BallPlay nach dieser Beschreibung nach,
+mit Pollens eigenem Kick-Netz (`ball_kick_left.onnx`) und der Ballposition aus dessen Training. Der
+Code ist Kerns, nicht Pollens Software. BallPlay ist **standardmäßig an** und braucht keine Kern
+extras.
 
 Es läuft, wenn die Ente autonom ist, keine Rollschuhe trägt, `kick_left` geladen ist, die
 Spielschicht nicht verfügbar ist (Abschnitt 13.11) und das Gehirn gerade nicht kickt, döst,
@@ -580,11 +580,11 @@ Sitzen.
 Pollens Netze sind die Bewegungen der Ente; keines davon sieht. Was die Ente mit einem Ball oder
 einer Socke tut – hinschauen, hingehen, kicken, aufheben, wegtragen, ausspucken –, entscheidet ein
 eigenes Netz: `policies/play.onnx`. Es ist Kern-eigen (nur mit Kern extras) und übernimmt dann statt
-Pollens BallPlay (Abschnitt 13.10); Kerns früherer handgeschriebener Code für Fetch und Carry ist
+BallPlay (Abschnitt 13.10); Kerns früherer handgeschriebener Code für Fetch und Carry ist
 entfernt. Die Spielschicht selbst enthält keine handgeschriebene Spiellogik; um das Netz herum gibt
 es nur Wahrnehmung.
 
-![Die Ente spielt](bilder/duck-play.png)
+![Die Ente spielt (Ente in der eigenen Gestaltung dieses Buchs)](bilder/duck-play.png)
 
 ### Wo sie sitzt
 
@@ -749,7 +749,7 @@ hingehen, stehen, aufheben, zubeißen) prüfen in Studio-Physik, dass nur das Ne
 
 ## 13.12 Steuerung im Studio
 
-![Telefonsteuerung](bilder/phone-play-390.png)
+![Touch-Steuerung am Telefon (hier in Orb Run; bei der Ente erscheinen ihre eigenen Tasten)](bilder/phone-play-390.png)
 
 Die Eingaben landen in `PlayInput::robot`, einem Bitfeld der gehaltenen Robot-Tasten:
 
@@ -882,8 +882,8 @@ Ball rollt mehr als 25 cm (echt) weg. Die Pick-up-Erkennung prüfen die Tests in
   Boden 1,0 und die Sohle greift mit 1,0.
 - **Kick rechts:** kippt in Kern nach dem Tritt manchmal um. Die Ursache ist offen (Spiel,
   Kontaktweichheit, Fußreibung).
-- **BallPlay:** nach der Beschreibung der Runtime nachgebaut, deren Code nicht öffentlich ist;
-  Detektor als geometrischer Sichttest, nur der linke Kick (Abschnitt 13.10).
+- **BallPlay:** Kerns Nachbau nach der Beschreibung von Pollens ursprünglicher Runtime, deren Code
+  nicht öffentlich ist; standardmäßig an, ohne Kern extras; Detektor als geometrischer Sichttest, nur der linke Kick (Abschnitt 13.10).
 - **Servoströme:** Kern hat keine. Der Pick-up-Detektor bekommt 0; das ausgelieferte Modell liest
   diese Spalten nicht (Abschnitt 13.9).
 - **Kern-eigen, nicht im Original:** die Spielschicht, das Schnabel-Timing beim Aufheben (beide nur mit

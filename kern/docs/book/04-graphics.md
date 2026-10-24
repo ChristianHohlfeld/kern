@@ -525,7 +525,7 @@ Why? If the map moves with the camera by fractions of a texel, shadow edges land
 
 ```glsl
 if (uSunShadowEnabled == 1 && ndl > 0.0) {
-  // Normal offset (Holbein 2011): look the shadow up a texel off the surface along its normal,
+  // Normal offset (Holbert 2011): look the shadow up a texel off the surface along its normal,
   // more where the light grazes it - no acne without a large constant bias.
   vec3 lookup = vWorld + n * (uSunShadowTexel.z * (0.6 + 1.4 * (1.0 - ndl)));
   vec4 clip = uSunShadowProjection * vec4(lookup, 1.0);

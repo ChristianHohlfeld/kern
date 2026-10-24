@@ -1,6 +1,6 @@
 // Soldier art after SpawnCity (sim/character_model.mjs, sim/weapon_models.mjs,
 // player_walk_mode_v4.mjs): the articulated soldier with its walk / run / air /
-// aim / dead animation, the first-person weapons (Volt SMG, Glock, .50 sniper,
+// aim / dead animation, the first-person weapons (SMG, pistol, .50 sniper,
 // 40 mm launcher) part by part, the gloves and sleeves of the view model, and the
 // effect meshes (muzzle flash, tracer, decal, chip, brass). Everything is built
 // procedurally, as in SpawnCity, from boxes, cylinders, capsules, spheres and
@@ -70,7 +70,7 @@ Mat4 euler(Vec3 r);
 
 struct WeaponModel {
   PartMeshes parts;     // static parts
-  PartMeshes slide;     // Glock slide (moves on each shot), empty otherwise
+  PartMeshes slide;     // pistol slide (moves on each shot), empty otherwise
   // Markers in the model frame (after the builder's own scale / offset).
   Vec3 grip, rear_sight, front_sight, muzzle, eject;
   f32 flash_scale = 1;  // muzzle flash size (SpawnCity base scale x the model scale)

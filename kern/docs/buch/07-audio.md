@@ -279,7 +279,7 @@ Zwei Beispiele aus `render_builtin`, um zu zeigen, wie die Sounds gebaut sind:
 
 Die Micro Duck spricht mit einem eigenen kleinen Synthesizer (`duck_voice.h`), einer Portierung des `sounds`-Crates aus pollen-robotics/microduck (Rust, Apache-2.0). Es gibt keine Samples.
 
-![Die Micro Duck im Level: ihre Laute kommen aus ihrem Kopf, auf dem Voice-Bus](bilder/duck-level.png)
+![Die Micro Duck im Level: ihre Laute kommen aus ihrem Kopf, auf dem Voice-Bus (Ente in der eigenen Gestaltung dieses Buchs)](bilder/duck-level.png)
 
 ### Persönlichkeit aus einem Seed
 
@@ -306,7 +306,7 @@ Der Seed entsteht wie auf dem Roboter aus einer Kennung: die ersten vier Bytes v
 
 Sieben Tags: `alarm`, `greet`, `inquire`, `peck`, `chirp`, `coo`, `wheee`. `greet` und `chirp` haben je 12 Varianten, `wheee` 6, alle anderen 10 (`duck_variant_count`). Gespielt wird eine zufällige Variante, damit die Ente nicht wie eine hängende Aufnahme klingt. `wheee` ist in Start, Schleife und Ende geteilt (`render_duck_wheee`), damit ein Spieler die Schleife so lange halten kann, wie eine Fahrt dauert.
 
-### Bitgenau wie der Roboter
+### Bitgenau wie das Rust-Original
 
 Der Port ist auf Sample-Gleichheit bei 48 kHz ausgelegt: derselbe xoshiro256++/splitmix64-Strom einschließlich der Box-Muller-Reserve, dieselbe Reihenfolge der Zufallszüge, dieselben Konstanten, `f32` und `f64` genau dort, wo das Rust-Original sie verwendet. Fused Multiply-Add ist per Pragma abgeschaltet, damit `a*b + c` zweimal rundet wie in Rust. Laut `docs/walker.md` ergibt ein Vergleich aller 328 Puffer gegen das Rust-Crate dieselbe Länge und eine maximale Abweichung von 0.
 

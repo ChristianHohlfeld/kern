@@ -52,6 +52,7 @@ und <b>der Lehrer</b>, ein Trainingssystem für neuronale Netze in C++ – nativ
 einen Ball zu kicken und eine Socke zu holen.</p>
 <p>Dieses Buch erklärt das Ganze von Grund auf: wie die Engine aufgebaut ist und warum, wie man sie bedient und eigene Spiele baut,
 wie Rendering, Physik und neuronale Netze funktionieren – und wie man eigene Modelle trainiert.</p>
+<p><b>Christian Heinrich Hohlfeld</b>, Softwareentwickler seit 2010, hat Kern entworfen und mit KI gebaut.</p>
 <p>Die Software ist Open Source und kostenlos: <b>christianhohlfeld.github.io/kern</b></p>""" if de else
 """<p><b>Kern</b> is a 3D engine in C++20 that runs in the browser: WebAssembly and WebGL2, physics with Box3D,
 its own sound engine, logic graphs with a JIT and networked play. With it come <b>Kern Studio</b>, an editor in the style of the big engines,
@@ -60,6 +61,7 @@ and <b>the Lehrer</b>, a training system for neural networks in C++ – native a
 kick a ball and fetch a sock.</p>
 <p>This book explains it all from the ground up: how the engine is built and why, how to use it and build your own games,
 how rendering, physics and neural networks work – and how to train your own models.</p>
+<p><b>Christian Heinrich Hohlfeld</b>, a software engineer since 2010, designed Kern and built it with AI.</p>
 <p>The software is open source and free: <b>christianhohlfeld.github.io/kern</b></p>"""),
 }
 html = f"""<!doctype html><html><head><meta charset="utf-8"><style>

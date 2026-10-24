@@ -469,7 +469,7 @@ front of it.
   shadow casters stay the same, the map is reused (`RenderStats::shadow_reused`).
 - **Depth only:** `colorMask(0, 0, 0, 0)`, an empty fragment shader, target `DEPTH_COMPONENT24`.
 - **Triple bias:** when generating, `polygonOffset(2, 3)` (shifts the depth depending on the slope of
-  the triangle); when sampling, `uSunShadowBias` (default 0.0012) and a **normal offset** (Holbein
+  the triangle); when sampling, `uSunShadowBias` (default 0.0012) and a **normal offset** (Holbert
   2011): the lookup happens one texel off the surface along its normal, more where the light grazes
   it. This avoids acne without a large constant bias detaching the shadow from the object.
 - **Hardware PCF:** the depth texture has `TEXTURE_COMPARE_MODE = COMPARE_REF_TO_TEXTURE` and

@@ -99,10 +99,11 @@ S = 4 (`game::kWalkerScale` in `include/kern/game/walker.h`, in the code as `kDu
 | Acceleration, gravity | 1 | ×1 | g stays 9.81 m/s² |
 | Frequencies (springs, contact and joint softness) | 1/√S | ×½ | |
 
-**Is the 4× duck still the real robot?** Yes. Scaling is a change of units, not a bigger robot: if
-every quantity is scaled according to its dimension, Box3D computes the same motion. Everything that
-goes outside is in real units: `walker_probe`, the networks' observations, logs and calibration
-([Chapter 16](16-calibration.md)).
+**Does the 4× duck still behave like the real robot's model?** Within the accuracy of the model, yes:
+scaling is a change of units, not a bigger robot: if every quantity is scaled according to its
+dimension, Box3D computes the same motion. Everything that goes outside is in real units:
+`walker_probe`, the networks' observations, logs and calibration
+([Chapter 16](16-calibration.md)). Simulation results are no guarantee of safe behaviour on hardware.
 
 The test `physics_scale_is_a_unit_system` (`tests/test_main.cpp`) builds a small servo leg (72 g
 trunk, two 5 cm links, spring servos with friction) at 1×, 4× and 8× size:
@@ -380,7 +381,7 @@ The Micro Duck uses all three ([Chapter 13](13-micro-duck.md)):
 The duck's soles and housings have **no** surface: they keep the friction values the policy was
 trained with (soles 1.0 on a ground of 1.0 gives √(1 · 1) = 1).
 
-![The Micro Duck sample level: wooden floor, ball and two socks with their own pair friction](../buch/bilder/duck-level.png)
+![The Micro Duck sample level: wooden floor, ball and two socks with their own pair friction (duck shown in this book's own design)](../buch/bilder/duck-level.png)
 
 ---
 
@@ -706,8 +707,8 @@ softness of `min(240 Hz, max_hertz)` with damping ratio 2.
 
 ## 6.14 Determinism
 
-Kern is bit-for-bit deterministic – not only on the same machine, but across platforms (x86, ARM,
-WebAssembly in every browser). Physics contributes to this:
+Kern is bit-for-bit deterministic – not only on the same machine, but across platforms: on all
+platforms checked in CI (GCC/x86, Apple clang/ARM, WebAssembly). Physics contributes to this:
 
 - fixed time step, simulation time as a step counter, inputs per step (6.13);
 - `workerCount = 1`: no ordering that depends on threads;
@@ -732,7 +733,7 @@ threads; no `-ffast-math` options.
 
 `docs/physics.md` is binding for all code in Kern that creates bodies, shapes, joints or motors –
 **read it before changing `src/physics` or `src/game/runtime.cpp`, or building a robot, a vehicle or
-a ragdoll preset.** The rules rest on three sources: Erin's own documentation and samples (cited as
+a ragdoll preset.** The rules rest on three sources: Erin Catto's own documentation and samples (cited as
 `box3d:file:line`), his blog posts and GDC talks on box2d.org, and measurements in Kern
 (*[measured]*, each backed by a Kern test). Here they are collected in full, each with its reason.
 
@@ -750,7 +751,7 @@ a ragdoll preset.** The rules rest on three sources: Erin's own documentation an
 
 | Rule | Why |
 |---|---|
-| Do not hang heavy bodies from light ones; keep neighboring masses within about 10:1. | Extreme ratios lead to "joint stretching" (Box2D v2.4 `docs/loose_ends.md`, `box3d:docs/loose_ends.md:133-134`). Erin's solution for a tank at 467:1: make light parts heavier and heavy parts lighter ([Discussion #132](https://github.com/erincatto/box3d/discussions/132)). |
+| Do not hang heavy bodies from light ones; keep neighboring masses within about 10:1. | Extreme ratios lead to "joint stretching" (Box2D v2.4 `docs/loose_ends.md`, `box3d:docs/loose_ends.md:133-134`). Erin Catto's solution for a tank at 467:1: make light parts heavier and heavy parts lighter ([Discussion #132](https://github.com/erincatto/box3d/discussions/132)). |
 | A rigid part is **one** body with several shapes. **No-go:** welding bodies together. | "the approximate solver cannot hold many bodies together rigidly" (`box3d:docs/simulation.md:1523-1526`). Kern welds children that have only a mesh into the nearest ancestor with a body as shapes. |
 | Give light links a minimum mass instead of tweaking the solver. | The duck's 5 g hip brackets weigh at least 20 g at real size (×64 at S = 4). |
 
@@ -771,7 +772,7 @@ a ragdoll preset.** The rules rest on three sources: Erin's own documentation an
 |---|---|
 | **Build** every preset with joints **in its rest pose**; limits must contain zero. | The zero angle is where the frames coincide (`box3d:docs/simulation.md:1414-1417`). |
 | Revolute joints rotate about the frame's Z axis; Kern builds the frame from the axis in the actor (`frame_from_axis`). | One convention instead of computing by hand. |
-| Self-collision: connected bodies do not collide (without `collideConnected`); filter the rest with one negative collision group per robot, or filter joints for individual pairs. | This is how Erin's ragdoll does it (`box3d:shared/human.c:399-410`). |
+| Self-collision: connected bodies do not collide (without `collideConnected`); filter the rest with one negative collision group per robot, or filter joints for individual pairs. | This is how Box3D's ragdoll does it (`box3d:shared/human.c:399-410`). |
 | Leave the defaults `constraintHertz = 60` and damping 2 alone; Kern raises them only for servo joints, together with the sub-step limit. | `box3d:src/joint.c:30-31`; higher values without sub-steps have no effect or become unstable. |
 
 ### Motors, servos and friction (§5)
@@ -782,13 +783,13 @@ a ragdoll preset.** The rules rest on three sources: Erin's own documentation an
 | Position servos are the **joint spring** of the revolute joint with a target angle (`b3RevoluteJoint_SetTargetAngle`). | Solved implicitly, stable at any stiffness. |
 | Stiffness (N·m/rad) and damping (N·m·s/rad) are physical servo values; `set_joint_spring` converts them at the boundary. | One conversion, like `revolute_joint.c`. |
 | The holding torque arises from clamping the error to torque / stiffness. | This is how a Dynamixel's PWM saturates. |
-| **Not** Erin's other recipe `motorSpeed = gain × error` with a maximum torque for robots with a trained policy. | That is rigid velocity control (`box3d:docs/simulation.md:1240-1243`); the policy learned a compliant PD servo. |
+| **Not** Erin Catto's other recipe `motorSpeed = gain × error` with a maximum torque for robots with a trained policy. | That is rigid velocity control (`box3d:docs/simulation.md:1240-1243`); the policy learned a compliant PD servo. |
 | **No-go: bypassing the physics.** No extra torques that "emulate" something; no set velocities on bodies with joints or contacts; no gyros, locks or support forces for robots. | They do not exist in the real world either – a policy that walks with helper forces will not walk on the real device. |
 | A gearbox's rotor inertia (MuJoCo "armature") is a mass property: a disc on the joint axis carried by the link. Whatever Box3D cannot represent at all is documented, not faked. | `docs/walker.md` §6; a purely axial tensor would not be a real rigid body, and Box3D gains energy from it (`add_armature` in `walker.cpp`). |
-| **Joint friction** is a motor with speed 0 and a small maximum torque. | Erin's recipe (`box3d:docs/simulation.md:1431-1434`); his ragdoll uses 5 N·m × a factor per joint (`box3d:shared/human.c:347-393`). |
+| **Joint friction** is a motor with speed 0 and a small maximum torque. | Erin Catto's recipe (`box3d:docs/simulation.md:1431-1434`); his ragdoll uses 5 N·m × a factor per joint (`box3d:shared/human.c:347-393`). |
 | Contact friction per shape; Box3D combines two materials as √(a·b) (friction) and max (restitution); pairs with their own value via `Surface`. | 6.6, 6.7. |
 | Rolling resistance for round things (spheres, capsules; on hulls it acts with a quarter of the inner radius); robot feet wide, flat, with high friction. | 6.7. |
-| To keep a body softly upright: a **parallel joint** (hertz, damping, maximum torque), no overwritten velocities. | Erin's way (`box3d:shared/human.c:526-605`). |
+| To keep a body softly upright: a **parallel joint** (hertz, damping, maximum torque), no overwritten velocities. | Erin Catto's way (`box3d:shared/human.c:526-605`). |
 
 ### Forces, velocities, damping (§6)
 
@@ -885,7 +886,7 @@ void servo_step(physics::World& world, const physics::Joint& joint, f32 target,
 - **Spring:** the joint spring pulls toward the target, whose distance from the current angle is
   clamped to T/K. K × error thus never exceeds the maximum torque T – like the servo's saturating
   PWM. The spring is implicit and stable at any stiffness.
-- **Friction:** a motor with speed 0 whose maximum torque is the friction F (Erin's joint friction).
+- **Friction:** a motor with speed 0 whose maximum torque is the friction F (Erin Catto's joint friction).
 - All values in world units (scaled for walkers, see below).
 
 `GameWorld::drive_servos` calls `servo_step` every physics step for every unbroken servo joint.
@@ -923,7 +924,8 @@ could not pin down. Profiles are JSON (`to_json`, `servo_profile_from_json`) wit
 `spreadStiffness`, `spreadDamping`, `spreadFriction`, `spreadTorque`, `spreadArmature`, `delayMin`,
 `delayMax`. Values outside their ranges are rejected; stiffness and torque must be positive.
 
-`game::xl330_profile()` is the XL330-M288 as Pollen Robotics trains it (BAM model "m6" at 7.4 V):
+`game::xl330_profile()` is the XL330-M288 as Pollen Robotics trains it (BAM – Better Actuator Models by Rhoban, model "m6", as in Pollen's
+training, at 7.4 V):
 
 | Parameter | Value |
 |---|---|

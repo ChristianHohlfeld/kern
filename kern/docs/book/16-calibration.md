@@ -239,7 +239,7 @@ Test `lehrer_replays_robot_logs_against_the_simulation`: a log from the simulati
 gap of **0** – bit for bit, because the simulation is deterministic
 ([Section 14.7](14-lehrer.md#147-determinism)). With different servos it yields a measurable gap.
 
-Because the simulation is deterministic on every platform, a difference from a real log is a real
+Because the simulation is deterministic on all platforms checked in CI, a difference from a real log is a real
 model error and not simulation noise.
 
 ## 16.4 Training with the calibrated profile

@@ -2,7 +2,7 @@
 // articulated soldiers for every soldier actor (animated from the pawn while
 // playing, standing at rest while editing), the first-person weapon with its
 // gloves and sleeves (rest placement, sight alignment, kick, aim down sights,
-// Glock slide and brass), muzzle flashes, travelling tracers, impact flashes,
+// pistol slide and brass), muzzle flashes, travelling tracers, impact flashes,
 // bullet-hole decals and chips. Pure presentation: nothing here changes the
 // simulation, so authority, replicas and the editor draw the same.
 #include <algorithm>
@@ -531,7 +531,7 @@ void GameWorld::present_soldier_art(f64 now_ms, f32 dt) {
     art.view_valid = true;
     const Mat4 body = world * Mat4::translate(mount);
     each(art.view, [&](u32 id) { r_.update_instances(id, Span<const f32>(body.m, 16), {}); });
-    // Glock slide: back 34 ms, held 26 ms, home over 105 ms.
+    // Pistol slide: back 34 ms, held 26 ms, home over 105 ms.
     f32 slide = 0;
     if (art.weapon.slide_travel > 0 && age >= 0) {
       const f32 a = static_cast<f32>(age);

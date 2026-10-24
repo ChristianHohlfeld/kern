@@ -38,9 +38,9 @@ Kern consists of these parts:
 | Physics | `kern::physics` | C++ layer over Box3D: world, bodies, shapes, joints, raycasts, `MouseGrab` |
 | Audio | `kern::audio` | software mixer, 3D sound, buses, reverb, limiter, synthesizer, the duck's voice |
 | Game runtime | `kern::game` | `Level` (`.klevel`), `GameWorld`, controllers, rules, sound, touch, Walker (Micro Duck), multiplayer |
-| Logic | `kern::logic` | Blueprint-style graphs; interpreter, JIT to WebAssembly, export as C++ |
+| Logic | `kern::logic` | node-based visual scripting graphs; interpreter, JIT to WebAssembly, export as C++ |
 | Networking | `kern::net` | serialization, reliability, channels, client/server, transports |
-| Studio | `kern::studio` | the Unreal-style editor, written entirely in C++ and testable without a browser |
+| Studio | `kern::studio` | an editor in the style of common game-engine editors, written entirely in C++ and testable without a browser |
 | Lehrer | `kern::lehrer` | environments, MLP, PPO, DAgger, CMA-ES, ONNX export, calibration |
 | C ABI | `src/api`, `src/studio/api.cpp`, … | flat `extern "C"` functions for the JavaScript host |
 | Platform layer | `kern/web/*.mjs` | loading the module, WebGL2 imports, input, DOM – no engine logic |
@@ -82,7 +82,7 @@ platform layer `kern/web/` takes care of. Its own header comment sums it up (`ke
 The same holds for the editor: `kern/web/studio/studio.mjs` draws the panels from the JSON that the
 C++ editor delivers, forwards input and handles browser tasks (menus and dialogs as DOM, file
 selection, downloads, clipboard, pointer lock, image decoding, local storage, writing exported
-games). The Blueprint editor `logic.mjs` does not hold a graph either: every change is a Studio
+games). The graph editor `logic.mjs` does not hold a graph either: every change is a Studio
 command sent to the engine.
 
 The result: whatever a game does lives in C++, can be tested natively with sanitizers
@@ -91,8 +91,8 @@ editor.
 
 ### Determinism
 
-A simulation, a training run or a replayed robot log produces the same result everywhere in Kern:
-natively on x86 and ARM (GCC, Clang, Apple clang) and as WebAssembly in every browser – bit for bit.
+A simulation, a training run or a replayed robot log produces the same result in Kern, bit for bit,
+on all platforms checked in CI (GCC/x86, Apple clang/ARM, WebAssembly).
 This is ensured by the following (`docs/lehrer.md`, section 7):
 
 - **No FMA contraction:** Kern, Box3D and the libm are compiled with `-ffp-contract=off`.
@@ -293,7 +293,7 @@ Both use the same recipes (`include/kern/lehrer/recipe.h`) and the same `GameWor
 the same number of ducks yield the same network – natively as in the browser. The export is ONNX in
 the format of Pollen's networks; the Studio loads it just like those ([Chapter 14](14-lehrer.md)).
 
-![The Lehrer page in the browser](../buch/bilder/lehrer.png)
+![The Lehrer page in the browser (German user interface)](../buch/bilder/lehrer.png)
 
 ### The Micro Duck: Everything Working Together
 
@@ -303,7 +303,7 @@ device model (`kern::game::ServoProfile`), its networks ONNX files that Kern eva
 CPU (`kern::game::WalkerPolicy`), its voice comes from the mixer (`kern::audio`), logic nodes of the
 *Robots* category control it (`kern::logic`), and in the Studio it sits as an actor in a level.
 
-![The Micro Duck level in the Studio](../buch/bilder/duck-level.png)
+![The Micro Duck level in the Studio (duck shown in this book's own design)](../buch/bilder/duck-level.png)
 
 ---
 
@@ -320,7 +320,7 @@ generated files.
   tools/
     build_studio.sh              Kern Studio as a single HTML file -> generated/studio.html
     net_relay.mjs                WebSocket relay for multiplayer across machines
-    micro_duck_import.py         import of Pollen's Micro Duck (model, walking policy)
+    micro_duck_import.py         import of Pollen's Micro Duck (model, policies, and the meshes Kern Studio displays, CC BY-NC-SA 4.0)
     mesh_simplify.py, qem_simplify.cpp   mesh simplification for the import
   site/
     index.html                   GitHub Pages start page (footer: owner, license links)

@@ -477,7 +477,7 @@ davor.
 - **Nur Tiefe:** `colorMask(0, 0, 0, 0)`, ein leerer Fragment-Shader, Ziel `DEPTH_COMPONENT24`.
 - **Bias dreifach:** beim Erzeugen `polygonOffset(2, 3)` (verschiebt die Tiefe abhängig von der
   Neigung des Dreiecks), beim Abfragen `uSunShadowBias` (Standard 0,0012) und ein **Normal Offset**
-  (Holbein 2011): Nachgeschlagen wird einen Texel von der Fläche weg entlang ihrer Normale, mehr bei
+  (Holbert 2011): Nachgeschlagen wird einen Texel von der Fläche weg entlang ihrer Normale, mehr bei
   streifendem Licht. So gibt es keine Akne, ohne dass ein großer konstanter Bias den Schatten vom
   Objekt löst.
 - **Hardware-PCF:** Die Tiefentextur hat `TEXTURE_COMPARE_MODE = COMPARE_REF_TO_TEXTURE` und
@@ -529,7 +529,7 @@ Mittelbereich fast linear, komprimiert die Lichter weich und sättigt nie hart:
     0    1    2    3    4
 ```
 
-**In Kern** ist es die ACES-Filmkurve in der Fassung von three.js (`acesFilmic` in
+**In Kern** ist es die ACES-Filmkurve in der Fassung von three.js (MIT, siehe Anhang D; `acesFilmic` in
 `kGlslToneMap`):
 
 1. Belichtung: `c *= uExposure / 0.6`.
@@ -565,7 +565,7 @@ markiert über `markLinearColors` in `kern.mjs`).
 ### B.6.4 Nebel
 
 Nach dem Tonemapping mischt Kern Nebel ein, wie three.js („FogExp2 after the colour-space
-conversion“):
+conversion“; MIT, siehe Anhang D):
 
 $$\text{fog} = 1 - e^{-(\rho_f\, d)^2}.$$
 
@@ -670,7 +670,7 @@ $$\hat a(h, \gamma) = \tfrac14\left(\cos\gamma + 2h\sin\gamma - \cos(2h - \gamma
 
 ### B.8.3 In Kern
 
-`AmbientOcclusionPass` (`passes.h`, `gtao.cpp`) folgt Intels XeGTAO:
+`AmbientOcclusionPass` (`passes.h`, `gtao.cpp`) folgt Intels XeGTAO (MIT, siehe Anhang D):
 
 - Die Normale wird **aus der Tiefe** rekonstruiert (pro Achse der Nachbar mit dem kleineren
   Tiefensprung), es gibt keinen Normalenpuffer.

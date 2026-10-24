@@ -772,8 +772,15 @@ Ein exportiertes Studio-Spiel braucht das alles nicht: Es ist eine Datei, die au
 > exportierten HTML genügt ein Hinweis mit Link) und erhält die Urheberrechtsvermerke. Die Namen
 > „Kern" und „Kern Studio" und das Logo gehören nicht zur Lizenz: „Made with Kern" ist erlaubt, ein
 > eigenes Produkt „Kern" zu nennen nicht (`TRADEMARKS.md`). Bestandteile Dritter behalten ihre
-> eigenen Lizenzen (`kern/LICENSES.md`, [Anhang D](D-lizenzen.md)). Die folgenden Abschnitte
-> beschreiben das Technische.
+> eigenen Lizenzen (`kern/LICENSES.md`, [Anhang D](D-lizenzen.md)).
+>
+> **Ausnahme Micro Duck:** Das Studio-Modul und jedes daraus exportierte Spiel enthalten Pollens
+> 3D-Modelle der Micro Duck (CC BY-NC-SA 4.0, nur nicht kommerziell). Wer ein Spiel verkauft oder
+> kommerziell nutzt, baut das Modul mit `KERN_COMMERCIAL=1 tools/build_studio.sh` (oder
+> `kern/build.sh --commercial`); dieser Build lässt die Modelle weg, die Micro Duck hat dann kein
+> Aussehen. Pollens Netze (Apache 2.0) dürfen mit ihrer Lizenz und NOTICE mitgeliefert werden.
+>
+> Die folgenden Abschnitte beschreiben das Technische.
 
 ### Studio-Spiele
 
@@ -783,7 +790,9 @@ Telefonen mit Touch-Steuerung.
 
 - **Mit Micro Duck:** die Ordner `microduck/` (Pollens Netze aus `kern/third_party/microduck/*.onnx`) und
   `policies/` (`kern/policies/*.onnx`) neben die HTML-Datei legen, sonst fehlen alle Bewegungen außer dem
-  Laufen ([Kapitel 11](11-studio.md#1114-policies-laden-jumponnx-playonnx)).
+  Laufen ([Kapitel 11](11-studio.md#1114-policies-laden-jumponnx-playonnx)). Zu `microduck/` gehören die
+  Lizenz (`kern/third_party/microduck/LICENSE`) und die NOTICE; ein Spiel mit dem Aussehen der Ente ist
+  nur nicht kommerziell nutzbar (siehe oben).
 - **Online-Spiel:** Die Adresse mit `?host=<raum>` öffnet das Spiel als Host, `?join=<raum>` tritt bei.
   Für Spieler auf verschiedenen Rechnern läuft `node tools/net_relay.mjs` auf einem erreichbaren Server
   (Port 8790, Paket `ws`), und alle hängen `&relay=ws://server:8790` an. Ohne Relay finden sich nur Tabs

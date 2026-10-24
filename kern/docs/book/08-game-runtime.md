@@ -695,7 +695,7 @@ For rolling ball, character and flyer, movement is **camera-relative**. The mode
 | **Hovercar** | throttle as a force along the vehicle axis (reverse 1.25×, boost +42 m/s²), top speed as a counterforce, rolling resistance without throttle; **lateral grip as a force** (continuous impulses fight the solver); steering as a yaw rate proportional to speed up to 9 m/s. A **hover spring** over a Box3D ray holds `hover_height`. Visible bobbing and leaning are presentation only. |
 | **Vehicle** | like the hovercar without the hover spring; it is only driven with ground contact (sphere probe). |
 | **Rolling Ball** | force in the direction of movement; **jump as an impulse** m · (`jump_speed` − v_z), only on the ground; top speed as a counterforce. |
-| **Character** | Box3D's **character mover** ([Chapter 6](06-physics.md)): the body becomes kinematic, the capsule is sized from its shapes (feet at the lowest, head at the highest point, step height 22 % of the height), Quake-style ground movement, gravity 1.5× (snappier). The body turns smoothly toward the direction of travel and follows via `set_target_pose`. Footsteps by stride length; triggers and pickups via the touched planes. |
+| **Character** | Box3D's **character mover** ([Chapter 6](06-physics.md)): the body becomes kinematic, the capsule is sized from its shapes (feet at the lowest, head at the highest point, step height 22 % of the height), classic first-person-shooter ground movement, gravity 1.5× (snappier). The body turns smoothly toward the direction of travel and follows via `set_target_pose`. Footsteps by stride length; triggers and pickups via the touched planes. |
 | **Flyer** | target velocity including up/down, acceleration as a force that cancels gravity; yaw toward the camera direction. |
 | **Soldier** | character mover with real gravity (jump 3.6 m/s → 0.66 m), see 8.13. |
 | **Walker** | the input goes to the robot's controller, which drives its servos with the trained policy ([Chapter 13](13-micro-duck.md)). |
@@ -808,7 +808,7 @@ movement in fixed steps on the authority.
   run, air, aim, dead), standing in the editor, animated from the pawn while playing; plus the weapon
   in hand with gloves and sleeves, muzzle flash, tracers, bullet holes, debris and shell casings.
   All of this is pure presentation and does not change the simulation – authority, replicas and
-  editor show the same thing. The models (Volt SMG, Glock, .50 sniper rifle, 40 mm launcher) are
+  editor show the same thing. The models (a submachine gun, a pistol, a .50 sniper rifle, a 40 mm launcher) are
   built procedurally from primitives (`soldier_models.cpp`).
 
 Tests: `game_soldier_moves_shoots_and_respawns`, `soldier_art_in_play`,
@@ -924,7 +924,7 @@ SpawnCity's rules:
 - `update` returns one frame's input including the walker bits; `view()` describes what the page
   draws.
 
-The page passes gamepads (Xbox layout) to the engine every frame; Kern applies dead zones, curves
+The page passes gamepads (standard layout) to the engine every frame; Kern applies dead zones, curves
 and the soldier's aim rates (`web/studio/game.mjs`, `GamepadInput`). Tests:
 `touch_controls_layout_and_sticks`, `input_device_arbiter_rules`,
 `studio_touch_play_without_pointer_lock`.
