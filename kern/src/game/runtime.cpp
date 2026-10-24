@@ -710,7 +710,15 @@ void GameWorld::sync(const Level& level) {
   }
   drop.clear();
   for (auto& [id, c] : cities_) if (!keep_city.count(id)) drop.push_back(id);
-  for (ActorId id : drop) remove_visual(id);
+  // Only the city: the new level may give a mesh actor the same id (remove_visual would take that mesh too).
+  for (ActorId id : drop) {
+    if (auto it = cities_.find(id); it != cities_.end()) {
+      for (u32 m : it->second->chunk_meshes) { mesh_owner_.erase(m); r_.remove(m); }
+      if (it->second->trunk) { mesh_owner_.erase(it->second->trunk); r_.remove(it->second->trunk); }
+      if (it->second->crown) { mesh_owner_.erase(it->second->crown); r_.remove(it->second->crown); }
+      cities_.erase(it);
+    }
+  }
   // Parked traffic for the editor view.
   std::vector<f32> transforms, tints;
   for (const Actor& a : level_.actors) {
@@ -827,6 +835,7 @@ f32 GameWorld::apply_lighting(Vec3 eye) {
   }
   l.exposure = w.exposure * (1.0f + 0.35f * night);
   r_.set_ambient_occlusion_radius(w.ao_radius);
+  r_.set_shadow_distance(w.shadow_distance);
   r_.sky.sun = sun;
   r_.sky.moon = moon;
   r_.sky.night = night;
@@ -2523,7 +2532,10 @@ bool GameWorld::begin_grab(ActorId actor, Vec3 point) {
   const ActorId owner = level_.body_owner(actor) ? level_.body_owner(actor) : actor;
   auto it = body_of_actor_.find(owner);
   if (it == body_of_actor_.end() || !it->second->body.valid()) return false;
-  return grab_.begin(physics_, it->second->body, point);
+  // A walker held by its trunk is held like a hand holds the robot: upright, not swinging on a point.
+  bool trunk = false;
+  for (const auto& w : walkers_) trunk = trunk || w->trunk.id == it->second->body.id;
+  return grab_.begin(physics_, it->second->body, point, 7.5f, trunk);
 }
 void GameWorld::move_grab(Vec3 target) { grab_.set_target(target); }
 void GameWorld::end_grab() { grab_.end(); }

@@ -12,6 +12,12 @@ export const POINTER = {down: 0, move: 1, up: 2, cancel: 3, wheel: 4, leave: 5};
 
 /** Thin wrapper over kern/src/studio/api.cpp. */
 const AO_QUALITIES = ["low", "medium", "high", "ultra"];
+/** PCF taps for the sun's shadow: phones 4 (3x3 kernel), desktop 9 (5x5). ?shadowFilter=1|4|9 overrides. */
+function defaultShadowFilter() {
+  const q = typeof location === "object" ? +new URLSearchParams(location.search).get("shadowFilter") : 0;
+  if (q === 1 || q === 4 || q === 9) return q;
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches ? 4 : 9;
+}
 /** Phones: medium at half resolution; desktop: high at full resolution. ?ao=off|low|medium|high|ultra and ?aoRes=half|full override. */
 function defaultAmbientOcclusion() {
   const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
@@ -76,6 +82,7 @@ export class StudioEngine {
   init(width, height, playerOnly) {
     if (this.e.kern_studio_init(width, height, playerOnly ? 1 : 0) !== 1) return false;
     this.setAmbientOcclusion(defaultAmbientOcclusion());
+    this.e.kern_studio_shadow_filter?.(defaultShadowFilter());
     return true;
   }
   /** {enabled, quality: "low"|"medium"|"high"|"ultra", fullResolution, radius} */

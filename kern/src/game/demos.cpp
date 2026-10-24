@@ -208,6 +208,7 @@ Level micro_duck_level() {
   l.world.reverb = 0.2f;
   l.world.ground = false;  // the floor is the ground (no z-fighting with the ground plane)
   l.world.ao_radius = 0.8f;  // the room's scale: contact shade under the duck's feet and in the corners
+  l.world.shadow_distance = 10;  // the room: sharp shadows of the duck, the ball and the walls
   l.world.ground_friction = 1.0f;
   l.world.ground_surface = "floor";
   Actor floor = make("Floor", {0, 0, -0.1f});

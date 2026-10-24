@@ -335,7 +335,8 @@ struct WorldSettings {
   f32 sun_azimuth = 210;        // degrees, where the sun stands at noon
   f32 fog_density = 0.0009f;
   f32 exposure = 1;
-  f32 ao_radius = 1.6f;         // ambient occlusion reach in metres (scene scale), 0 = none
+  f32 ao_radius = 1.6f;
+  f32 shadow_distance = 80;     // metres of the view the sun's shadow map covers (smaller: sharper)         // ambient occlusion reach in metres (scene scale), 0 = none
   bool clouds = true;
   Vec3 ground_color{0.19f, 0.27f, 0.15f};  // the endless ground plane under everything
   bool ground = true;

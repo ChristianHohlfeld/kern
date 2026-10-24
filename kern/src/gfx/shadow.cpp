@@ -85,23 +85,25 @@ void SunShadowMap::destroy(bool contextLost) {
   fbo_ = depth_ = 0;
 }
 
-u64 SunShadowMap::focus_key(Vec3 focus, Vec3 sun) {
+u64 SunShadowMap::focus_key(Vec3 focus, Vec3 sun, f32 extent) {
   const LightBasis b = light_basis(sun);
-  const f32 texel = 2 * options_.extent / static_cast<f32>(options_.resolution);
+  extent_ = extent_for(extent);
+  const f32 texel = 2 * extent_ / static_cast<f32>(options_.resolution);
   const f64 a = std::round(dot(focus, b.right) / texel);
   const f64 c = std::round(dot(focus, b.up) / texel);
   // Movement along the light direction does not move texels; a coarse step keeps the depth range valid.
   const f64 d = std::round(dot(focus, b.dir) / 8.0f);
   snapped_focus_ = b.right * static_cast<f32>(a * texel) + b.up * static_cast<f32>(c * texel) + b.dir * static_cast<f32>(d * 8);
-  const i32 key[6] = {static_cast<i32>(a), static_cast<i32>(c), static_cast<i32>(d), static_cast<i32>(std::lround(b.dir.x * 1e4f)),
-                      static_cast<i32>(std::lround(b.dir.y * 1e4f)), static_cast<i32>(std::lround(b.dir.z * 1e4f))};
+  const i32 key[7] = {static_cast<i32>(a), static_cast<i32>(c), static_cast<i32>(d), static_cast<i32>(std::lround(b.dir.x * 1e4f)),
+                      static_cast<i32>(std::lround(b.dir.y * 1e4f)), static_cast<i32>(std::lround(b.dir.z * 1e4f)),
+                      static_cast<i32>(std::lround(extent_ * 1000))};
   return hash_bytes(key, sizeof key);
 }
 
-u32 SunShadowMap::draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun, u32 layers) {
-  focus_key(focus, sun);
+u32 SunShadowMap::draw(Span<Mesh* const> meshes, Vec3 focus, Vec3 sun, u32 layers, f32 extent) {
+  focus_key(focus, sun, extent);
   const LightBasis b = light_basis(sun);
-  const f32 e = options_.extent;
+  const f32 e = extent_;
   const Vec3 eye = snapped_focus_ + b.dir * (e * 2);
   const Vec3 up = std::fabs(b.dir.z) > 0.94f ? Vec3{0, 1, 0} : Vec3{0, 0, 1};
   matrix_ = Mat4::ortho(-e, e, -e, e, 0.2f, e * 4) * Mat4::look_at(eye, snapped_focus_, up);

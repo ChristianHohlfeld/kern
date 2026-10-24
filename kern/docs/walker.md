@@ -255,20 +255,39 @@ Darüber, wie im Original:
 kommen deshalb über `walker_hear` und `walker_pet`. Die Odometrie ist die Rumpfpose; `autod` hält
 seine Odometrie ebenfalls für perfekt.
 
-**Kern-Verhalten, nicht im Original, standardmäßig aus** (Details › Controller › „Kern extras“,
-`kernExtras`; aus läuft nur Pollens Software). Pollens Gehirn hat keinen Ball- oder Sockendetektor;
-hier ist der Detektor das Bild der Kopfkamera, `walker_sees`, mit einem Tracker.
+**BallPlay, aus Pollens ursprünglicher Runtime, standardmäßig an.** Pollens Runtime
+(`apirrone/microduck_runtime`, `autonomous.rs`) hatte 16 Zustände, darunter BallPlay: „approach /
+line up / kick“ (`docs/ideas/autonomous_behavior.md`). `autod` hat es nur weggelassen, weil der Daemon
+noch keinen Balldetektor hat (`docs/design/autonomous.md` §4; Pollen plant die Ballerkennung im
+`mediad`, M5). Der Code der Runtime ist nicht öffentlich (der öffentliche Spiegel
+`TommyZihao/microduck_runtime` stammt von März 2026, vor der Autonomie). Kern baut BallPlay deshalb
+nach dieser Beschreibung nach, mit Pollens eigenem Kick-Netz (`ball_kick_left.onnx`) und der
+Ballposition aus dessen Training:
 
-- **Spielschicht** (`src/game/walker_play.cpp`): Ball und Socke sind kein handgeschriebenes
-  Verhalten, sondern ein gelerntes Netz, `kern/policies/play.onnx` (25 Hz, 23 Beobachtungen,
-  9 Aktionen), das der Lehrer trainiert (docs/lehrer.md, Abschnitt Spielen). Es übernimmt, solange
-  die Ente ein Objekt kennt, etwas im Schnabel hat oder eine von ihm gestartete Bewegung läuft: Es
-  gibt Twist, Kopf und Schnabel vor und startet Pollens Kick und Ground Pick. Sonst läuft Pollens
-  Gehirn wie oben. Steuert jemand die Ente (Stick, Telefon, Taste) oder ein Logic-Kommando, wartet
-  das Netz.
+- **Sehen:** Ein Ball im Bild der Kopfkamera (`walker_sees`: im Sichtfeld der IMX219-Optik und nicht
+  verdeckt) startet BallPlay.
+- **Anlaufen:** mit gesenktem Kopf, langsamer je näher, bis 35 cm.
+- **Ausrichten:** in kleinen Schritten, den Kopf auf dem Ball, bis er dort liegt, wo das Kick-Training
+  ihn hinlegt (`microduck_ball_kick_env_cfg.py`: 9 cm vor, 4,2 cm neben dem linken Fuß, ±1,5 cm,
+  gemessen vom Fuß). Verliert sie ihn aus dem Bild, tritt sie zurück, bis sie ihn wieder sieht.
+- **Kicken:** Kopf hoch (der Kick wurde mit dem Kopf in Grundstellung trainiert), 3 s ruhig, dann der
+  Kick; danach eine Quak-Salve, und der Ball ist 2–5 s uninteressant.
 
-*[gemessen]* Tests `micro_duck_roams_on_its_own_with_its_tof`, `micro_duck_plays_with_a_ball_on_its_own`,
-`micro_duck_fetches_a_sock_on_its_own`.
+Abweichungen vom Original, soweit bekannt: Der Detektor ist ein geometrischer Sichttest statt eines
+neuronalen Detektors im Kamerabild. Gekickt wird nur links, weil der rechte Kick sie in Kern umkippt
+(Abschnitt 12). Anlauf- und Ausrichtwerte sind Kerns, weil die Runtime-Werte nicht lesbar sind.
+
+**Kern-Verhalten, nicht im Original** (Details › Controller › „Kern extras“, `kernExtras`): Kerns
+gelerntes Spielnetz (`kern/policies/play.onnx`, 25 Hz, 23 Beobachtungen, 9 Aktionen, vom Lehrer
+trainiert: `docs/lehrer.md`, „Spielen“) spielt mit Ball und Socke und übernimmt dann statt BallPlay
+(`src/game/walker_play.cpp`). Es übernimmt, solange die Ente ein Objekt kennt, etwas im Schnabel hat
+oder eine von ihm gestartete Bewegung läuft: Es gibt Twist, Kopf und Schnabel vor und startet Pollens
+Kick und Ground Pick. Steuert jemand die Ente (Stick, Telefon, Taste) oder ein Logic-Kommando, wartet
+das Netz. Das Beispiel-Level schaltet es ein.
+
+*[gemessen]* Tests `micro_duck_roams_on_its_own_with_its_tof`, `micro_duck_plays_ball_as_pollens_brain_does`
+(nur Pollens Software: sieht, läuft an, richtet aus, kickt; der Ball rollt weg),
+`micro_duck_plays_with_a_ball_on_its_own` und `micro_duck_fetches_a_sock_on_its_own` (Spielnetz).
 
 ### Blick in die Runde (Idle-Look-around)
 
@@ -304,6 +323,34 @@ In dieser Reihenfolge, wie beim echten Roboter:
    setzt oder aufsteht oder gestürzt ist.
 
 Zufall kommt aus einem Generator mit dem Actor als Seed, daher läuft die Ente deterministisch.
+
+### In der Hand (robotd: Pick-up-Erkennung)
+
+Wie robotd (`[pickup]`, seit dem v2-Modell standardmäßig an; duck-control `pickup.rs`, robotd
+`pickup.rs`, robotd-design §2.4.2). Pollens Klassifikator `pickup_detector.onnx` (temporales CNN,
+8k Parameter) liest jede Regelperiode die letzte Sekunde (50 Zeilen à 63 Merkmale: Gyro,
+Schwerkraft, Gelenke minus Home, Gelenkgeschwindigkeiten, Sollwert des vorigen Ticks minus Home,
+Ströme, Pause-Flag) und gibt p(gehalten). Kern rechnet das Netz selbst (`parse_onnx_pickup`,
+deterministisch, `kern::dm`); Abweichung zu onnxruntime auf Pollens Fixture-Fenstern unter 1e-5
+(Test `micro_duck_pickup_detector_matches_onnxruntime`).
+
+- Pause: p > 0,8 für 5 Ticks. Dann läuft kein Netz, die Sollwerte rampen in 300 ms vom letzten
+  Sollwert auf `PAUSE_POSE` (die mittlere Standhaltung der Lauf-Policy). `walker_driving` meldet
+  `held`.
+- Weiter: p < 0,35 für 4 Ticks, frühestens nach 300 ms Pause. Die Netze starten frisch (letzte
+  Aktion 0, Tiefpass ohne Anker), wie robotd nach einer Pause.
+- Beobachtet wird nur, solange Lauf- oder Stand-Netz die Ente haben: Eine Bewegung, Sitzen,
+  Rollschuhe (das Modell kennt keine Räder) oder der Lernende des Lehrers beenden eine Pause und
+  leeren das Fenster.
+- Ströme: Kern hat keine Servoströme; das ausgelieferte Modell liest diese Spalten nicht (der
+  Graph verwirft sie per Gather), Kern füllt 0.
+
+Hochheben in Kern Studio (Play, Ente am Rumpf greifen): Der Griff hält den Rumpf in seiner
+Ausrichtung wie eine Hand, statt ihn am Punkt pendeln zu lassen.
+
+*[gemessen]* Test `micro_duck_pauses_in_the_hand_and_walks_when_put_down`: 20 s autonom ohne eine
+falsche Pause; 15 cm hochgehoben pausiert sie nach etwa 0,5 s und bleibt pausiert; abgesetzt
+läuft sie weiter und fällt nicht.
 
 *[gemessen]* Test `micro_duck_roams_on_its_own_with_its_tof`: In einem 1,5 × 1,5 m großen Raum
 (echte Größe) mit einer Kiste erkundet die Ente in 45 s die Fläche. Sie wendet vor den Wänden und
@@ -428,12 +475,13 @@ nur als Referenz für die Werte.
 | Kopf-Kommando | ±1,10 / ±1,10 / ±1,40 / ±0,31 rad | gleich |
 | Twist | robot.move unbegrenzt, Pad 0,4 / 0,3 / 1,0 | auf 0,4 / 0,3 / 1,0 begrenzt |
 | Sturz | Schwerkraft z > −0,5 für 200 ms | gleich |
+| In der Hand | robotd `[pickup]`: pickup_detector.onnx, Latch 0,8×5 / 0,35×4, 300 ms | gleich; Ströme 0 (vom Modell nicht gelesen) |
 | Mund | −5° … 30°, nicht Teil der Policy | gleich |
 | Idle-Look-around, Stimme | idle_head.rs, sounds | portiert |
-| Autonomie | autod (12 Zustände) | portiert; ToF über Kerns Raycast, Hören/Streicheln per API |
+| Autonomie | autod (12 Zustände); Runtime: dazu BallPlay | autod portiert; BallPlay nach Beschreibung nachgebaut (Abschnitt 9); ToF über Kerns Raycast, Hören/Streicheln per API |
 | Policy umgangen? | – | nein: kein Pose-Setzen, kein Teleport, keine Zusatzkräfte, kein Blending |
 
-**Kern-eigen (nicht im Original, nur mit „Kern extras“):** Ball spielen und Socken holen
+**Kern-eigen (nicht im Original, nur mit „Kern extras“):** das Spielnetz für Ball und Socke
 (Abschnitt 9), Schnabel-Timing beim Ground Pick. Immer an, weil reiner Klang: Kunststoff- und Schritt-Geräusche, Servo-Geräusch aus der Last.
 
 **Kopf nach unten:** Nacken negativ und Kopf-Pitch positiv neigen nach unten. Nur Kopf 1,1: Kamera

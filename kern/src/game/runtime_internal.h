@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "kern/game/runtime.h"
+#include "kern/game/walker_policy.h"
 
 namespace kern::game {
 
@@ -122,6 +123,15 @@ struct GameWorld::WalkerBrain {
   f64 petted_until = -1;                 // walker_pet: a hand on it until this simulation time
   i32 heard = 0;                         // walker_hear: 1 a noise, 2 a voice, this tick
   std::string state = "";
+  // robotd's pick-up watch (robotd pickup.rs, duck-control pickup.rs): the detector's window (the
+  // last second of feature rows, a ring), its latch and the pause ramp; real seconds.
+  struct Pickup {
+    f32 rows[kPickupWindow * kPickupFeatures] = {};
+    i32 next = 0, filled = 0, run = 0;
+    bool has_previous = false, previous_paused = false, paused = false, was_paused = false;
+    f32 previous_target[14] = {}, from[14] = {};
+    f32 paused_for = 0, p_held = -1;
+  } pickup;
 };
 
 /// Kern's play layer's state (walker_play.cpp).

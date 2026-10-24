@@ -4270,6 +4270,23 @@ DuckSteadiness duck_steadiness() {
 }
 }  // namespace
 
+TEST(switching_levels_keeps_the_new_levels_meshes) {
+  // Orb Run's city and the Micro Duck room's floor share an actor id: dropping the old city on the switch
+  // must not take the new floor with it (it showed as sky until the next edit).
+  GameFixture f;
+  game::Level a = game::orb_run_level(), b = game::micro_duck_level();
+  game::ActorId floor = 0, city = 0;
+  for (const game::Actor& x : b.actors) if (x.name == "Floor") floor = x.id;
+  for (const game::Actor& x : a.actors) if (x.city) city = x.id;
+  f.world->sync(a);
+  f.world->sync(b);
+  std::vector<u32> meshes;
+  f.world->actor_meshes(floor, meshes);
+  if (std::getenv("KERN_DUCK_PRINT")) std::printf("city id %u floor id %u meshes %zu\n", city, floor, meshes.size());
+  CHECK(meshes.size() == 1);
+  CHECK(!meshes.empty() && f.renderer.mesh(meshes[0]) && f.renderer.mesh(meshes[0])->visible);
+}
+
 TEST(micro_duck_stands_on_the_floor) {
   // The soles rest on the floor: neither hovering nor sunk in (Box3D's contact slop allowed).
   for (int floor_box = 0; floor_box < 2; ++floor_box) {
@@ -5403,6 +5420,121 @@ TEST(micro_duck_plays_with_a_ball_on_its_own) {
   CHECK(kicked);
   CHECK(!fell);
   CHECK(length(b1.translation() - b0.translation()) > 0.25f * 4);  // and the ball rolls off (25 cm real)
+}
+
+TEST(micro_duck_plays_ball_as_pollens_brain_does) {
+  // Pollen's software only (no Kern extras): BallPlay of the original runtime - it sees the ball in its
+  // head camera's picture, walks up, lines it up in front of its left foot and kicks it with Pollen's
+  // kick network.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+  CHECK(!l.find(duck)->controller->kern_extras);
+  game::Actor ball;
+  ball.name = "Ball";
+  ball.tags = {"ball"};
+  ball.transform.position = {1.2f, 0.3f, 0.16f};
+  ball.mesh = game::MeshComponent{};
+  ball.mesh->shape = game::Shape::sphere;
+  ball.mesh->radius = 0.16f;
+  ball.mesh->rolling_resistance = 0.03f;
+  ball.body = game::BodyComponent{};
+  ball.body->mass = 0.03f * 64;
+  const game::ActorId bid = l.add(ball).id;
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  Mat4 b0;
+  f.world->actor_matrix(bid, b0);
+  bool kicked = false, played = false, fell = false;
+  std::string last;
+  for (int i = 0; i < 100 * 90 && !kicked; ++i) {
+    f.world->step(1.0f / 100, {});
+    const std::string st = f.world->walker_state(duck);
+    played = played || st == "BallPlay";
+    kicked = f.world->walker_driving(duck) == "kick_left";
+    fell = fell || st == "GetUp";
+    if (print && (st != last || i % 500 == 0)) {
+      Mat4 t, bm;
+      f.world->actor_matrix(duck, t);
+      f.world->actor_matrix(bid, bm);
+      std::printf("  %6.2f s %-10s trunk %.3f %.3f ball %.3f %.3f\n", i / 100.0, st.c_str(), t.translation().x, t.translation().y, bm.translation().x, bm.translation().y);
+    }
+    last = st;
+  }
+  for (int i = 0; i < 300; ++i) f.world->step(1.0f / 100, {});
+  Mat4 b1;
+  f.world->actor_matrix(bid, b1);
+  CHECK(played);
+  CHECK(kicked);
+  CHECK(!fell);
+  CHECK(length(b1.translation() - b0.translation()) > 0.25f * 4);  // and the ball rolls off (25 cm real)
+}
+
+TEST(micro_duck_pickup_detector_matches_onnxruntime) {
+  // robotd's pick-up detector (duck-control/models/pickup_detector.onnx) in Kern's own inference,
+  // against the probabilities onnxruntime gives Pollen's two fixture windows (pickup_windows.json).
+#include "pickup_windows.inc"
+  const game::PickupDetector* d = game::pickup_detector();
+  CHECK(d != nullptr);
+  if (!d) return;
+  CHECK(d->columns.size() == 49);  // the current columns dropped by the graph
+  CHECK(std::fabs(d->run(kPickup_walking) - kPickup_walking_p) < 1e-5f);
+  CHECK(std::fabs(d->run(kPickup_held) - kPickup_held_p) < 1e-5f);
+}
+
+TEST(micro_duck_pauses_in_the_hand_and_walks_when_put_down) {
+  // robotd's pick-up watch: walking on its own it never pauses; lifted by the trunk it ramps to the
+  // pause pose ("held") instead of stepping in the air; set back down, the policy has it again.
+  load_duck_policies();
+  const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
+  GameFixture f;
+  game::Level l = game::basic_level();
+  for (game::Actor& a : l.actors) if (a.name == "Cube") a.transform.position = {40, 40, 0.5f};
+  const game::ActorId duck = add_duck(l, {0, 0, 0}, true);
+  f.world->sync(l);
+  CHECK(f.world->start(l, game::SimMode::simulate));
+  bool held = false;
+  for (int i = 0; i < 100 * 20; ++i) {
+    f.world->step(1.0f / 100, {});
+    held = held || f.world->walker_driving(duck) == "held";
+  }
+  CHECK(!held);  // no false pause on the floor
+  Mat4 t0;
+  f.world->actor_matrix(duck, t0);
+  CHECK(f.world->begin_grab(duck, t0.translation()));
+  f.world->move_grab(t0.translation() + Vec3{0, 0, 0.6f});  // 15 cm (real) up
+  int held_ticks = 0;
+  for (int i = 0; i < 100 * 6; ++i) {
+    f.world->step(1.0f / 100, {});
+    const bool h = f.world->walker_driving(duck) == "held";
+    held = held || h;
+    held_ticks += h;
+    if (print && i % 50 == 0) {
+      Mat4 t;
+      f.world->actor_matrix(duck, t);
+      std::printf("  lifted %5.2f s z %.3f up %.2f %s\n", i / 100.0, t.translation().z, t.transform_vector({0, 0, 1}).z, f.world->walker_driving(duck).c_str());
+    }
+  }
+  CHECK(held);
+  CHECK(held_ticks > 100 * 3);  // and it stays paused while it is held
+  f.world->move_grab(t0.translation() + Vec3{0, 0, 0.02f});
+  for (int i = 0; i < 100 * 2; ++i) f.world->step(1.0f / 100, {});
+  f.world->end_grab();
+  bool walks = false;
+  for (int i = 0; i < 100 * 6; ++i) {
+    f.world->step(1.0f / 100, {});
+    walks = walks || f.world->walker_driving(duck) != "held";
+    if (print && i % 25 == 0) {
+      Mat4 t;
+      f.world->actor_matrix(duck, t);
+      std::printf("  down %5.2f s z %.3f up %.2f %s %s\n", i / 100.0, t.translation().z, t.transform_vector({0, 0, 1}).z, f.world->walker_driving(duck).c_str(), f.world->walker_state(duck).c_str());
+    }
+  }
+  CHECK(walks);
+  CHECK(f.world->walker_state(duck) != "GetUp");
 }
 
 TEST(micro_duck_fetches_a_sock_on_its_own) {
