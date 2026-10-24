@@ -194,14 +194,14 @@ Level orb_run_level() {
   return l;
 }
 
-Level plumo_level() {
+Level micro_duck_level() {
   // A room of the real robot's size class: 2.5 x 2.5 m real (the duck is built kWalkerScale x, so
   // 10 x 10 m here), a few things in it to walk around, and a ball it quacks at when its head
   // camera sees it (the level blueprint).
   const f32 S = kWalkerScale;
   Level l;
-  l.name = "Plumo";
-  l.world.title = "Plumo";
+  l.name = "Micro Duck";
+  l.world.title = "Micro Duck";
   l.world.time_of_day = 0.4f;
   l.world.step_hz = kWalkerStepHz;  // the policy's timing (docs/walker.md section 3)
   l.world.substeps = kWalkerSubsteps;
@@ -254,7 +254,7 @@ Level plumo_level() {
   // Two crumpled socks on the floor: the duck sees them with its head camera, walks up, picks one
   // up, carries it off and spits it out - Kern's play network decides it (docs/lehrer.md, "Spielen").
   for (const Vec3 at : {Vec3{-0.2f * S, -0.55f * S, 0}, Vec3{0.45f * S, -0.1f * S, 0}}) {
-    std::vector<Actor> sock = plumo_sock_actors();
+    std::vector<Actor> sock = micro_duck_sock_actors();
     const ActorId first = l.next_id;
     for (std::size_t i = 0; i < sock.size(); ++i) {
       Actor a = sock[i];
@@ -270,7 +270,7 @@ Level plumo_level() {
 
   // The duck: autonomous (it roams with its ToF and looks around when it stands); with Kern's play
   // network it plays with the ball and the socks it sees.
-  std::vector<Actor> parts = plumo_actors();
+  std::vector<Actor> parts = micro_duck_actors();
   const ActorId base = l.next_id;
   for (std::size_t i = 0; i < parts.size(); ++i) {
     Actor a = parts[i];

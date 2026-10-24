@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mesh simplification for imported robot meshes (STL): weld, decimate, crease normals, quantise.
 
-Used by tools/plumo_import.py. Needs numpy.
+Used by tools/micro_duck_import.py. Needs numpy.
 
 Decimation is vertex clustering with quadric representatives (Lindstrom, "Out-of-core
 simplification of large polygonal models", SIGGRAPH 2000): the mesh is binned into a grid; each

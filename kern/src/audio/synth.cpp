@@ -456,7 +456,7 @@ const std::vector<BuiltinSound>& builtin_sounds() {
 
 namespace {
 
-// Plumo's voice bank, rendered on demand: "duck_<tag>_<seed>_<variant>", the wheee ride as
+// The Micro Duck's voice bank, rendered on demand: "duck_<tag>_<seed>_<variant>", the wheee ride as
 // "duck_wheee-start|loop|end_<seed>_<variant>" (kern/audio/duck_voice.h).
 struct DuckRef { std::string tag, segment; u32 seed = 0, variant = 0; };
 bool parse_duck(std::string_view name, DuckRef& out) {
@@ -490,7 +490,7 @@ const BuiltinSound* find_builtin(std::string_view name) {
     if (name == b.name) return &b;
   DuckRef d;
   if (parse_duck(name, d)) {
-    static const BuiltinSound once{"duck", "Plumo voice", "Robot", false}, loop{"duck", "Plumo voice", "Robot", true};
+    static const BuiltinSound once{"duck", "Micro Duck voice", "Robot", false}, loop{"duck", "Micro Duck voice", "Robot", true};
     return d.segment == "loop" ? &loop : &once;
   }
   return nullptr;

@@ -15,7 +15,7 @@ R"json({
     { "file": "alpha_walking.onnx", "kind": "perpetual" },
     { "file": "velstand.onnx",      "kind": "perpetual", "slot": "walk", "entry_pose": "standing",
       "description": "Walking gait that also stands still at zero command; the default walk policy since v5, with no separate standing network. From v7 the body is steerable while standing: the body_pose roll/pitch command tilts the trunk (about +-10 deg), as alpha_stand did. From v8 it gets up from a fall smoothly and reliably instead of violently or getting stuck on its back, and yaw commands are tracked (turning in place and while walking now reaches the commanded rate).",
-      "training": { "task_id": "Mjlab-VelStand-Rough-Backlash-Plumo", "repo": "pollen-robotics/microduck_rl", "commit": "3750776", "branch": "improve_standup_velstand", "dirty": false, "run": "pollen-robotics/mjlab_microduck/0045i2si", "checkpoint": 2749, "exported": "2026-10-12T00:00:00Z" } },
+      "training": { "task_id": "Mjlab-VelStand-Rough-Backlash-MicroDuck", "repo": "pollen-robotics/microduck_rl", "commit": "3750776", "branch": "improve_standup_velstand", "dirty": false, "run": "pollen-robotics/mjlab_microduck/0045i2si", "checkpoint": 2749, "exported": "2026-10-12T00:00:00Z" } },
     { "file": "alpha_stand.onnx",   "kind": "perpetual" },
     { "file": "roller.onnx",        "kind": "perpetual", "mode": "roller", "action_scale": 0.8 },
 
@@ -23,7 +23,7 @@ R"json({
       "command": { "encoding": "posture_flag", "slot": "twist.vx", "sit": 1.0, "stand": 0.0, "idle": [0.0, 0.0, 0.0] },
       "ramp_s": 2.0, "unwind_s": 1.0,
       "description": "Gentle sit and stand, head steerable while seated. From v6 it no longer tips over backward when the head moves abruptly while seated.",
-      "training": { "task_id": "Mjlab-SitStand-Flat-Plumo", "repo": "pollen-robotics/microduck_rl", "commit": "77ffadf", "branch": "sitstand_no_fall_back", "dirty": false, "run": "pollen-robotics/mjlab_microduck/vfhxgrum", "checkpoint": 2250, "exported": "2026-10-01T00:00:00Z" } },
+      "training": { "task_id": "Mjlab-SitStand-Flat-MicroDuck", "repo": "pollen-robotics/microduck_rl", "commit": "77ffadf", "branch": "sitstand_no_fall_back", "dirty": false, "run": "pollen-robotics/mjlab_microduck/vfhxgrum", "checkpoint": 2250, "exported": "2026-10-01T00:00:00Z" } },
 
     { "file": "alpha_ground_pick.onnx", "name": "ground_pick", "kind": "episodic", "duration_s": 2.8,
       "command": { "encoding": "phase", "slots": "twist.vx,twist.vy", "period_s": 4.0, "end_phase": 0.7 } },

@@ -1,4 +1,4 @@
-// Plumo's autonomous behaviour: what it does when nobody drives it.
+// The Micro Duck's autonomous behaviour: what it does when nobody drives it.
 //
 // A port of Pollen Robotics' autonomous brain, autod (github.com/pollen-robotics/microduck, branch
 // autonomous-mode, commit df9a750 of 2026-10-01, Apache-2.0: "the runtime's autonomous.rs, ported

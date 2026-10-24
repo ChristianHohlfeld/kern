@@ -426,7 +426,7 @@ Daneben gibt es `shape_bounds`, `shape_hull_points` (Punkte für konvexe Hüllen
 
 ### Eingebaute Meshes
 
-Die Form `mesh` verweist mit `MeshComponent::asset` auf ein Dreiecksmesh, das in die Engine einkompiliert ist (`include/kern/game/builtin_meshes.h`). Heute sind das die Glieder von Plumo in Kerns eigener Gestaltung, erzeugt von `tools/kern_duck.py` (`src/game/duck_meshes.inc`). Die Namen beginnen mit `duck/`, zum Beispiel `duck/trunk_base`, `duck/neck`, `duck/upper_leg_left`, `duck/ankle_right` oder `duck/roller/passive_LF_wheel`; `builtin_mesh_names()` liefert die vollständige Liste.
+Die Form `mesh` verweist mit `MeshComponent::asset` auf ein Dreiecksmesh, das in die Engine einkompiliert ist (`include/kern/game/builtin_meshes.h`). Heute sind das die Glieder der Micro Duck in Kerns eigener Gestaltung, erzeugt von `tools/kern_duck.py` (`src/game/duck_meshes.inc`). Die Namen beginnen mit `duck/`, zum Beispiel `duck/trunk_base`, `duck/neck`, `duck/upper_leg_left`, `duck/ankle_right` oder `duck/roller/passive_LF_wheel`; `builtin_mesh_names()` liefert die vollständige Liste.
 
 Gespeichert sind sie kompakt:
 
@@ -438,7 +438,7 @@ Gespeichert sind sie kompakt:
 
 `builtin_mesh(name)` dekodiert beim ersten Zugriff und behält das Ergebnis für die Laufzeit des Programms. Nativ schützt ein Mutex den Cache, weil der Lehrer Welten auf mehreren Threads gleichzeitig baut ([Kapitel 14](14-lehrer.md)); WebAssembly läuft auf einem Thread, dort gibt es keinen Mutex (`#if !defined(__wasi__)`). `shape_mesh` skaliert ein eingebautes Mesh pro Achse mit `size` (Normalen mit dem Kehrwert) und dreht bei negativer Gesamtskalierung den Umlaufsinn um. Ein unbekannter Name ergibt einen 10-cm-Würfel, damit der Fehler im Level sichtbar ist und behoben werden kann.
 
-Wie die Ente aus diesen Teilen zusammengesetzt wird, beschreibt [Kapitel 13](13-plumo.md).
+Wie die Ente aus diesen Teilen zusammengesetzt wird, beschreibt [Kapitel 13](13-micro-duck.md).
 
 ---
 

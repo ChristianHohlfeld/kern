@@ -1,4 +1,4 @@
-// Plumo's voice: a tiny seedable synth for pet vocalisations, ported
+// The Micro Duck's voice: a tiny seedable synth for pet vocalisations, ported
 // from the real robot's `sounds` crate (pollen-robotics/microduck, Apache-2.0).
 //
 // A single u32 seed deterministically derives a DuckPersonality - pitch

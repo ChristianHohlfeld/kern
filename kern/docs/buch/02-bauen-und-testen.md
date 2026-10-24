@@ -44,7 +44,7 @@ node kern/tests/e2e/studio_e2e.mjs http://127.0.0.1:8771
 `generated/studio.html` läuft danach offline per Doppelklick. Zum Entwickeln liefert man die
 Repository-Wurzel statisch aus und öffnet `kern/web/studio/index.html`; sie lädt
 `generated/kern_studio.wasm`. `kern/web/studio/play.html?level=orbRun` spielt ein eingebautes Level
-ohne Editor (weitere Werte laut Kopfkommentar: `physicsLab`, `shootingRange`, `plumo`, `basic`).
+ohne Editor (weitere Werte laut Kopfkommentar: `physicsLab`, `shootingRange`, `microDuck`, `basic`).
 
 ---
 
@@ -231,7 +231,7 @@ selbst beschreibt [Kapitel 14](14-lehrer.md).
 
 ```sh
 CXX=g++ CC=gcc kern/tests/run.sh            # alle Tests
-kern/tests/run.sh plumo                 # nur Tests, deren Name "plumo" enthält
+kern/tests/run.sh micro_duck                 # nur Tests, deren Name "micro_duck" enthält
 ```
 
 ### Was das Skript tut
@@ -277,7 +277,7 @@ Die Tests decken die ganze Engine ab, darunter (Auswahl, Namen wie im Code):
 | Audio | `audio_mixer_spatial`, `audio_builtin_library`, `audio_collider_impact_sounds` |
 | Netzwerk | `net_serialization`, `net_reliable_channel_under_bad_network`, `net_client_server`, `net_game_server_and_clients` |
 | Studio | `studio_starts_with_orb_run`, `studio_gizmo_translate_and_undo`, `studio_undo_redo_is_exact_and_deterministic`, `studio_save_load_and_textures` |
-| Plumo | `plumo_policy_matches_the_onnx_reference`, `plumo_stands_walks_and_turns_on_its_policy`, `plumo_runs_every_move_of_its_set` |
+| Micro Duck | `micro_duck_policy_matches_the_onnx_reference`, `micro_duck_stands_walks_and_turns_on_its_policy`, `micro_duck_runs_every_move_of_its_set` |
 | Lehrer | `lehrer_mlp_gradient_matches_finite_differences`, `lehrer_ppo_learns_to_reach`, `lehrer_exports_onnx_like_pollens_networks`, `lehrer_calibrates_a_servo_from_bench_logs` |
 | Determinismus | `determinism_is_bit_identical_across_builds_and_platforms`, `lehrer_runs_the_same_on_any_number_of_workers` |
 
@@ -346,12 +346,12 @@ Geprüft werden unter anderem:
   + W), Werkzeuge, Outliner und Details, Bearbeiten der X-Position, Fokus (F), Content Drawer
   (Klick und Ziehen), Auswahl und Verschieben mit der linken Maustaste, Sound über Web Audio,
   Kontextmenüs, deterministisches Undo, Play, Simulate mit Physik-Debug, vier Viewports, neues Level
-  aus Vorlage, Shooting Range, Logik-Editor, Plumo mit Kopfkamera und ToF, Hilfe, Mehrspieler
+  aus Vorlage, Shooting Range, Logik-Editor, Micro Duck mit Kopfkamera und ToF, Hilfe, Mehrspieler
   im Editor und über zwei Tabs (BroadcastChannel), Spiel packen und das gepackte Spiel spielen, das
   Spiel auf einem Telefon.
 - **Modul-Build** (`/kern/web/studio/index.html`): Start, Farbwähler.
 - **Wiederherstellen** nach einem Neuladen, **Einstellungen** (Standardwerte, Speichern,
-  Zurücksetzen), **schmales Fenster**, **Telefon** (kompaktes Layout, Menüs per Touch, Plumo,
+  Zurücksetzen), **schmales Fenster**, **Telefon** (kompaktes Layout, Menüs per Touch, Micro Duck,
   Play/Simulate/Pause/Stop per Tipp), **Android-Dateiauswahl**.
 
 Am Ende steht `<n> checks, <m> failures (screenshots: <ordner>)`; der Rückgabewert ist 1 bei
@@ -377,7 +377,7 @@ Dann entstehen `studio.png`, `studio-selected.png`, `studio-play.png`, `studio-s
 
 ## 2.9 Der Determinismus-Fingerabdruck
 
-Der Fingerabdruck beweist, dass jede Build-Variante Plumo Bit für Bit gleich simuliert.
+Der Fingerabdruck beweist, dass jede Build-Variante die Micro Duck Bit für Bit gleich simuliert.
 `lehrer::determinism_fingerprint(ticks)` (`src/lehrer/fingerprint.cpp`) lässt die Ente mit Pollens
 `velstand`-Netz in der Studio-Physik gehen und drehen – 150 Takte vorwärts (Kommando 0,15), danach
 Drehen auf der Stelle (0,8) – und bildet je Regeltakt einen FNV-1a-Hash über Position, Rotation,
@@ -491,7 +491,7 @@ und WebAssembly bewegen.
    | `editor/index.html` | `generated/studio.html` mit vorangestelltem Kommentar `<!--BUILD_SHA:<sha>-->` |
    | `editor/build.json` | `{"sha":"<sha>"}` für die Update-Prüfung des installierbaren Editors |
    | `editor/` | `site/editor/` (Manifest, Service Worker, Icons) |
-   | `editor/pollen/` | `kern/third_party/pollen/*.onnx` (Pollens Policy-Set, Apache-2.0) |
+   | `editor/microduck/` | `kern/third_party/microduck/*.onnx` (Pollens Policy-Set, Apache-2.0) |
    | `editor/policies/` | `kern/policies/*.onnx` (Kerns eigene Netze) |
    | `generated/` | `kern_studio.wasm`, `kern_lehrer.wasm` |
    | `lehrer/index.html`, `kern/web/lehrer/*.mjs` | die Lehrer-Seite und ihre Worker |
@@ -515,7 +515,7 @@ Veröffentlichung ist dort der Job `deploy`.
 ### Job `e2e` (ubuntu-latest, 30 min; braucht `build`)
 
 1. Lädt das Artefakt `site` und stellt daraus `generated/studio.html`, `generated/kern_studio.wasm`
-   und die App-Dateien (`manifest.webmanifest`, `sw.js`, `build.json`, `icons`, `pollen`) wieder
+   und die App-Dateien (`manifest.webmanifest`, `sw.js`, `build.json`, `icons`, `microduck`) wieder
    her – so, wie sie veröffentlicht werden.
 2. Playwright 1.56.0 aus dem Cache oder per `npm install` nach `/tmp/e2e`, dann
    `playwright install --with-deps chromium`.
@@ -554,10 +554,10 @@ node kern/tests/e2e/studio_e2e.mjs http://127.0.0.1:8771
 ```
 
 Die Entwicklungsseiten laden ihre Dateien relativ: `kern/web/studio/index.html` und `play.html`
-laden `../../../generated/kern_studio.wasm`; die Policies von Plumo kommen auf der
-Entwicklungsseite aus `kern/third_party/pollen/` und `kern/policies/`, im Single-File-Build unter
-`/generated/` aus `../kern/third_party/pollen/` und `../kern/policies/`, auf der veröffentlichten
-Seite aus `pollen/` und `policies/` neben dem Editor (`loadPolicies` in `game.mjs`). Die
+laden `../../../generated/kern_studio.wasm`; die Policies der Micro Duck kommen auf der
+Entwicklungsseite aus `kern/third_party/microduck/` und `kern/policies/`, im Single-File-Build unter
+`/generated/` aus `../kern/third_party/microduck/` und `../kern/policies/`, auf der veröffentlichten
+Seite aus `microduck/` und `policies/` neben dem Editor (`loadPolicies` in `game.mjs`). Die
 Lehrer-Seite `kern/web/lehrer/index.html` bindet `../kern/web/lehrer/lehrer.mjs` ein und ist damit
 auf die Anordnung der veröffentlichten Seite (`/lehrer/`) ausgelegt.
 

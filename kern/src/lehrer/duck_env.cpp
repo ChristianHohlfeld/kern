@@ -1,4 +1,4 @@
-// The Lehrer's environment: one Plumo in its own headless GameWorld (see env.h).
+// The Lehrer's environment: one Micro Duck in its own headless GameWorld (see env.h).
 #include "kern/lehrer/env.h"
 
 #include <cmath>
@@ -27,7 +27,7 @@ DuckEnv::DuckEnv(std::unique_ptr<Task> task, u64 seed, i32 substeps) : impl_(std
   l.world.step_hz = game::kWalkerStepHz;
   l.world.ground = true;
   l.world.ground_friction = 1.0f;  // as the example level's floor
-  duck_ = game::add_plumo(l, {0, 0, 0});
+  duck_ = game::add_micro_duck(l, {0, 0, 0});
   if (substeps > 0) l.world.substeps = substeps;
   l.find(duck_)->controller->autonomous = false;
   l.world.player = 0;
@@ -60,7 +60,7 @@ void DuckEnv::reset() {
     v.trunk_mass = rng_.uniform(n.mass_min, n.mass_max);
     v.trunk_com = {rng_.uniform(-n.com, n.com), rng_.uniform(-n.com, n.com), rng_.uniform(-n.com, n.com)};
     v.head_com = {rng_.uniform(-n.head_com, n.head_com), rng_.uniform(-n.head_com, n.head_com), rng_.uniform(-n.head_com, n.head_com)};
-    game::vary_plumo(l, duck_, v);
+    game::vary_micro_duck(l, duck_, v);
     // Each servo its own (they differ from unit to unit), the bus one delay.
     auto spread = [&](f32 value, f32 rel) { return rel > 0 ? value * rng_.uniform(1 - rel, 1 + rel) : value; };
     for (i32 link = 1; link <= kActions + 1; ++link) {
@@ -70,11 +70,11 @@ void DuckEnv::reset() {
       p.friction = spread(servo.friction, servo.spread_friction);
       p.torque = spread(servo.torque, servo.spread_torque);
       p.armature = spread(servo.armature, servo.spread_armature);
-      game::set_plumo_servo(l, duck_, link, p);
+      game::set_micro_duck_servo(l, duck_, link, p);
     }
     l.find(duck_)->controller->servo_delay = servo.delay_max > servo.delay_min ? rng_.uniform(servo.delay_min, servo.delay_max) : servo.delay;
   } else {
-    game::set_plumo_servos(l, duck_, servo);
+    game::set_micro_duck_servos(l, duck_, servo);
   }
   game::GameWorld& w = *impl_->world;
   w.start(l, game::SimMode::simulate);

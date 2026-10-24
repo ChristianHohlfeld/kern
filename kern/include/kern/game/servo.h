@@ -37,7 +37,7 @@ struct ServoProfile {
   f32 delay_min = 0, delay_max = 0;
 };
 
-/// Plumo's XL330-M288 as Pollen trains it (BAM "m6" model at 7.4 V, docs/walker.md
+/// The Micro Duck's XL330-M288 as Pollen trains it (BAM "m6" model at 7.4 V, docs/walker.md
 /// section 4; delay and spreads as in microduck_rl's randomisation).
 ServoProfile xl330_profile();
 
@@ -50,11 +50,11 @@ bool servo_profile_from_json(std::string_view text, ServoProfile& out, std::stri
 /// world's units (scaled).
 void servo_step(physics::World& world, const physics::Joint& joint, f32 target, f32 stiffness, f32 damping, f32 friction, f32 torque);
 
-/// Gives Plumo `trunk` in `level` the servos of `profile` (all its joints, the rotor
-/// inertia on each link, the delay). Its servos are built from xl330_profile() by add_plumo.
-void set_plumo_servos(Level& level, ActorId trunk, const ServoProfile& profile);
+/// Gives the Micro Duck `trunk` in `level` the servos of `profile` (all its joints, the rotor
+/// inertia on each link, the delay). Its servos are built from xl330_profile() by add_micro_duck.
+void set_micro_duck_servos(Level& level, ActorId trunk, const ServoProfile& profile);
 /// One servo of it: `link` 1..14 the policy's joints in their order, 15 the mouth (no delay: the
-/// delay belongs to the bus and is set by set_plumo_servos).
-void set_plumo_servo(Level& level, ActorId trunk, i32 link, const ServoProfile& profile);
+/// delay belongs to the bus and is set by set_micro_duck_servos).
+void set_micro_duck_servo(Level& level, ActorId trunk, i32 link, const ServoProfile& profile);
 
 }  // namespace kern::game

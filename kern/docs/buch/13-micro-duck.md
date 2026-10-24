@@ -1,9 +1,9 @@
-# 13 Plumo
+# 13 Die Micro Duck
 
-Plumo ist der kleine zweibeinige Laufroboter von Pollen Robotics: rund 25 cm groß,
+Die Micro Duck ist der kleine zweibeinige Laufroboter von Pollen Robotics: rund 25 cm groß,
 0,74 kg schwer, 14 Servos vom Typ Dynamixel XL330 in den Beinen und im Hals, dazu ein fünfzehnter
 Servo für den Unterschnabel. Pollen trainiert ihre Bewegungen als neuronale Netze in MuJoCo
-(Repository `Pollens Trainings-Repository`, Framework mjlab, Lernverfahren rsl_rl) und exportiert sie als
+(Repository `microduck_rl`, Framework mjlab, Lernverfahren rsl_rl) und exportiert sie als
 ONNX-Dateien, die der echte Roboter lädt.
 
 Kern simuliert diesen Roboter auf Box3D und lässt genau diese Netze laufen. Das Ziel ist Treue:
@@ -20,21 +20,21 @@ Spielschicht und Steuerung. Wie man selbst Netze trainiert, steht in
 [Kapitel 15](15-eigene-modelle.md), wie die Simulation an den echten Roboter angeglichen wird, in
 [Kapitel 16](16-kalibrierung.md).
 
-![Das Plumo-Level im Studio](bilder/duck-level.png)
+![Das Micro-Duck-Level im Studio](bilder/duck-level.png)
 
 ## 13.1 Wo der Code liegt
 
 | Datei | Inhalt |
 |---|---|
-| `include/kern/game/walker.h` | Konstanten (`kWalkerStepHz`, `kWalkerSubsteps`, `kWalkerScale`, `kJumpSeconds`, `kJumpPhaseSlot`), `plumo_actors`, `add_plumo`, `vary_plumo`, `plumo_sock_actors` |
+| `include/kern/game/walker.h` | Konstanten (`kWalkerStepHz`, `kWalkerSubsteps`, `kWalkerScale`, `kJumpSeconds`, `kJumpPhaseSlot`), `micro_duck_actors`, `add_micro_duck`, `vary_micro_duck`, `micro_duck_sock_actors` |
 | `include/kern/game/walker_policy.h`, `src/game/walker_policy.cpp` | `WalkerPolicy`: ONNX-Netze lesen und rechnen, Register der geladenen Netze, das eingebaute Manifest; robotds Pick-up-Detektor (`PickupDetector`, `parse_onnx_pickup`, `pickup_detector()`) |
 | `include/kern/game/servo.h`, `src/game/servo.cpp` | das Gerätemodell des Positionsservos und seine Profile |
 | `src/game/walker.cpp` | Aufbau des Modells, Regler (`run_controller`), Steuerung (`drive_walkers`, darin die Pick-up-Erkennung), Sensoren (`sense_walker`), Kamera, Stimme, Lehrer-Schnittstelle |
 | `src/game/walker_brain.cpp` | das autonome Gehirn (Port von Pollens `autod`, dazu BallPlay aus Pollens ursprünglicher Runtime) und der Idle-Blick |
 | `src/game/walker_play.cpp` | die Spielschicht: Detektor, Tracker, Beobachtung, Ausführung von `play.onnx` |
 | `include/kern/game/runtime.h` | die öffentliche API in `GameWorld` (Abschnitt „walkers“) |
-| `src/game/plumo_model.inc`, `plumo_velstand.inc` | vom Importwerkzeug erzeugte Modelldaten und das eingebaute velstand-Netz |
-| `third_party/pollen/` | Pollens Netze, Manifest, MJCF-Dateien, Meshes, Lizenzen |
+| `src/game/micro_duck_model.inc`, `micro_duck_velstand.inc` | vom Importwerkzeug erzeugte Modelldaten und das eingebaute velstand-Netz |
+| `third_party/microduck/` | Pollens Netze, Manifest, MJCF-Dateien, Meshes, Lizenzen |
 | `policies/` | Kerns eigene Netze (`jump.onnx`, `play.onnx`) |
 
 ## 13.2 Grundsatz: die Physik nicht umgehen
@@ -56,14 +56,14 @@ Die Physik selbst (Box3D, Kontakte, Gelenke) beschreibt [Kapitel 6](06-physik.md
 ### Import aus dem MJCF
 
 Pollen trainiert auf `robot_allcollisions_backlash.xml` (15 Bodies, 14 Gelenke). Das Werkzeug
-`tools/plumo_import.py` liest diese Datei und `velstand.onnx` und erzeugt daraus
-`src/game/plumo_model.inc` und `src/game/plumo_velstand.inc`. Aus Pollens STL-Dateien
+`tools/micro_duck_import.py` liest diese Datei und `velstand.onnx` und erzeugt daraus
+`src/game/micro_duck_model.inc` und `src/game/micro_duck_velstand.inc`. Aus Pollens STL-Dateien
 liest es nur Maße (tiefster Punkt, Masseverteilung des Schnabels); das Aussehen zeichnet danach
 `tools/kern_duck.py`, die Kollider schreibt es aus den gemessenen Hüllen:
 
 ```
-python3 -I tools/plumo_import.py kern/third_party/pollen/robot_allcollisions_backlash.xml \
-    <Pollens Trainings-Repository>/…/assets kern/third_party/pollen/velstand.onnx kern/src/game
+python3 -I tools/micro_duck_import.py kern/third_party/microduck/robot_allcollisions_backlash.xml \
+    <microduck_rl>/src/mjlab_microduck/robot/microduck/assets kern/third_party/microduck/velstand.onnx kern/src/game
 python3 -I tools/kern_duck.py
 ```
 
@@ -101,7 +101,7 @@ Die Ente besteht aus 16 Gliedern: Rumpf, den 14 Gliedern der Policy und dem Unte
 | – | `mouth` | 0 … 0,611 | – |
 
 Alle 15 Servogelenke haben harte Box3D-Grenzen aus dem MJCF. Die Glieder heißen in der Szene nach
-ihrem Servogelenk, der Rumpf heißt „Plumo“. Im Actor-Layout ist der Rumpf der Walker-Controller
+ihrem Servogelenk, der Rumpf heißt „Micro Duck“. Im Actor-Layout ist der Rumpf der Walker-Controller
 (Index 0), die Glieder sind seine Kinder; `ActorId` des Kopfs ist `trunk + 9` (der `head_roll`-Body),
 die Knöchel mit den Sohlen sind die Glieder 5 und 14.
 
@@ -156,9 +156,9 @@ geometrisches Mittel √(a·b):
 
 Die Oberfläche trägt ein Kollider (`ColliderComponent::surface`), ein Mesh (`MeshComponent::surface`)
 oder der Boden der Welt (`WorldSettings::ground_surface`, im Level-JSON `groundSurface`). Im
-Plumo-Level und in den Trainingsszenen ist der Boden `floor`.
+Micro-Duck-Level und in den Trainingsszenen ist der Boden `floor`.
 
-Box3Ds Kontakt-Slop ist 5 mm; im Test `plumo_stands_on_the_floor` stehen die Sohlen 0,3–0,6 mm
+Box3Ds Kontakt-Slop ist 5 mm; im Test `micro_duck_stands_on_the_floor` stehen die Sohlen 0,3–0,6 mm
 im Boden.
 
 ### Maßstab 4
@@ -192,12 +192,12 @@ mit Vertexfarben. Pollens 3D-Modelle (CC BY-NC-SA 4.0, nicht kommerziell) sind n
 übernommen sind nur Messdaten (die Gliedrahmen und die groben Kollisionshüllen), damit Sohlen,
 Servos und Schnabel dort sitzen, wo sie beim echten Roboter sitzen.
 
-![Plumo in Kerns eigener Gestaltung](bilder/duck-close.png)
+![Die Micro Duck in Kerns eigener Gestaltung](bilder/duck-close.png)
 
 ### Rollschuhe
 
-`plumo_actors(true)` baut die Rollen-Variante aus `robot_groundcontact_rollers_backlash.xml`
-(Katalogeintrag „Plumo (Rollers)“): Die Knöchel tragen Kufen statt Sohlen, je zwei freie Räder
+`micro_duck_actors(true)` baut die Rollen-Variante aus `robot_groundcontact_rollers_backlash.xml`
+(Katalogeintrag „Micro Duck (Rollers)“): Die Knöchel tragen Kufen statt Sohlen, je zwei freie Räder
 sind Scharniere ohne Antrieb mit Lagerträgheit 0,0001 kg·m², die Reifenhüllen berühren den Boden
 mit Reibung 1, und die Ente steht 23,5 mm (echt) höher.
 
@@ -205,11 +205,11 @@ mit Reibung 1, und die Ente steht 23,5 mm (echt) höher.
 
 ```cpp
 game::Level level;
-const game::ActorId duck = game::add_plumo(level, {0, 0, 0});  // Rumpf auf z = 0
-// add_plumo setzt level.world.step_hz = 100 und level.world.substeps = 16
+const game::ActorId duck = game::add_micro_duck(level, {0, 0, 0});  // Rumpf auf z = 0
+// add_micro_duck setzt level.world.step_hz = 100 und level.world.substeps = 16
 ```
 
-`add_plumo` hängt die Actors an, verdrahtet Eltern und Gelenkziele und stellt die
+`add_micro_duck` hängt die Actors an, verdrahtet Eltern und Gelenkziele und stellt die
 Schrittrate der Welt ein. Das Studio fügt die Ente aus dem Katalog genauso ein und meldet die
 geänderten World Settings.
 
@@ -261,8 +261,8 @@ world.set_joint_motor(joint, friction > 0, 0, max_of(0.0f, friction));
   Rücken hoch. Pollen trainiert ausdrücklich ohne diese Grenze (`scripts/infer_policy.py`); Kern
   folgt dem.
 
-`set_plumo_servos(level, trunk, profile)` gibt allen Gelenken einer Ente ein Profil (mit der
-Armatur auf jedem Glied und der Busverzögerung), `set_plumo_servo(level, trunk, link, profile)`
+`set_micro_duck_servos(level, trunk, profile)` gibt allen Gelenken einer Ente ein Profil (mit der
+Armatur auf jedem Glied und der Busverzögerung), `set_micro_duck_servo(level, trunk, link, profile)`
 einem einzelnen (Glied 1–14 in Policy-Reihenfolge, 15 der Mund). Profile als JSON und ihre
 Kalibrierung beschreibt [Kapitel 16](16-kalibrierung.md).
 
@@ -316,12 +316,12 @@ struct WalkerPolicy {
 dann Gemm mit Elu dazwischen und ein lineares Gemm am Ende, float32-Tensoren. Alles andere lehnt es
 mit Begründung ab („not an rsl_rl actor“, „expected Elu after a hidden Gemm“, „unsupported ONNX
 operator“ …). Das eingebaute velstand-Netz trägt seine Gewichte als exakte float32-Hex-Literale; der
-Test `plumo_policy_matches_the_onnx_reference` prüft es gegen eine float64-Referenz bis 2·10⁻⁵.
+Test `micro_duck_policy_matches_the_onnx_reference` prüft es gegen eine float64-Referenz bis 2·10⁻⁵.
 
 ### Die Netze
 
-Das Manifest (`third_party/pollen/manifest.json`, Schema 2, `obs_len` 61, `action_len` 14,
-`control_hz` 50) ist eingebaut (`plumo_manifest()`); `policy_set()` in `walker.cpp` liest daraus
+Das Manifest (`third_party/microduck/manifest.json`, Schema 2, `obs_len` 61, `action_len` 14,
+`control_hz` 50) ist eingebaut (`micro_duck_manifest()`); `policy_set()` in `walker.cpp` liest daraus
 Kommando-Kodierung, Dauer, Phase und `action_scale`.
 
 | Bewegung | Netz | Art | Kommando | Taste | Pad | Touch |
@@ -373,7 +373,7 @@ if (has_previous) t = alpha * t + (1 - alpha) * previous_target[j];             
   ist Sim-to-Real-Tuning für die Hardware. Im Details-Panel wählt **Actions to servo goals**
   (`actions`) zwischen `training` (Standard) und `robot` (Daemon-Profil). Gemessen kippen die Kicks
   mit 0,9 und Tiefpass um und stehen mit 1,0 ohne Filter; laufen und stehen kann die Ente mit beiden
-  (Test `plumo_walks_with_the_robot_daemons_action_profile`).
+  (Test `micro_duck_walks_with_the_robot_daemons_action_profile`).
 - Das Ziel bleibt im Verfahrweg des XL330 (±π), nicht im Gelenkbereich: Ein Ziel jenseits der Grenze
   drückt das Gelenk in Box3Ds harten Anschlag, wie in MuJoCo.
 
@@ -395,7 +395,7 @@ Alle Pollen-Netze und Kerns Sprung haben dasselbe Layout:
 - **Aktion:** 14 Werte, Ziel = Home + Scale · Aktion.
 - **Netz velstand:** (obs − mean) / Divisor, dann 512, 256 und 128 ELU-Neuronen, dann linear 14.
 - `walker_observation(id, obs)` liefert zwischen zwei Takten genau, was der Regler beim nächsten Takt
-  sieht (Test `plumo_observation_between_ticks_is_what_its_controller_sees`).
+  sieht (Test `micro_duck_observation_between_ticks_is_what_its_controller_sees`).
   `walker_last_observation` liefert die des letzten Takts, nachdem die Befehlsplätze geschrieben
   wurden.
 
@@ -435,7 +435,7 @@ und der erste Treffer eines Strahls dorthin der Actor selbst ist. Das Studio zei
 beim Spielen oben rechts im Viewport (Show-Flag **Robot Camera**), daneben das ToF-Gitter.
 
 Blickt die Ente nach unten (Nacken −1,1, Kopf 1,1), schaut die Kamera 87° nach unten und sieht 6–15 cm
-vor dem Rumpf (Test `plumo_camera_sees_the_floor_in_front_when_looking_down`).
+vor dem Rumpf (Test `micro_duck_camera_sees_the_floor_in_front_when_looking_down`).
 
 ### IMU und Sturz
 
@@ -471,7 +471,7 @@ mit der Zeit und gelegentliches Gähnen.
 Wie robotd (`[pickup]`, seit dem v2-Modell standardmäßig an; duck-control und robotd `pickup.rs`)
 merkt die Ente, wenn eine Hand sie hochhebt, und tritt dann nicht in der Luft weiter. Pollens
 Klassifikator `pickup_detector.onnx` (ein temporales CNN mit rund 8000 Parametern, als Bytes
-eingebaut in `third_party/pollen/pickup_detector.inc`) liest in jedem Regeltakt die letzte
+eingebaut in `third_party/microduck/pickup_detector.inc`) liest in jedem Regeltakt die letzte
 Sekunde: 50 Zeilen à 63 Merkmale (`kPickupWindow`, `kPickupFeatures`) – Gyro, Schwerkraft, Gelenke
 minus Home, Gelenkgeschwindigkeiten, den Sollwert des vorigen Takts minus Home, Servoströme und ein
 Pause-Flag. Er antwortet mit p(gehalten). Kern rechnet das Netz selbst und deterministisch
@@ -495,9 +495,9 @@ dann Gemm, ELU, Gemm, Sigmoid).
   Ausrichtung wie eine Hand, statt ihn am Punkt pendeln zu lassen (`MouseGrab::begin` mit
   `hold_rotation`, [Kapitel 6](06-physik.md)).
 
-*Gemessen:* Test `plumo_pickup_detector_matches_onnxruntime`: Kerns Rechnung weicht auf Pollens
+*Gemessen:* Test `micro_duck_pickup_detector_matches_onnxruntime`: Kerns Rechnung weicht auf Pollens
 zwei Fixture-Fenstern um weniger als 10⁻⁵ von onnxruntime ab. Test
-`plumo_pauses_in_the_hand_and_walks_when_put_down`: 20 s autonom ohne falsche Pause; 15 cm
+`micro_duck_pauses_in_the_hand_and_walks_when_put_down`: 20 s autonom ohne falsche Pause; 15 cm
 (echt) hochgehoben, pausiert sie und bleibt pausiert; abgesetzt läuft sie weiter und fällt nicht.
 
 ## 13.10 Das Gehirn: Autonomie
@@ -537,7 +537,7 @@ aufsteht oder gefallen ist, hält das Gehirn still.
 
 ### BallPlay: aus Pollens ursprünglicher Runtime, standardmäßig an
 
-Pollens Runtime (`Pollens Runtime`, `autonomous.rs`) hatte einen Zustand BallPlay:
+Pollens Runtime (`apirrone/microduck_runtime`, `autonomous.rs`) hatte einen Zustand BallPlay:
 „approach / line up / kick“. `autod` hat ihn nur weggelassen, weil der Daemon noch keinen
 Balldetektor hat (`docs/design/autonomous.md` §4). Der Code der Runtime ist nicht öffentlich. Kern
 baut BallPlay deshalb nach dieser Beschreibung nach, mit Pollens eigenem Kick-Netz
@@ -558,7 +558,7 @@ gestreichelt wird, aufhebt oder sitzt.
   voraus sieht, ist der Ball.
 - **Ausrichten:** in kleinen Schritten (0,2–0,25 m/s, nie unter dem, womit der Gang aus dem Stand
   anläuft), den Kopf auf dem Ball (−1,1 rad), bis er dort liegt, wo das Kick-Training ihn hinlegt
-  (`Pollens Kick-Trainingskonfiguration`: 9 cm vor, 4,2 cm neben dem linken Fuß, ±1,5 cm, gemessen vom
+  (`microduck_ball_kick_env_cfg.py`: 9 cm vor, 4,2 cm neben dem linken Fuß, ±1,5 cm, gemessen vom
   Fuß). Verliert sie ihn dicht vor sich aus dem Bild, tritt sie mit gesenktem Kopf zurück, bis sie
   ihn wieder sieht; dort, wo er war, kickt sie nicht.
 - **Kicken:** Kopf in Grundstellung (der Kick wurde so trainiert), 3 s ruhig, bis sie langsamer als
@@ -713,15 +713,15 @@ Takten exakt.
 
 ### Socke und Ball
 
-**Socke** (`plumo_sock_actors()`): sieben Stoffklumpen von 12,5 mm Durchmesser, lose gehäuft
+**Socke** (`micro_duck_sock_actors()`): sieben Stoffklumpen von 12,5 mm Durchmesser, lose gehäuft
 3,4 cm hoch (vier am Boden, zwei darauf, einer oben), 25 g zusammen, jeder mit seinen Nachbarn durch
 weiche Federn verbunden (Box3D-Distanzgelenke, 15 Hz, Dämpfung 0,7). Sie gibt unter dem Schnabel
 nach, und was der Schnabel greift, zieht den Rest mit. Jeder Klumpen hat Oberfläche `cloth` und
 Rollwiderstand 0,5: Runde Stoffklumpen würden sonst rollen, und der Haufen kröche über den Boden.
 
 ```cpp
-std::vector<game::Actor> sock = game::plumo_sock_actors();  // Index 0 ist die Wurzel "Sock"
-// Ids, Eltern und Gelenkziele wie bei add_plumo umrechnen, dann level.add(...)
+std::vector<game::Actor> sock = game::micro_duck_sock_actors();  // Index 0 ist die Wurzel "Sock"
+// Ids, Eltern und Gelenkziele wie bei add_micro_duck umrechnen, dann level.add(...)
 ```
 
 **Ball:** ein dynamischer Kugel-Actor mit Tag `ball` (oder Name „Ball“). Im Beispiel-Level ein 12-cm-
@@ -729,7 +729,7 @@ Spielball von 50 g mit Rollwiderstand 0,03 (Gummi auf Holz); ohne Rollwiderstand
 
 ### Was im Beispiel-Level passiert
 
-Das Plumo-Level (`game::plumo_level()`) ist ein Raum von 2,5 × 2,5 m (echt) mit Holzboden
+Das Micro-Duck-Level (`game::micro_duck_level()`) ist ein Raum von 2,5 × 2,5 m (echt) mit Holzboden
 (Reibung 1, Oberfläche `floor`), Schuhkarton, Bücherstapel, Kiste, Blumentopf, einem Ball und zwei
 Socken. Die Ente ist autonom und hat Kern extras an. Ein Level-Blueprint zeigt die Robots-Knoten:
 Er lässt die Ente einmal quaken, wenn der Ball ins Kamerabild kommt. Das ist eine Vorführung des
@@ -745,8 +745,8 @@ Gemessen über 32 Episoden je Zeile (`docs/lehrer.md`, Abschnitt 8; Einzelheiten
 | Netz, sauberer Roboter | 9 von 11 (im Mittel nach 17 s) | 4 von 21 | 1 von 21 | 2 von 14 | 2 von 32 |
 | Netz, volle Variation | 7 von 11 | 13 von 21 | 0 von 21 | 1 von 15 | 10 von 32 |
 
-Die Laufzeittests `plumo_plays_with_a_ball_on_its_own` (Ball 30 cm vor der Ente: gekickt, rollt
-mehr als 25 cm weg, kein Sturz) und `plumo_goes_for_a_sock_and_bites` (Socke 30 cm vor der Ente:
+Die Laufzeittests `micro_duck_plays_with_a_ball_on_its_own` (Ball 30 cm vor der Ente: gekickt, rollt
+mehr als 25 cm weg, kein Sturz) und `micro_duck_goes_for_a_sock_and_bites` (Socke 30 cm vor der Ente:
 hingehen, stehen, aufheben, zubeißen) prüfen in Studio-Physik, dass nur das Netz entscheidet.
 
 ## 13.12 Steuerung im Studio
@@ -784,15 +784,15 @@ Taste **7**, Touch **HOP** oder der Logik-Knoten **Robot Move** mit „jump“ s
 Er läuft wie Pollens Kicks: harter Wechsel auf `jump.onnx`, nach 2 s (`kJumpSeconds`) zurück. Das Netz
 sieht die Phase t / 2 s als cos und sin in den Beobachtungsplätzen 55 und 56 (`kJumpPhaseSlot`), die
 Pollens Netze nie nutzen; der Rest des Kommandos ist 0. Im Studio (Test
-`plumo_jumps_for_real_in_the_studio`): 3 von 3 echte Sprünge, Steigen 9,0 mm, Flug 120 ms,
+`micro_duck_jumps_for_real_in_the_studio`): 3 von 3 echte Sprünge, Steigen 9,0 mm, Flug 120 ms,
 Neigung 8°, danach steht und läuft die Ente wieder. Wie das Netz entstand, steht in
 [Kapitel 14](14-lehrer.md#149-ergebnisse-des-sprungs).
 
 ### Netze laden
 
 Das Studio (`web/studio/game.mjs`) fragt die Engine nach fehlenden Netzen
-(`kern_studio_pending_policies`) und lädt sie: Pollens Netze aus `pollen/`, Kerns eigene
-(`jump.onnx`, `play.onnx`) aus `policies/` – auf der Entwicklerseite aus `third_party/pollen/` und
+(`kern_studio_pending_policies`) und lädt sie: Pollens Netze aus `microduck/`, Kerns eigene
+(`jump.onnx`, `play.onnx`) aus `policies/` – auf der Entwicklerseite aus `third_party/microduck/` und
 `kern/policies/`. Eine Datei, die nicht lädt, wird nach 5, 10, 20 s … (höchstens einmal pro Minute)
 erneut angefragt. Netze, die der Lehrer im Browser auf demselben Gerät gespeichert hat (IndexedDB
 „kern-lehrer“), lädt das Studio ebenfalls, und offene Studio-Tabs übernehmen ein neues sofort
@@ -856,7 +856,7 @@ Einheiten), `walker_push` (Stoß) und für die Spielschicht `set_walker_play_ext
 
 ## 13.14 Gemessen
 
-Test `plumo_stands_walks_and_turns_on_its_policy` und weitere:
+Test `micro_duck_stands_walks_and_turns_on_its_policy` und weitere:
 
 | Fall | Kern | Pollen (MuJoCo, v8) |
 |---|---|---|
@@ -866,11 +866,11 @@ Test `plumo_stands_walks_and_turns_on_its_policy` und weitere:
 | Zappeln beim Laufen (Effektivwert der Winkelgeschwindigkeit) | Rumpf 1,0 rad/s, Kopf 1,9 rad/s (ohne Armatur 3,6 und 6,7) | – |
 | auf Bauch oder Rücken | steht nach höchstens 12 s wieder | steht auf |
 
-Test `plumo_runs_every_move_of_its_set`: Sitzen und Aufstehen, Aufheben (tiefste Neigung 0,78),
+Test `micro_duck_runs_every_move_of_its_set`: Sitzen und Aufstehen, Aufheben (tiefste Neigung 0,78),
 Kick links (Ball fliegt 4 m echt), Rolle und Ducken auf Rollen gelingen; Kick rechts kippt manchmal
 und steht wieder auf. Kein Gelenk überschreitet seine Grenze um mehr als 0,004 rad.
 
-Test `plumo_plays_ball_as_pollens_brain_does` (nur Pollens Software, ohne Kern extras): Die
+Test `micro_duck_plays_ball_as_pollens_brain_does` (nur Pollens Software, ohne Kern extras): Die
 Ente sieht den Ball, läuft an, richtet ihn aus und kickt mit Pollens Kick-Netz, ohne zu fallen; der
 Ball rollt mehr als 25 cm (echt) weg. Die Pick-up-Erkennung prüfen die Tests in Abschnitt 13.9.
 

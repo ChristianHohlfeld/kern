@@ -10,7 +10,7 @@ and `NOTICE`.
 | Box3D | Erin Catto | MIT |
 | Earcut (C++ port) | Mapbox | ISC |
 | musl maths functions | Rich Felker et al. | MIT |
-| Plumo robot model (MJCF), policies, pick-up detector, ported software | Pollen Robotics | Apache License 2.0 |
+| Micro Duck robot model (MJCF), policies, pick-up detector, ported software | Pollen Robotics | Apache License 2.0 |
 
 The book itself is not covered by these licences (see the [imprint](00-imprint.md)).
 

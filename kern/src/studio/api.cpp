@@ -150,14 +150,14 @@ KERN_EXPORT(kern_studio_texture_pixels) i32 kern_studio_texture_pixels(const cha
 
 // ---- robot policies ----
 
-/// The policy files of Plumo's set (manifest.json) not loaded yet: ["roller.onnx", ...].
-/// The page fetches them (pollen/<file> next to the editor) and hands them over.
+/// The policy files of the Micro Duck's set (manifest.json) not loaded yet: ["roller.onnx", ...].
+/// The page fetches them (microduck/<file> next to the editor) and hands them over.
 KERN_EXPORT(kern_studio_pending_policies) const char* kern_studio_pending_policies() {
   if (!live()) return nullptr;
   json::Value m, list = json::Value::array();
   bool robot = false;  // only a level with a walker needs them
   for (const game::Actor& a : g_host->studio->level().actors) robot = robot || (a.controller && a.controller->mode == game::ControlMode::walker);
-  if (robot && json::parse(game::plumo_manifest(), m))
+  if (robot && json::parse(game::micro_duck_manifest(), m))
     for (const json::Value& p : m["policies"].items())
       if (!game::walker_policy(p["file"].as_string())) list.push(p["file"].as_string());
   // Kern's own networks (kern/policies/, docs/lehrer.md): the jump and the play layer.

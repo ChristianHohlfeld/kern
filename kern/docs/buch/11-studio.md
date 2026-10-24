@@ -13,7 +13,7 @@ und reicht Eingaben weiter (Abschnitt [11.19](#1119-architektur)).
 Dieses Kapitel ist das Benutzerhandbuch. Wie man daraus ein eigenes Spiel macht, zeigt
 [Kapitel 12](12-eigene-spiele.md); die Logik-Graphen beschreibt [Kapitel 9](09-logik.md), die Physik
 [Kapitel 6](06-physik.md), den Ton [Kapitel 7](07-audio.md), die Spiel-Laufzeit hinter Play
-[Kapitel 8](08-spiel-laufzeit.md) und den Roboter Plumo [Kapitel 13](13-plumo.md).
+[Kapitel 8](08-spiel-laufzeit.md) und den Roboter Micro Duck [Kapitel 13](13-micro-duck.md).
 
 ![Kern Studio mit dem Level Orb Run: Menüleiste, Toolbar, Viewport, Outliner und Details](bilder/studio.png)
 
@@ -107,7 +107,7 @@ Menüzeilen 40 px hoch. Esc schließt jedes Menü.
 | Save As... | Ctrl+Shift+S | unter neuem Namen speichern |
 | Import Texture... | | Bild (PNG, JPEG, WebP) als Textur ins Level holen |
 | Package Game (HTML)... | | Spiel als eine HTML-Datei exportieren ([11.16](#1116-spiel-exportieren)) |
-| Example Levels ▸ | | Orb Run, Physics Lab, Shooting Range, Plumo, Basic, Empty |
+| Example Levels ▸ | | Orb Run, Physics Lab, Shooting Range, Micro Duck, Basic, Empty |
 
 Die Vorlagen im Dialog **New Level** (ein Doppelklick auf eine Karte erstellt sofort):
 
@@ -116,7 +116,7 @@ Die Vorlagen im Dialog **New Level** (ein Doppelklick auf eine Karte erstellt so
 | Orb Run | prozedurale Nachtstadt, Box3D-Hovercar, 24 Orbs zum Einsammeln |
 | Physics Lab | jedes Box3D-Gelenk: Scharnier, Schiene, Rad, Seilbrücke, Motor, Stapel |
 | Shooting Range | Ego-Shooter-Soldat (Desktop, Gamepad, Touch), Ziele, Deckung, mehrspielerfähig |
-| Plumo | Kerns Roboter-Ente auf dem trainierten Netz von Pollen Robotics' Open-Source-Roboter, läuft selbstständig mit ToF und Kamera |
+| Micro Duck | Pollen Robotics' Laufroboter auf seinem trainierten Netz, läuft selbstständig mit ToF und Kamera |
 | Basic | Boden, Sonne und Himmel, ein sauberer Anfang |
 | Empty | gar nichts |
 
@@ -481,7 +481,7 @@ Die Spieltasten selbst:
 | C oder Ctrl links | ducken |
 | F | benutzen (Interact) |
 | Mausrad | Spielkamera zoomen |
-| 1–7, V | Bewegungen von Plumo ([11.13](#1113-die-plumo-steuern)) |
+| 1–7, V | Bewegungen der Micro Duck ([11.13](#1113-die-micro-duck-steuern)) |
 
 Gamepads und Touch-Steuerung beschreibt [11.12](#1112-mobil-touch-und-gamepad).
 
@@ -677,8 +677,8 @@ beschreibt das Element. In der Konsole und in Befehlen heißen die Elemente mit 
 | Players | Hover Car | `hover_car` | schnelles Box3D-Hovercar mit Boost |
 | Players | Rolling Ball | `rolling_ball` | Physik-Kugel zum Rollen und Springen |
 | Players | Drone | `drone` | Flyer: Leertaste/E hoch, Q/Ctrl runter |
-| Players | Plumo | `plumo` | die Roboter-Ente auf Pollen Robotics' trainierten Netzen |
-| Players | Plumo (Rollers) | `plumo_rollers` | Plumo auf Rollschuhen: `roller.onnx` fährt, 2 duckt sich |
+| Players | Micro Duck | `micro_duck` | Pollen Robotics' Zweibeiner auf seinen trainierten Netzen |
+| Players | Micro Duck (Rollers) | `micro_duck_rollers` | die Micro Duck auf Rollschuhen: `roller.onnx` fährt, 2 duckt sich |
 | Gameplay | Orb | `orb` | leuchtendes Pickup, 1 Punkt |
 | Gameplay | Star | `star` | drehendes Pickup, 10 Punkte |
 | Gameplay | Health Pack | `health_pack` | heilt 50; bleibt liegen bei voller Gesundheit; kommt nach 15 s wieder |
@@ -711,7 +711,7 @@ beschreibt das Element. In der Konsole und in Befehlen heißen die Elemente mit 
 | Physics | Hinged Door | `hinged_door` | Tür an einem gefederten Scharnier mit Grenzen |
 | Physics | Chain | `chain` | 8 Glieder an Ball-Gelenken |
 | Physics | See-Saw | `see_saw` | Brett auf einem Scharnier |
-| Physics | Sock | `plumo_sock` | zerknüllte Socke im Maßstab von Plumo (weiche Klumpen an Federn); die Ente hebt sie mit 2 oder von selbst auf |
+| Physics | Sock | `micro_duck_sock` | zerknüllte Socke im Maßstab der Micro Duck (weiche Klumpen an Federn); die Ente hebt sie mit 2 oder von selbst auf |
 | Lights | Point Light | `point_light` | farbiges Licht mit Radius |
 | Audio | Audio Source | `audio_source` | 3D-Klangquelle (Maschinenbrummen) |
 | Audio | Ambient Wind | `ambient_wind` | Wind in Schleife, überall hörbar |
@@ -719,7 +719,7 @@ beschreibt das Element. In der Konsole und in Befehlen heißen die Elemente mit 
 | Audio | Radio | `radio` | spielt den ruhigen Musik-Loop in 3D |
 | World | Procedural City | `city` | Blöcke, Straßen, Bäume und Verkehr |
 
-Beim Einfügen von Plumo stellt Studio die Physik auf 100 Hz mit 16 Sub-Steps (World Settings ›
+Beim Einfügen einer Micro Duck stellt Studio die Physik auf 100 Hz mit 16 Sub-Steps (World Settings ›
 Step rate und Sub-steps) und meldet das im Log: Servogetriebene Roboter sind lange Gelenkketten, die
 ohne genug Sub-Steps gedehnt würden, und ihr Netz braucht seinen festen Takt.
 
@@ -780,7 +780,7 @@ Level.
 | Fog density | Nebeldichte |
 | Exposure | Belichtung |
 | Ambient occlusion radius (0 = off) | Meter |
-| Shadow distance (smaller: sharper) | Meter der Sicht, die die Schattenkarte der Sonne abdeckt (2–2000, Standard 80; das Plumo-Level 10) |
+| Shadow distance (smaller: sharper) | Meter der Sicht, die die Schattenkarte der Sonne abdeckt (2–2000, Standard 80; das Micro-Duck-Level 10) |
 | Clouds | Wolken an/aus |
 | Endless ground | unendlicher Boden |
 | Ground color | Bodenfarbe |
@@ -828,7 +828,7 @@ Ein leerer Graph bietet Startknöpfe an: **Begin Play**, **On Interact**, **On B
 | Score zone (overlap +10) | Betreten gibt 10 Punkte, zeigt „+10" und spielt einen Ton |
 | Spawner (a cube every 3 s) | alle 3 s eine Physics Cube, höchstens 10 |
 | Traffic light (state machine) | Ampel als State Machine (Grün, Gelb, Rot) |
-| Robot: walk and turn away with its ToF | Plumo läuft und dreht ab, wenn ihr ToF näher als 1,6 m etwas sieht |
+| Robot: walk and turn away with its ToF | die Micro Duck läuft und dreht ab, wenn ihr ToF näher als 1,6 m etwas sieht |
 
 Ein Beispiel, wie es der Browser-Test bedient: Basic-Level, **Logic**, **Begin Play**, vom Ausgang
 „then" einen Draht ins Leere ziehen, „show message" tippen, Enter, Text eintragen, **Viewport**, einen
@@ -880,9 +880,9 @@ Kamera bleibt die des Editors.
   Schwung. Ctrl ist dafür nicht nötig. Ein kurzer Klick wählt den Körper aus. Der Hinweis im Viewport
   lautet „Simulating · drag grabs bodies · K keeps poses · Esc stops“, der Controls-Dialog (F1) nennt
   „Drag (Simulate) – Grab and throw physics bodies“.
-- **Eine Plumo am Rumpf** hält der Griff zusätzlich in ihrer Ausrichtung, wie eine Hand den
+- **Eine Micro Duck am Rumpf** hält der Griff zusätzlich in ihrer Ausrichtung, wie eine Hand den
   Roboter hält, statt sie am Punkt pendeln zu lassen (`begin_grab` mit `hold_rotation`). So
-  hochgehoben, pausiert sie wie der echte Roboter ([Kapitel 13](13-plumo.md)).
+  hochgehoben, pausiert sie wie der echte Roboter ([Kapitel 13](13-micro-duck.md)).
 - **Warum der Körper physikalisch bleibt:** Ein Motor-Gelenk mit Feder (7,5 Hz, kritisch gedämpft) zieht
   den gegriffenen Punkt zum Zeiger. Der Körper stößt an, kippt und schwingt wie jeder andere.
 - **K** übernimmt die simulierten Posen der ausgewählten Actors ins Level (ein Undo-Schritt) und beendet
@@ -899,7 +899,7 @@ die Kontakte. Die Statusleiste zählt Bodies, wache Bodies, Gelenke, gebrochene 
 ### 11.11.4 Observer camera
 
 Mit World Settings › **Observer camera** startet Play nicht hinter dem Spieler, sondern mit freier
-Kamera: Das Spiel läuft, man schaut zu und greift ein. Das Level Plumo nutzt das.
+Kamera: Das Spiel läuft, man schaut zu und greift ein. Das Level Micro Duck nutzt das.
 
 | Gerät | Bedienung |
 |---|---|
@@ -947,7 +947,7 @@ Die Engine legt die Bedienelemente selbst an (`TouchControls`), die Seite zeichn
 | Rolling ball | JUMP (wenn Jump speed > 0), BOOST (wenn Boost an) |
 | Flyer | UP, DOWN, BOOST (wenn Boost an) |
 | Hover car, Vehicle | BOOST (wenn Boost an), HOP (wenn Jump speed > 0), USE |
-| Walker (Plumo) | QUACK, PICK, SIT, KICK L, KICK R, ROLL, BEAK, WHEEE, HOP |
+| Walker (Micro Duck) | QUACK, PICK, SIT, KICK L, KICK R, ROLL, BEAK, WHEEE, HOP |
 
 Hebt sich der letzte Finger vom Bildschirm oder geht die Seite in den Hintergrund, lässt die Engine
 alles los; nichts bleibt gedrückt hängen.
@@ -975,15 +975,15 @@ Spiel, mit Dead-Zones und Kurven wie in SpawnCity:
 
 ---
 
-## 11.13 Plumo steuern
+## 11.13 Die Micro Duck steuern
 
-Plumo ist Kerns zweibeinige Roboter-Ente. Sie läuft auf den echten, trainierten Netzen von Pollen Robotics' Open-Source-Roboter.
-Wie Modell, Servos und Netze funktionieren, beschreibt [Kapitel 13](13-plumo.md); hier geht es um die
+Die Micro Duck ist Pollen Robotics' zweibeiniger Roboter, der auf seinen echten, trainierten Netzen läuft.
+Wie Modell, Servos und Netze funktionieren, beschreibt [Kapitel 13](13-micro-duck.md); hier geht es um die
 Bedienung im Studio.
 
-![Das Beispiel-Level Plumo: ein Zimmer im Maßstab der Ente](bilder/duck-level.png)
+![Das Beispiel-Level Micro Duck: ein Zimmer im Maßstab der Ente](bilder/duck-level.png)
 
-**Das Beispiel-Level** (File › Example Levels › Plumo): ein Zimmer in ihrem Maßstab mit Möbeln, einem
+**Das Beispiel-Level** (File › Example Levels › Micro Duck): ein Zimmer in ihrem Maßstab mit Möbeln, einem
 Ball und zwei Socken. Die Ente läuft autonom. Schon ohne Zusätze spielt sie Ball wie in Pollens
 ursprünglicher Runtime (BallPlay: hinlaufen, ausrichten, mit links kicken); mit eingeschaltetem
 **Kern extras** (im Beispiel-Level an) spielt stattdessen Kerns Spielschicht mit Ball und Socken. Der Level-Blueprint lässt sie quaken, sobald ihre Kopfkamera den Ball sieht. Play startet mit
@@ -1025,7 +1025,7 @@ sieht (Window › Show › **Robot Camera**, standardmäßig an):
 - **TOF 8×8** – das 8×8-Gitter ihres Abstandssensors: rot ein Hindernis (heller, je näher), grün Boden,
   gelb zu nah, dunkel nichts; dazu der kleinste Abstand in echten Metern oder „clear".
 
-![Plumo im Play mit Kopfkamera und ToF-Gitter](bilder/duck-play.png)
+![Die Micro Duck im Play mit Kopfkamera und ToF-Gitter](bilder/duck-play.png)
 
 ---
 
@@ -1036,7 +1036,7 @@ Modul eingebaut; alle anderen lädt die Seite nach, sobald ein Level eine Ente e
 
 | Netz | Herkunft | Ordner auf dem Server | Wofür |
 |---|---|---|---|
-| Pollens Satz (`roller.onnx`, `roulade.onnx`, `ball_kick_left.onnx`, `ball_kick_right.onnx`, `alpha_*.onnx`, `roller_crouch.onnx` …, laut Manifest) | Pollen Robotics, `kern/third_party/pollen/` | `pollen/` | Sitzen, Aufheben, Kicken, Rollen, Rollschuhe, ältere Gangart |
+| Pollens Satz (`roller.onnx`, `roulade.onnx`, `ball_kick_left.onnx`, `ball_kick_right.onnx`, `alpha_*.onnx`, `roller_crouch.onnx` …, laut Manifest) | Pollen Robotics, `kern/third_party/microduck/` | `microduck/` | Sitzen, Aufheben, Kicken, Rollen, Rollschuhe, ältere Gangart |
 | `jump.onnx` | Kern Lehrer, `kern/policies/` | `policies/` | der Sprung (Taste 7, HOP, Robot Move „jump") |
 | `play.onnx` | Kern Lehrer, `kern/policies/` | `policies/` | die Spielschicht: Ball kicken, Socke aufheben, wegtragen, ausspucken (nur mit **Kern extras**) |
 
@@ -1044,8 +1044,8 @@ So läuft das Laden:
 
 1. Die Engine meldet über `kern_studio_pending_policies()`, welche Dateien das Level braucht und noch
    fehlen.
-2. Die Seite holt jede Datei: Kerns eigene Netze aus `policies/`, Pollens aus `pollen/`, jeweils neben
-   der Seite. Die Entwicklungsseite liest die Kopien im Repository (`kern/third_party/pollen/`,
+2. Die Seite holt jede Datei: Kerns eigene Netze aus `policies/`, Pollens aus `microduck/`, jeweils neben
+   der Seite. Die Entwicklungsseite liest die Kopien im Repository (`kern/third_party/microduck/`,
    `kern/policies/`), ebenso die Single-File-Version in `generated/`.
 3. `kern_studio_load_policy(file, bytes)` übergibt die Bytes; die Engine prüft, ob es ein Netz ist, das sie
    ausführen kann, und registriert es unter seinem Dateinamen.
@@ -1058,7 +1058,7 @@ So läuft das Laden:
 der Lehrer ein neueres meldet (BroadcastChannel `kern-lehrer`). Ein auf demselben Gerät trainiertes Netz
 ersetzt damit das mitgelieferte, ohne dass man eine Datei kopiert.
 
-Beim Veröffentlichen kopiert die CI die Netze nach `editor/pollen/` und `editor/policies/`. Wer ein
+Beim Veröffentlichen kopiert die CI die Netze nach `editor/microduck/` und `editor/policies/`. Wer ein
 exportiertes Spiel mit Ente selbst hostet, legt diese beiden Ordner neben die HTML-Datei
 ([11.16](#1116-spiel-exportieren)).
 
@@ -1175,9 +1175,9 @@ Unten steht ein Hinweis mit der Tastenbelegung, auf Touch-Geräten ausgeblendet.
 `?host=<raum>` bietet ein Spiel an, `?join=<raum>` tritt bei, `&relay=ws://…` nutzt ein Relay für andere
 Rechner ([11.17](#1117-multiplayer)). Scheitert der Verbindungsaufbau, spielt man allein weiter.
 
-**Was nicht in der Datei steckt:** Die nachladbaren Netze von Plumo ([11.14](#1114-policies-laden-jumponnx-playonnx)).
+**Was nicht in der Datei steckt:** Die nachladbaren Netze der Micro Duck ([11.14](#1114-policies-laden-jumponnx-playonnx)).
 Das Laufen funktioniert ohne sie, weil `velstand.onnx` eingebaut ist. Für Sitzen, Kicken, Springen und die
-Spielschicht gehören die Ordner `pollen/` und `policies/` neben die HTML-Datei.
+Spielschicht gehören die Ordner `microduck/` und `policies/` neben die HTML-Datei.
 
 ---
 
@@ -1302,7 +1302,7 @@ zurück, der bis zum nächsten Aufruf gilt (`kern_studio_result_length()` nennt 
 | `kern_studio_pending_textures()`, `…_texture_source(id)`, `…_texture_pixels(…)` | Texturen dekodiert die Seite |
 | `kern_studio_pending_sounds()`, `…_sound_source(id)`, `…_sound_pcm(…)`, `…_sound_failed(…)` | importierte Sounds dekodiert die Seite |
 | `kern_studio_audio_init(rate)`, `…_audio_render(frames)`, `…_audio_prepare(ms)` | Mixer starten, Stereo-PCM ziehen, eingebaute Sounds vorbereiten |
-| `kern_studio_pending_policies()`, `kern_studio_load_policy(file, bytes)` | Netze von Plumo |
+| `kern_studio_pending_policies()`, `kern_studio_load_policy(file, bytes)` | Netze der Micro Duck |
 | `kern_studio_net_push(from, bytes)`, `…_net_take()`, `…_net_out()`, `…_net_out_to()` | Datagramme für den Netzwerk-Stack |
 | `kern_studio_take_autosave(now)`, `…_take_autosave_discard()`, `kern_studio_dirty()` | Autosave |
 | `kern_studio_ao_set(…)` | Ambient Occlusion |
@@ -1354,7 +1354,7 @@ Gamepad, Touch-Overlay, HUD) und ist zugleich der Spiel-Host exportierter Spiele
 Die Seite stellt außerdem `window.KernStudio` bereit: `command(c)`, `state`, `status`, `key(…)`,
 `pointer(…)`, `viewportRect(i)` und weitere. Darüber bedient der Browser-Test
 `kern/tests/e2e/studio_e2e.mjs` Studio mit Playwright: Menüs, Fly Mode, Werkzeuge, Outliner, Details mit
-Undo, Content Drawer, Kontextmenü, Play, Simulate, Layouts, Vorlagen, Logik, Plumo, Multiplayer,
+Undo, Content Drawer, Kontextmenü, Play, Simulate, Layouts, Vorlagen, Logik, Micro Duck, Multiplayer,
 Export, Wiederherstellen, Einstellungen, Telefon-Layouts und Android-Dateidialog. Die Bilder dieses Kapitels
 stammen zum großen Teil aus diesem Test.
 

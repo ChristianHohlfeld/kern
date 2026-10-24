@@ -1,6 +1,6 @@
 # Anhang A: Grundlagen – neuronale Netze, Nachahmung und Reinforcement Learning
 
-Dieser Anhang erklärt das Handwerkszeug, mit dem Kerns Lehrer Netze für Plumo trainiert.
+Dieser Anhang erklärt das Handwerkszeug, mit dem Kerns Lehrer Netze für den Micro Duck trainiert.
 Er setzt nur Schulmathematik voraus: Ableitungen, Summen, ein wenig Wahrscheinlichkeit. Jeder
 Begriff wird erst allgemein eingeführt und dann an der Stelle in Kern gezeigt, an der er umgesetzt
 ist. Die Fachkapitel [Kapitel 14](14-lehrer.md) (der Lehrer) und [Kapitel 15](15-eigene-modelle.md)
@@ -30,9 +30,9 @@ Eingangsvektor $x$ auf einen Ausgangsvektor $y$ abbildet,
 
 $$y = f_\theta(x).$$
 
-- $x \in \mathbb{R}^n$: die Eingabe. Beim Plumo sind das 61 Zahlen (Lage des Rumpfs, Gelenkwinkel,
+- $x \in \mathbb{R}^n$: die Eingabe. Beim Micro Duck sind das 61 Zahlen (Lage des Rumpfs, Gelenkwinkel,
   Gelenkgeschwindigkeiten, die letzte Aktion, Befehle) – `kObs = 61` in `env.h`.
-- $y \in \mathbb{R}^m$: die Ausgabe. Beim Plumo 14 Servoziele – `kActions = 14`.
+- $y \in \mathbb{R}^m$: die Ausgabe. Beim Micro Duck 14 Servoziele – `kActions = 14`.
 - $\theta$: die **Parameter** (Gewichte und Biases), oft Zehn- oder Hunderttausende Zahlen. Sie werden
   nicht von Hand gesetzt, sondern gelernt.
 
@@ -131,7 +131,7 @@ Gebräuchliche Aktivierungen:
 ```
 
 Kern verwendet **ELU** mit $\alpha = 1$ – wie rsl_rl, die Bibliothek, mit der Pollen Robotics die
-Netze von Plumo trainiert. Im Code (`Mlp::forward`):
+Netze des Micro Duck trainiert. Im Code (`Mlp::forward`):
 
 ```cpp
 y[k] = y[k] > 0 ? y[k] : kern::dm::expm1(y[k]);  // ELU

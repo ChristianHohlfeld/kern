@@ -15,8 +15,8 @@ namespace kern::lehrer {
 std::vector<u8> export_onnx(const Mlp& actor, const Normalizer& normalizer,
                             const std::vector<std::pair<std::string, std::string>>& metadata);
 
-/// Plumo's metadata as Pollen's networks carry it (joint names, home pose, observation
+/// The Micro Duck's metadata as Pollen's networks carry it (joint names, home pose, observation
 /// layout, action scale), plus who trained it and on what.
-std::vector<std::pair<std::string, std::string>> plumo_metadata(const std::string& task);
+std::vector<std::pair<std::string, std::string>> micro_duck_metadata(const std::string& task);
 
 }  // namespace kern::lehrer

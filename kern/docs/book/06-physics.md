@@ -9,7 +9,7 @@ place** where Kern talks to Box3D.
 This chapter describes that layer completely: world, bodies, shapes, materials, joints, queries,
 contacts, the mouse grab and the character mover. After that come time step, sub-steps and
 determinism, the binding rules from `docs/physics.md`, and finally the servo model
-(`game/servo.cpp`) on which Plumo in [Chapter 13](13-plumo.md) runs.
+(`game/servo.cpp`) on which the Micro Duck in [Chapter 13](13-micro-duck.md) runs.
 
 One ground rule up front, because it shapes everything else: **Box3D is never adapted to Kern's
 needs.** Neither its source nor its constants are changed, and Kern does not tweak solver parameters
@@ -73,7 +73,7 @@ The game runtime enforces this when building: shapes of moving bodies are raised
 edge length (spheres: 5 mm radius), static ones may be as thin as 2 mm (`add_shape` in
 `src/game/runtime.cpp`).
 
-*[measured]* Plumo at real size (links of 2–4 cm): the trunk sank 9 cm through the legs
+*[measured]* The Micro Duck at real size (links of 2–4 cm): the trunk sank 9 cm through the legs
 within 10 frames, even with welded joints. At 4× size the joints hold.
 
 ### Scale instead of adjusting tolerances
@@ -84,7 +84,7 @@ the rule is (`box3d:docs/loose_ends.md:59-61`): **convert units in exactly one p
 to Box3D**, never scattered across the simulation code.
 
 Kern's rule for small real-world models: scale the whole model by a factor S, each quantity
-according to its dimension (Froude similarity – poses and gait stay the same). For Plumo,
+according to its dimension (Froude similarity – poses and gait stay the same). For the Micro Duck,
 S = 4 (`game::kWalkerScale` in `include/kern/game/walker.h`, in the code as `kDuckScale`):
 
 | Quantity | Factor | at S = 4 | Remark |
@@ -369,18 +369,18 @@ The keys are only written when they are not empty. When building, `GameWorld::cr
 translates the string with `parse_surface`; an unknown name yields `none`. As of this code, the
 Details panel has no field of its own for the surface; it is set in the level document.
 
-Plumo uses all three ([Chapter 13](13-plumo.md)):
+The Micro Duck uses all three ([Chapter 13](13-micro-duck.md)):
 
-- The lumps of the sock (`plumo_sock_actors`) are `cloth`.
+- The lumps of the sock (`micro_duck_sock_actors`) are `cloth`.
 - The printed pads of the beak (hull colliders with friction > 0 that are not soles) are `tpu`.
-- In Plumo sample level, the wooden floor (`floor.mesh->surface`) is `floor`. The level also
+- In the Micro Duck sample level, the wooden floor (`floor.mesh->surface`) is `floor`. The level also
   sets `ground_surface = "floor"` but switches the endless ground off (`ground = false`) – the wooden
   floor is the ground there.
 
 The duck's soles and housings have **no** surface: they keep the friction values the policy was
 trained with (soles 1.0 on a ground of 1.0 gives √(1 · 1) = 1).
 
-![Plumo sample level: wooden floor, ball and two socks with their own pair friction](../buch/bilder/duck-level.png)
+![The Micro Duck sample level: wooden floor, ball and two socks with their own pair friction](../buch/bilder/duck-level.png)
 
 ---
 
@@ -408,7 +408,7 @@ restitution threshold (`restitution_threshold`, default 1 m/s) do not bounce.
 
 `docs/physics.md` and the comment in `physics.h` say the same: rolling resistance acts on spheres
 and capsules (radius) and on convex hulls (a quarter of their inner radius; boxes are hulls in
-Box3D too). It is used for round things: the ball in Plumo level (0.03,
+Box3D too). It is used for round things: the ball in the Micro Duck level (0.03,
 "a rubber ball on a wooden floor rolls to a stop"), the rover's tires in the Physics Lab (0.02) and
 the sock lumps (0.5: "a lump of fabric does not roll; round lumps would, and the pile would crawl").
 
@@ -557,7 +557,7 @@ Two queries read Box3D's contact data of a body directly:
 - **`touching(body, out)`** returns the bodies that `body` is currently touching (manifolds with
   points), each with the sum of the normal impulses of the last sub-step (N·s) – what a contact
   sensor reports: a sole on the floor, one link on another. The walker probe uses this for foot
-  contact and self-collision ([Chapter 13](13-plumo.md)).
+  contact and self-collision ([Chapter 13](13-micro-duck.md)).
 
 ---
 
@@ -586,9 +586,9 @@ How it works:
   body may tilt and swing at the grab point.
 - With `hold_rotation = true` the grab also keeps the orientation the body had when grabbed, as a
   hand does: an angular spring at half the frequency, critically damped, maximum torque a quarter of
-  the maximum force (a quarter-metre lever). `GameWorld::begin_grab` uses this for a Plumo's
+  the maximum force (a quarter-metre lever). `GameWorld::begin_grab` uses this for a Micro Duck's
   trunk, so that it stays upright when lifted instead of swinging on a point
-  ([Chapter 13](13-plumo.md)).
+  ([Chapter 13](13-micro-duck.md)).
 - `update(dt)` moves the mouse body to the target via `set_target_pose`. The body stays fully in the
   physics: it bumps into things, tilts, and flies on with its momentum when released.
 - Static and kinematic bodies cannot be grabbed (`begin` returns `false`).
@@ -689,8 +689,8 @@ allow 1..16). Long joint chains need more: "long joint chains will stretch less 
 
 - *[measured]* The duck's hip at 4 sub-steps: the joint gap grew to 5 cm under load and sprang back.
   At 16 sub-steps it stays below 1 mm.
-- When Studio inserts a robot, it sets 16 sub-steps and the robot's step rate (Plumo: 100 Hz,
-  `kWalkerStepHz`; `add_plumo` sets `kWalkerSubsteps = 16`) and reports it.
+- When Studio inserts a robot, it sets 16 sub-steps and the robot's step rate (Micro Duck: 100 Hz,
+  `kWalkerStepHz`; `add_micro_duck` sets `kWalkerSubsteps = 16`) and reports it.
 
 ### Stiffness is capped by the sub-step rate
 
@@ -850,7 +850,7 @@ The path in brief:
 
 ---
 
-## 6.17 The servo model – bridge to Plumo
+## 6.17 The servo model – bridge to the Micro Duck
 
 Box3D computes rigid bodies, joints and contacts. Whatever a real device does beyond that – a servo
 with a controller, friction and latency – is a small **device model** with parameters in real units,
@@ -937,7 +937,7 @@ could not pin down. Profiles are JSON (`to_json`, `servo_profile_from_json`) wit
 
 ### The boundary to Box3D
 
-`set_plumo_servo(level, trunk, link, profile)` writes a profile into the actors of a duck – with
+`set_micro_duck_servo(level, trunk, link, profile)` writes a profile into the actors of a duck – with
 the scale factor in exactly this one place:
 
 | Quantity | Conversion |
@@ -948,12 +948,12 @@ the scale factor in exactly this one place:
 
 The armature is added as a thin disc on the joint axis carried by the link: `armature` about the
 axis, half of it across (I = a/2 · (E + axis·axisᵀ)). A purely axial tensor would not be a real rigid
-body, and Box3D gains energy from it (`add_armature`). `set_plumo_servos` sets all servos and
+body, and Box3D gains energy from it (`add_armature`). `set_micro_duck_servos` sets all servos and
 the bus delay (`ControllerComponent::servo_delay`). The walker controller computes the delay itself
 in whole physics steps: the targets pass through a queue and reach `servo_target` only `delay` steps
 later (at 100 Hz and S = 4: 20 ms real = 4 steps).
 
-How Plumo walks with this is described in [Chapter 13](13-plumo.md); how profiles are
+How the Micro Duck walks with this is described in [Chapter 13](13-micro-duck.md); how profiles are
 measured and fitted, in [Chapter 16](16-calibration.md).
 
 ---

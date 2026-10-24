@@ -324,7 +324,7 @@ class GameWorld {
   void call_logic_event(const std::string& name, ActorId target = 0);
 
   // ---- walkers (articulated robots on their policies; src/game/walker.cpp) ----
-  /// What a walker's sensors report, like the real Plumo's: the head ToF (VL53L8CX, 8 x 8
+  /// What a walker's sensors report, like the real Micro Duck's: the head ToF (VL53L8CX, 8 x 8
   /// zones over 45 x 45 degrees) classified as the robot does (kinematics/src/tof.rs), the trunk IMU.
   struct WalkerSensors {
     static constexpr int kZones = 64;

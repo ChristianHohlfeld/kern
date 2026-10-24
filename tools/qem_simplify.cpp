@@ -4,7 +4,7 @@
 // would flip or squash a neighbouring triangle is refused, and open borders only collapse along
 // themselves, so thin walls (a printed shell) keep both faces.
 //
-// Used by tools/mesh_simplify.py (Plumo import). Standalone; build with
+// Used by tools/mesh_simplify.py (the Micro Duck import). Standalone; build with
 //   c++ -O2 -std=c++17 tools/qem_simplify.cpp -o qem_simplify
 // I/O (little endian): stdin  u32 vertex count, u32 triangle count, f64 xyz..., u32 abc..., u32 target
 //                      stdout u32 vertex count, u32 triangle count, f64 xyz..., u32 abc...

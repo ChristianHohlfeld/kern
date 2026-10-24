@@ -322,7 +322,7 @@ const vpCenter = async (page, i = 0) => {
   // New level from a template via the dialog.
   await page.click('.mb[data-menu="file"]');
   await page.locator(".menu .mi", {hasText: "New Level"}).click();
-  check(await until(async () => (await page.locator(".dialog .tpl").count()) === 6), "New Level shows six templates (with Plumo)");
+  check(await until(async () => (await page.locator(".dialog .tpl").count()) === 6), "New Level shows six templates (with Micro Duck)");
   await page.locator(".tpl", {hasText: "Physics Lab"}).click();
   await page.locator(".dialog .btn.primary").click();
   check(await until(async () => (await state(page)).level.name === "Physics Lab"), "Physics Lab opens");
@@ -379,15 +379,15 @@ const vpCenter = async (page, i = 0) => {
     await cmd(page, {cmd: "stop"});
   }
 
-  // Plumo: its policy runs, its head camera and ToF show in the corner while playing.
+  // The Micro Duck: its policy runs, its head camera and ToF show in the corner while playing.
   {
     await cmd(page, {cmd: "new", template: "basic"});
-    await cmd(page, {cmd: "spawn", item: "plumo", at: [4, -3, 0]});
+    await cmd(page, {cmd: "spawn", item: "micro_duck", at: [4, -3, 0]});
     await cmd(page, {cmd: "play", mode: "play"});
-    check(await until(async () => (await status(page)).robot?.zones?.length === 64, 60000), "Plumo shows its head camera and ToF while playing");
+    check(await until(async () => (await status(page)).robot?.zones?.length === 64, 60000), "the Micro Duck shows its head camera and ToF while playing");
     // Its whole policy set reached the engine: nothing the level needs is still pending.
     const pending = () => page.evaluate(() => { const e = window.KernStudio.engine; return e.result(e.e.kern_studio_pending_policies()) || []; });
-    check(await until(async () => (await pending()).length === 0, 60000), "every network of Plumo's set is loaded (pending: " + JSON.stringify(await pending()) + ")");
+    check(await until(async () => (await pending()).length === 0, 60000), "every network of the Micro Duck's set is loaded (pending: " + JSON.stringify(await pending()) + ")");
     await cmd(page, {cmd: "stop"});
   }
 
@@ -645,7 +645,7 @@ const vpCenter = async (page, i = 0) => {
   await ctx.close();
 }
 
-// ---- phone: compact layout, menus by touch, Plumo example -----------------------
+// ---- phone: compact layout, menus by touch, the Micro Duck example -----------------------
 {
   const ctx = await browser.newContext({viewport: {width: 844, height: 390}, hasTouch: true, isMobile: true});
   const page = await ctx.newPage();
@@ -664,11 +664,11 @@ const vpCenter = async (page, i = 0) => {
   await until(() => page.locator(".menu .mi", {hasText: "Example Levels"}).isVisible());
   await page.locator(".menu .mi", {hasText: "Example Levels"}).tap();
   check(await until(() => page.locator(".menu .mi.mback").isVisible()) && await page.locator(".menu").count() === 1, "phone: a submenu drills down in place (one menu, back row)");
-  await page.locator(".menu .mi", {hasText: "Plumo"}).tap();
-  check(await until(async () => (await state(page)).level.name === "Plumo"), "phone: File > Example Levels > Plumo opens");
+  await page.locator(".menu .mi", {hasText: "Micro Duck"}).tap();
+  check(await until(async () => (await state(page)).level.name === "Micro Duck"), "phone: File > Example Levels > Micro Duck opens");
   // Play watches (observer camera); a finger takes the ball with the mouse joint and lifts it.
   await cmd(page, {cmd: "play", mode: "play"});
-  check(await until(async () => (await state(page)).play?.observing), "phone: Plumo plays with the observer camera (free, watching)");
+  check(await until(async () => (await state(page)).play?.observing), "phone: Micro Duck plays with the observer camera (free, watching)");
   const ballId = (await state(page)).outliner.rows.find(r => r.name === "Ball")?.id;
   const at = async () => cmd(page, {cmd: "project", id: ballId});
   const p0 = await at();

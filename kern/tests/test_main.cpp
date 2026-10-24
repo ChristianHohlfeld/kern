@@ -950,7 +950,7 @@ static std::vector<std::pair<f32, f32>> scaled_servo_leg(f32 s, bool on_ground) 
 }
 
 TEST(physics_scale_is_a_unit_system) {
-  // Kern builds Plumo 4x as large (game::kWalkerScale) so that its centimetre links sit
+  // Kern builds the Micro Duck 4x as large (game::kWalkerScale) so that its centimetre links sit
   // where Box3D's tolerances are made for. With every quantity scaled by its dimension that is only
   // a change of units: the same real motion (docs/physics.md, scale). What does not scale are
   // Box3D's fixed lengths (linear slop 5 mm, speculative distance 20 mm): at 4x they are 1.25 / 5 mm
@@ -4089,23 +4089,23 @@ TEST(soldier_art_in_play) {
 
 // The duck's policy is Pollen Robotics' network bit for bit: two observations against a float64
 // reference (numpy, from the ONNX initialisers).
-TEST(plumo_policy_matches_the_onnx_reference) {
+TEST(micro_duck_policy_matches_the_onnx_reference) {
   f32 stand[61] = {};
   stand[5] = -1;  // upright, home pose, zero command
   const f32 stand_ref[14] = {-0.019741f, -0.041493f, 0.020606f, -0.005998f, -0.053329f, -0.095318f, 0.038519f, -0.036158f, 0.011566f, 0.025406f, 0.045495f, -0.037238f, -0.030768f, 0.086753f};
   const f32 mixed[61] = {0, 0.099166481f, -0.0255541102f, 0.05f, -0.03f, -0.998f, -0.0699874688f, -0.0618137112f, 0.0859161815f, 0.0396740573f, -0.0961397492f, -0.0148999026f, 0.09997929f, -0.0108636595f, -0.0971798446f, 0.0359058354f, 0.0879273062f, -0.058563734f, -0.0728360768f, 0.077332789f, 0.0529082686f, -0.0909666672f, -0.0294671602f, 0.0985600299f, 0.00406932573f, -0.0996086503f, 0.0215987266f, 0.0940428963f, -0.0458325454f, -0.082232354f, 0.0670229176f, 0.0649612862f, -0.0837627257f, -0.0433765541f, 0.0949403861f, 0.018911462f, -0.0998136616f, 0.00680941947f, 0.0980589492f, -0.0320781309f, -0.0897927681f, 0.0552167385f, 0.0755640226f, -0.074688755f, -0.0563175528f, 0.0892011683f, 0.033331394f, -0.0977903015f, 0.3f, 0.0998858052f, -0.5f, -0.0953485303f, 0.0421778283f, 0.0844797684f, -0.0639473344f, -0.0680012445f, 0.0814705063f, 0.0470071921f, -0.0935837421f, -0.0228916922f, 0.0994826791f};
   const f32 mixed_ref[14] = {0.039644f, 0.294097f, 0.526716f, 0.098369f, 0.119909f, -0.737250f, 0.097852f, -0.128879f, 0.633488f, 0.042892f, -0.162036f, 0.317963f, 0.060720f, 0.175597f};
   f32 a[14];
-  game::plumo_policy(stand, a);
+  game::micro_duck_policy(stand, a);
   for (int i = 0; i < 14; ++i) CHECK(std::fabs(a[i] - stand_ref[i]) < 2e-5f);
-  game::plumo_policy(mixed, a);
+  game::micro_duck_policy(mixed, a);
   for (int i = 0; i < 14; ++i) CHECK(std::fabs(a[i] - mixed_ref[i]) < 2e-5f);
 }
 
 namespace {
-/// A level with a Plumo on the floor (the catalog's insertion: ids = index + 1 + offset).
+/// A level with a Micro Duck on the floor (the catalog's insertion: ids = index + 1 + offset).
 game::ActorId add_duck(game::Level& l, Vec3 at, bool autonomous = false, bool rollers = false) {
-  std::vector<game::Actor> parts = game::plumo_actors(rollers);
+  std::vector<game::Actor> parts = game::micro_duck_actors(rollers);
   parts[0].controller->autonomous = autonomous;
   const game::ActorId base = l.next_id;
   for (std::size_t i = 0; i < parts.size(); ++i) {
@@ -4122,7 +4122,7 @@ game::ActorId add_duck(game::Level& l, Vec3 at, bool autonomous = false, bool ro
   return base;
 }
 game::ActorId add_sock(game::Level& l, Vec3 at) {
-  std::vector<game::Actor> parts = game::plumo_sock_actors();
+  std::vector<game::Actor> parts = game::micro_duck_sock_actors();
   const game::ActorId base = l.next_id;
   for (std::size_t i = 0; i < parts.size(); ++i) {
     game::Actor a = parts[i];
@@ -4176,7 +4176,7 @@ DuckRun run_duck(f32 seconds, const game::PlayInput& in, bool print = false, Vec
 }
 }  // namespace
 
-TEST(plumo_stands_walks_and_turns_on_its_policy) {
+TEST(micro_duck_stands_walks_and_turns_on_its_policy) {
   const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
   {
     // Zero command: it stands (8 s).
@@ -4271,10 +4271,10 @@ DuckSteadiness duck_steadiness() {
 }  // namespace
 
 TEST(switching_levels_keeps_the_new_levels_meshes) {
-  // Orb Run's city and Plumo room's floor share an actor id: dropping the old city on the switch
+  // Orb Run's city and the Micro Duck room's floor share an actor id: dropping the old city on the switch
   // must not take the new floor with it (it showed as sky until the next edit).
   GameFixture f;
-  game::Level a = game::orb_run_level(), b = game::plumo_level();
+  game::Level a = game::orb_run_level(), b = game::micro_duck_level();
   game::ActorId floor = 0, city = 0;
   for (const game::Actor& x : b.actors) if (x.name == "Floor") floor = x.id;
   for (const game::Actor& x : a.actors) if (x.city) city = x.id;
@@ -4287,7 +4287,7 @@ TEST(switching_levels_keeps_the_new_levels_meshes) {
   CHECK(!meshes.empty() && f.renderer.mesh(meshes[0]) && f.renderer.mesh(meshes[0])->visible);
 }
 
-TEST(plumo_stands_on_the_floor) {
+TEST(micro_duck_stands_on_the_floor) {
   // The soles rest on the floor: neither hovering nor sunk in (Box3D's contact slop allowed).
   for (int floor_box = 0; floor_box < 2; ++floor_box) {
     GameFixture f;
@@ -4315,7 +4315,7 @@ TEST(plumo_stands_on_the_floor) {
   }
 }
 
-TEST(plumo_holds_itself_steady) {
+TEST(micro_duck_holds_itself_steady) {
   const DuckSteadiness s = duck_steadiness();
   if (std::getenv("KERN_DUCK_PRINT"))
     std::printf("steadiness rad/s RMS: stand trunk %.4f head %.4f, walk trunk %.4f head %.4f\n", s.trunk_stand, s.head_stand, s.trunk_walk, s.head_walk);
@@ -4326,9 +4326,9 @@ namespace {
 /// The duck's policy set from the repository (the page fetches the same files).
 void load_duck_policies() {
   std::string dir = __FILE__;
-  dir = dir.substr(0, dir.find_last_of('/')) + "/../third_party/pollen/";
+  dir = dir.substr(0, dir.find_last_of('/')) + "/../third_party/microduck/";
   json::Value m;
-  CHECK(json::parse(game::plumo_manifest(), m));
+  CHECK(json::parse(game::micro_duck_manifest(), m));
   for (const json::Value& p : m["policies"].items()) {
     const std::string file = p["file"].as_string();
     if (game::walker_policy(file)) continue;
@@ -4348,12 +4348,12 @@ void load_duck_policies() {
 }
 }  // namespace
 
-TEST(plumo_policy_loader_reads_the_onnx_files) {
+TEST(micro_duck_policy_loader_reads_the_onnx_files) {
   load_duck_policies();
   CHECK(game::walker_policy_files().size() >= 10);
   // The loader reads velstand.onnx exactly as the importer did (the built-in copy).
   std::string dir = __FILE__;
-  dir = dir.substr(0, dir.find_last_of('/')) + "/../third_party/pollen/velstand.onnx";
+  dir = dir.substr(0, dir.find_last_of('/')) + "/../third_party/microduck/velstand.onnx";
   std::vector<u8> bytes;
   if (FILE* f = std::fopen(dir.c_str(), "rb")) {
     u8 buf[65536];
@@ -4366,12 +4366,12 @@ TEST(plumo_policy_loader_reads_the_onnx_files) {
   f32 obs[61], a[14], b[14];
   for (int i = 0; i < 61; ++i) obs[i] = 0.01f * static_cast<f32>(i % 7) - 0.02f;
   p.run(obs, a);
-  game::plumo_policy(obs, b);
+  game::micro_duck_policy(obs, b);
   for (int i = 0; i < 14; ++i) CHECK(a[i] == b[i]);
   CHECK(p.meta("joint_names").rfind("left_hip_yaw", 0) == 0);
 }
 
-TEST(plumo_rolls_forward_on_its_skates) {
+TEST(micro_duck_rolls_forward_on_its_skates) {
   // roller.onnx at the manifest's action scale: forward on the stick it skates (the rollers model's
   // free wheels), and it stays on its feet.
   load_duck_policies();
@@ -4709,7 +4709,7 @@ TEST(lehrer_exports_onnx_like_pollens_networks) {
   std::vector<f32> data(61 * 40);
   for (f32& v : data) v = rng.normal() * 2 + 0.5f;
   norm.update(data.data(), 40);
-  const std::vector<u8> bytes = lehrer::export_onnx(actor, norm, lehrer::plumo_metadata("jump"));
+  const std::vector<u8> bytes = lehrer::export_onnx(actor, norm, lehrer::micro_duck_metadata("jump"));
   if (const char* path = std::getenv("KERN_ONNX_OUT")) {
     if (FILE* f = std::fopen(path, "wb")) { std::fwrite(bytes.data(), 1, bytes.size(), f); std::fclose(f); }
   }
@@ -4733,7 +4733,7 @@ TEST(lehrer_exports_onnx_like_pollens_networks) {
   CHECK(worst < 1e-4f);
 }
 
-TEST(plumo_jumps_for_real_in_the_studio) {
+TEST(micro_duck_jumps_for_real_in_the_studio) {
   // kern/policies/jump.onnx, trained by the Lehrer (docs/lehrer.md), as the Studio runs it: the
   // move "jump" on the duck standing in a level, the world stepped frame by frame. A real jump
   // (JumpMeter's measure): every part of the duck off the floor for at least 60 ms, the trunk rising
@@ -4787,7 +4787,7 @@ TEST(plumo_jumps_for_real_in_the_studio) {
   CHECK(jumps >= 2);
 }
 
-TEST(plumo_jumps_with_a_network_trained_in_kern) {
+TEST(micro_duck_jumps_with_a_network_trained_in_kern) {
   // Kern's own move: "jump" runs jump.onnx (from Kern Lehrer) like Pollen's kicks run theirs.
   GameFixture f;
   game::Level l = game::basic_level();
@@ -4802,7 +4802,7 @@ TEST(plumo_jumps_with_a_network_trained_in_kern) {
   actor.init({61, 32, 14}, rng, 0.01f);
   lehrer::Normalizer norm;
   norm.init(61);
-  const std::vector<u8> bytes = lehrer::export_onnx(actor, norm, lehrer::plumo_metadata("jump"));
+  const std::vector<u8> bytes = lehrer::export_onnx(actor, norm, lehrer::micro_duck_metadata("jump"));
   auto p = std::make_shared<game::WalkerPolicy>();
   CHECK(game::parse_onnx_policy(Span<const u8>(bytes.data(), bytes.size()), *p));
   p->file = "jump.onnx";
@@ -4815,7 +4815,7 @@ TEST(plumo_jumps_with_a_network_trained_in_kern) {
   CHECK(f.world->walker_driving(duck) != "jump");
 }
 
-TEST(plumo_observation_between_ticks_is_what_its_controller_sees) {
+TEST(micro_duck_observation_between_ticks_is_what_its_controller_sees) {
   // The Lehrer reads the observation between ticks (walker_observation); it must be exactly what
   // the controller builds at the tick (IMU, joints, lagged speeds, last action).
   GameFixture f;
@@ -4909,7 +4909,7 @@ TEST(lehrer_duck_env_runs_episodes_headless) {
   std::printf("  headless duck: %.0f control ticks/s (%.1fx real time, sanitizer build)\n", n / sec, n * 0.02 / sec);
 }
 
-TEST(plumo_walks_with_the_robot_daemons_action_profile) {
+TEST(micro_duck_walks_with_the_robot_daemons_action_profile) {
   // ControllerComponent::actions = "robot": robotd's action scale 0.9 and low-pass (head 0.5,
   // legs 0.7) instead of the training's 1.0 and no filter. It stands and walks either way.
   const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
@@ -4924,7 +4924,7 @@ TEST(plumo_walks_with_the_robot_daemons_action_profile) {
   CHECK(walk.min_up > 0.8f);
 }
 
-TEST(plumo_walks_on_its_alpha_gait) {
+TEST(micro_duck_walks_on_its_alpha_gait) {
   // The alpha gait (alpha_walking + alpha_stand, the controller's "alpha" gait): standing still
   // alpha_stand drives; on the stick alpha_walking walks it forward.
   load_duck_policies();
@@ -4944,7 +4944,7 @@ TEST(plumo_walks_on_its_alpha_gait) {
   CHECK(walk.min_up > 0.8f);
 }
 
-TEST(plumo_runs_every_move_of_its_set) {
+TEST(micro_duck_runs_every_move_of_its_set) {
   // Each move as robotd schedules it: the network named in the manifest drives for its window,
   // then the walk takes over again; the duck stands at the end.
   load_duck_policies();
@@ -5034,7 +5034,7 @@ TEST(plumo_runs_every_move_of_its_set) {
   }
 }
 
-TEST(plumo_servo_load_drives_its_sound) {
+TEST(micro_duck_servo_load_drives_its_sound) {
   // The servo sound follows what the servos do: standing they hold (some strain, little work),
   // walking they work (torque x speed several times higher).
   const bool print = std::getenv("KERN_DUCK_PRINT") != nullptr;
@@ -5068,7 +5068,7 @@ TEST(plumo_servo_load_drives_its_sound) {
   CHECK(walk_drive > 3 * hold_drive + 0.05f);
 }
 
-TEST(plumo_steps_and_taps_sound) {
+TEST(micro_duck_steps_and_taps_sound) {
   // Its soles step (a soft, small footstep) and its plastic taps when shells touch - quietly, a few
   // per second, not a chatter.
   GameFixture f;
@@ -5102,7 +5102,7 @@ TEST(plumo_steps_and_taps_sound) {
   CHECK(other == 0);                        // no heavy "impact" from a small plastic robot
 }
 
-TEST(plumo_joints_stay_in_their_ranges) {
+TEST(micro_duck_joints_stay_in_their_ranges) {
   // Thrown on its back, on its side, spun: every servo joint keeps its MJCF range (Box3D's hard
   // limit) and never turns round (the angle is tracked unwrapped).
   for (const Vec3 euler : {Vec3{0, 90, 0}, Vec3{0, -90, 0}, Vec3{90, 0, 0}, Vec3{180, 0, 30}}) {
@@ -5135,7 +5135,7 @@ TEST(plumo_joints_stay_in_their_ranges) {
   }
 }
 
-TEST(plumo_speaks_with_its_own_voice) {
+TEST(micro_duck_speaks_with_its_own_voice) {
   // robotd's voice: greet when it comes alive; a fresh chirp press calls and opens the beak; the
   // wheee ride holds the speaker (a chirp during it is dropped); nothing while it walks.
   GameFixture f;
@@ -5199,8 +5199,8 @@ TEST(plumo_speaks_with_its_own_voice) {
 }
 
 
-TEST(plumo_picks_up_a_sock) {
-  // A crumpled sock (plumo_sock_actors: soft lumps of fabric) in front of the feet; the duck
+TEST(micro_duck_picks_up_a_sock) {
+  // A crumpled sock (micro_duck_sock_actors: soft lumps of fabric) in front of the feet; the duck
   // runs alpha_ground_pick with its beak opening at the bottom and biting (robotd: the operator's
   // trigger, here the controller's phase window). Where the sock lies decides whether the beak gets
   // it - the policy brings the beak to the same spot each time, the sock has to be there, 2.4 cm
@@ -5242,7 +5242,7 @@ TEST(plumo_picks_up_a_sock) {
   CHECK(agree == static_cast<int>(sizeof xs / sizeof xs[0]));  // and knows when it has one
 }
 
-TEST(plumo_answers_and_melts_when_petted) {
+TEST(micro_duck_answers_and_melts_when_petted) {
   // Pollen's brain: a hand on it - it goes to Petted (melt, wiggle or sleepy melt) and leaves a
   // moment after the hand does; a voice gets an answer (a chirp burst after 0.35-0.8 s).
   load_duck_policies();
@@ -5273,7 +5273,7 @@ TEST(plumo_answers_and_melts_when_petted) {
   CHECK(answered);
 }
 
-TEST(plumo_camera_sees_the_floor_in_front_when_looking_down) {
+TEST(micro_duck_camera_sees_the_floor_in_front_when_looking_down) {
   // The head camera (IMX219, 62 x 37.4 deg, upright) with the head looking down as far as the
   // training's head command goes: what of the floor in front does it see? A sock lies about 6 cm
   // (real) ahead of the trunk when the beak takes it.
@@ -5373,7 +5373,7 @@ bool load_play_policy() {
   return true;
 }
 
-TEST(plumo_plays_with_a_ball_on_its_own) {
+TEST(micro_duck_plays_with_a_ball_on_its_own) {
   // Autonomous, with Kern's play network: a ball 30 cm (real) away, a little to the side. The network
   // sees it through the camera's detector, walks the duck up until the ball lies in front of its
   // left foot and starts Pollen's kick - nothing in the code decides any of it.
@@ -5422,7 +5422,7 @@ TEST(plumo_plays_with_a_ball_on_its_own) {
   CHECK(length(b1.translation() - b0.translation()) > 0.25f * 4);  // and the ball rolls off (25 cm real)
 }
 
-TEST(plumo_plays_ball_as_pollens_brain_does) {
+TEST(micro_duck_plays_ball_as_pollens_brain_does) {
   // Pollen's software only (no Kern extras): BallPlay of the original runtime - it sees the ball in its
   // head camera's picture, walks up, lines it up in front of its left foot and kicks it with Pollen's
   // kick network.
@@ -5473,7 +5473,7 @@ TEST(plumo_plays_ball_as_pollens_brain_does) {
   CHECK(length(b1.translation() - b0.translation()) > 0.25f * 4);  // and the ball rolls off (25 cm real)
 }
 
-TEST(plumo_pickup_detector_matches_onnxruntime) {
+TEST(micro_duck_pickup_detector_matches_onnxruntime) {
   // robotd's pick-up detector (duck-control/models/pickup_detector.onnx) in Kern's own inference,
   // against the probabilities onnxruntime gives Pollen's two fixture windows (pickup_windows.json).
 #include "pickup_windows.inc"
@@ -5485,7 +5485,7 @@ TEST(plumo_pickup_detector_matches_onnxruntime) {
   CHECK(std::fabs(d->run(kPickup_held) - kPickup_held_p) < 1e-5f);
 }
 
-TEST(plumo_pauses_in_the_hand_and_walks_when_put_down) {
+TEST(micro_duck_pauses_in_the_hand_and_walks_when_put_down) {
   // robotd's pick-up watch: walking on its own it never pauses; lifted by the trunk it ramps to the
   // pause pose ("held") instead of stepping in the air; set back down, the policy has it again.
   load_duck_policies();
@@ -5537,7 +5537,7 @@ TEST(plumo_pauses_in_the_hand_and_walks_when_put_down) {
   CHECK(f.world->walker_state(duck) != "GetUp");
 }
 
-TEST(plumo_goes_for_a_sock_and_bites) {
+TEST(micro_duck_goes_for_a_sock_and_bites) {
   // Autonomous, with Kern's play network: a sock 30 cm (real) away in front. The network walks the
   // duck up, stands, starts Pollen's ground pick and shuts the beak on the sock - learned, not
   // written (docs/lehrer.md, "Spielen"). With the measured friction of the beak's TPU pads on cotton
@@ -5586,7 +5586,7 @@ TEST(plumo_goes_for_a_sock_and_bites) {
   (void)put_down;
 }
 
-TEST(plumo_roams_on_its_own_with_its_tof) {
+TEST(micro_duck_roams_on_its_own_with_its_tof) {
   // A 6 x 6 m room (real 1.5 x 1.5 m: the duck is built 4x) with a box in it: the duck walks around on
   // its own, sees the walls with its ToF, turns away and never falls.
   GameFixture f;
@@ -5640,7 +5640,7 @@ TEST(plumo_roams_on_its_own_with_its_tof) {
   CHECK(std::find(states.begin(), states.end(), "TurnInPlace") != states.end());
 }
 
-TEST(plumo_looks_around_when_left_alone) {
+TEST(micro_duck_looks_around_when_left_alone) {
   // robotd's idle look-around (idle_head.rs): standing with nothing to do, after [idle] after_s it
   // glances about - the head camera's view swings - and it keeps standing. Its camera is the real
   // mount: the IMX219's 62 degrees run vertically (mounted a quarter turn off).
@@ -5672,7 +5672,7 @@ TEST(plumo_looks_around_when_left_alone) {
   CHECK(std::fabs(cam.fov - 62 * 3.14159265f / 180) < 1e-4f);
 }
 
-TEST(plumo_blueprint_nodes_drive_and_sense) {
+TEST(micro_duck_blueprint_nodes_drive_and_sense) {
   // The level's Logic drives the duck: autonomy off, walk forward; its camera sees the cube ahead.
   GameFixture f;
   game::Level l = game::basic_level();
@@ -5697,9 +5697,9 @@ TEST(plumo_blueprint_nodes_drive_and_sense) {
   CHECK(inst && inst->get("Dist").as_number() > 0);           // and in its ToF
 }
 
-TEST(plumo_example_level_runs) {
-  // File > New > Plumo: the room, the autonomous duck, the blueprint that quacks at the ball.
-  game::Level l = game::plumo_level();
+TEST(micro_duck_example_level_runs) {
+  // File > New > Micro Duck: the room, the autonomous duck, the blueprint that quacks at the ball.
+  game::Level l = game::micro_duck_level();
   CHECK(!l.logic.nodes.empty() && l.logic.comments.size() == 1);
   CHECK(no_errors(logic::check(l.logic)));
   CHECK(l.world.step_hz == game::kWalkerStepHz && l.world.substeps == game::kWalkerSubsteps);
@@ -5730,10 +5730,10 @@ TEST(studio_robot_template_compiles) {
   CHECK(no_errors(logic::check(f.s->level().logic)));
 }
 
-TEST(plumo_builds_from_its_mjcf) {
+TEST(micro_duck_builds_from_its_mjcf) {
   StudioFixture f;
   CHECK(f.cmd(R"({"cmd":"new","template":"basic"})")["ok"].as_bool());
-  const game::ActorId duck = f.s->spawn("plumo", Vec3{4, 4, 0});
+  const game::ActorId duck = f.s->spawn("micro_duck", Vec3{4, 4, 0});
   CHECK(duck != 0);
   const game::Actor* a = f.s->level().find(duck);
   CHECK(a && a->controller && a->controller->mode == game::ControlMode::walker);

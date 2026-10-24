@@ -1,12 +1,12 @@
 # 14 Der Lehrer
 
-Der Lehrer ist Kerns eigenes Trainingssystem für Plumo. Simulation, Lernverfahren und
+Der Lehrer ist Kerns eigenes Trainingssystem für die Micro Duck. Simulation, Lernverfahren und
 Export laufen in C++ auf Kerns Engine und Box3D, ohne Python und ohne PyTorch. Er lernt nativ auf
 allen Kernen (auch headless auf einem Server) und als WebAssembly im Browser, auf Desktop und Handy.
 Ein Lauf ergibt überall Bit für Bit dasselbe Netz.
 
 Die Ente im Lehrer ist dieselbe wie im Studio: dieselbe `GameWorld`, dieselben Servos, Sensoren und
-derselbe 50-Hz-Regler, dieselbe Physik mit 16 Sub-Steps ([Kapitel 13](13-plumo.md)). Ein Netz,
+derselbe 50-Hz-Regler, dieselbe Physik mit 16 Sub-Steps ([Kapitel 13](13-micro-duck.md)). Ein Netz,
 das hier lernt, läuft deshalb unverändert im Studio. Es wird im Format von Pollens Netzen exportiert
 und kann wie diese auf den Roboter.
 
@@ -189,7 +189,7 @@ Wie Pollens Velocity- und Kick-Rezepte. Alle Werte je Episode, sofern `randomize
 | Bereich | Was | Werte (`Task::Noise`, Aufgabe) |
 |---|---|---|
 | Start | Gier, Neigung, Sohlenreibung | Gier ±180°, Rollen/Nicken ±3°, Sohlenreibung × 0,7 … 1,3 |
-| Bau (`vary_plumo`) | Rumpfmasse und -trägheit | × 0,95 … 1,05 |
+| Bau (`vary_micro_duck`) | Rumpfmasse und -trägheit | × 0,95 … 1,05 |
 | | Schwerpunkt Rumpf / Kopf je Achse | ±3 mm / ±3 mm; beim Sprung Lehrplan bis ±15 / ±10 mm |
 | Servos (Profil) | je Servo eigene Werte innerhalb der Streuungen | XL330: Reibung und Armatur ±10 % |
 | | Busverzögerung | 15 … 30 ms |
@@ -689,7 +689,7 @@ Gleitkomma-Reihenfolge, die von der Zahl der Threads abhängt (Summen in fester 
 
 ## 14.8 Die Spielschicht lernen
 
-Die Spielschicht (`play.onnx`, [Kapitel 13](13-plumo.md#1311-die-spielschicht-walker_playcpp))
+Die Spielschicht (`play.onnx`, [Kapitel 13](13-micro-duck.md#1311-die-spielschicht-walker_playcpp))
 lernt wie der Sprung: Ein Vorbild zeigt den Weg, das Netz ahmt es aus seinen eigenen Sensoren nach
 (DAgger), dann übt es (PPO).
 
@@ -773,7 +773,7 @@ entscheidet so:
   Liegt das Ziel nicht richtig (Socke: ±8 mm voraus, ±12 mm seitlich; Ball: ±2 cm), geht es mit
   voller Geschwindigkeit zurück und kommt neu.
 - **Ziel für die Socke** ist die gemessene Bissposition (`bite_spot`, unten), für den Ball 9 cm vor
-  und 4,2 cm neben dem linken Fuß (`Pollens Kick-Trainingskonfiguration`), korrigiert um den Ballradius und
+  und 4,2 cm neben dem linken Fuß (`microduck_ball_kick_env_cfg.py`), korrigiert um den Ballradius und
   gemessen vom Fuß aus, weil der Kick aus der Grundstellung trainiert ist.
 - **Bewegungswunsch als Rampe:** Der Wunsch nach Kick oder Aufheben steigt über die letzte halbe
   Sekunde des Stillstehens von −1 auf +1 (bei 1,5 s Stillstand ist er voll). Eine Rampe statt eines
@@ -877,7 +877,7 @@ Weltschritte mit je 16 Box3D-Sub-Steps. Der Engpass ist Box3Ds Gelenklöser. 8 S
 1,6-mal schneller, verändern aber Gang und Bewegungen messbar und bleiben deshalb aus.
 
 Im Studio: 3 von 3 echte Sprünge, Steigen 9,0 mm, Flug 120 ms, Neigung 8°, danach steht und läuft
-die Ente wieder (Test `plumo_jumps_for_real_in_the_studio`).
+die Ente wieder (Test `micro_duck_jumps_for_real_in_the_studio`).
 
 ## 14.10 ONNX-Export und Metadaten
 
@@ -892,7 +892,7 @@ obs [1, n] ─ Sub(obs_mean) ─ Div(obs_div) ─ Gemm(w0, b0, transB) ─ Elu(�
 Datei mit `parse_onnx_policy` (Test `lehrer_exports_onnx_like_pollens_networks`: bis 10⁻⁴ genau wie
 der Actor im Lehrer), und ONNX Runtime, die Laufzeit des Roboters, lädt sie ebenfalls.
 
-**Metadaten** für Bewegungsnetze (`plumo_metadata(task)`), dieselben Schlüssel wie bei Pollen:
+**Metadaten** für Bewegungsnetze (`micro_duck_metadata(task)`), dieselben Schlüssel wie bei Pollen:
 
 | Schlüssel | Wert |
 |---|---|
@@ -958,11 +958,11 @@ auf dem Gerät selbst die Entenschritte/s.
 | `lehrer_ppo_learns_to_reach` | PPO lernt eine einfache Aufgabe |
 | `lehrer_ppo_learns_from_collectors_elsewhere` | Sammeln und Lernen getrennt |
 | `lehrer_duck_env_runs_episodes_headless` | velstand hält die Ente über den Lehrer-Weg; gleiche Episode Bit für Bit |
-| `plumo_observation_between_ticks_is_what_its_controller_sees` | Beobachtung zwischen Takten |
+| `micro_duck_observation_between_ticks_is_what_its_controller_sees` | Beobachtung zwischen Takten |
 | `determinism_is_bit_identical_across_builds_and_platforms` | Fingerabdruck |
 | `lehrer_runs_the_same_on_any_number_of_workers` | 1, 2, 4 Worker → dasselbe Netz |
 | `lehrer_exports_onnx_like_pollens_networks` | Export |
-| `plumo_jumps_with_a_network_trained_in_kern`, `plumo_jumps_for_real_in_the_studio` | Sprung |
+| `micro_duck_jumps_with_a_network_trained_in_kern`, `micro_duck_jumps_for_real_in_the_studio` | Sprung |
 | `lehrer_calibrates_a_servo_from_bench_logs`, `lehrer_replays_robot_logs_against_the_simulation` | Kalibrierung ([Kapitel 16](16-kalibrierung.md)) |
 
 ---

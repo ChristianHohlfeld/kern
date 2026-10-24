@@ -1,6 +1,6 @@
 # Kalibrierung: der digitale Zwilling
 
-Ein Netz, das im Lehrer lernt, soll auf dem echten Plumo laufen. Dafür muss die Simulation den
+Ein Netz, das im Lehrer lernt, soll auf dem echten Micro Duck laufen. Dafür muss die Simulation den
 echten Roboter treffen. Kern erreicht das, ohne Box3D anzufassen: Box3D rechnet die starren Körper,
 Gelenke und Kontakte. Was ein echtes Gerät darüber hinaus tut (ein Servo mit seinem Regler, seiner
 Reibung, seiner Latenz), ist ein kleines **Gerätemodell** mit Parametern in echten Einheiten, dem

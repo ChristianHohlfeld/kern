@@ -493,7 +493,7 @@ At runtime `Renderer::set_shadow_filter(taps)` sets the filter level. The Studio
 
 **Light basis.** From the sun direction `dir` an orthonormal basis `right`, `up` is built (helper vector +Z, or +Y when the sun is nearly vertical).
 
-**Fitted to the view: the shadow distance.** `Renderer::set_shadow_distance(m)` (default 0 = off) sets how far into the view the map reaches. The game runtime sets it every frame from `WorldSettings::shadow_distance` (World Settings › **Shadow distance**, default 80 m; Plumo level uses 10 m for sharp shadows of the duck, the ball and the walls). With a shadow distance and a perspective camera, the map covers the **bounding sphere of the view frustum** from the near plane to the shadow distance (stable shadow maps after Valient 2008). For a symmetric frustum with the tangents of the half opening angles `th`, `tv`:
+**Fitted to the view: the shadow distance.** `Renderer::set_shadow_distance(m)` (default 0 = off) sets how far into the view the map reaches. The game runtime sets it every frame from `WorldSettings::shadow_distance` (World Settings › **Shadow distance**, default 80 m; the Micro Duck level uses 10 m for sharp shadows of the duck, the ball and the walls). With a shadow distance and a perspective camera, the map covers the **bounding sphere of the view frustum** from the near plane to the shadow distance (stable shadow maps after Valient 2008). For a symmetric frustum with the tangents of the half opening angles `th`, `tv`:
 
 ```cpp
 const f32 n = camera.near, f = max_of(camera.near + 0.1f, min_of(shadow_distance_, camera.far));

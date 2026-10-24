@@ -28,7 +28,7 @@ The CPU switches only select instructions; they do not change any result: the ne
 same bit for bit as in the browser and in the Studio ([Chapter 14](14-lehrer.md#147-determinism)).
 How Kern itself is built is described in [Chapter 2](02-building-and-testing.md).
 
-On startup, `kern_lehrer` loads Pollen's networks from `third_party/pollen/` (or
+On startup, `kern_lehrer` loads Pollen's networks from `third_party/microduck/` (or
 `--policies DIR`); they are needed for the warm start (velstand), the demonstration and the play
 layer (kick, pick).
 
@@ -344,7 +344,7 @@ so on, as well as `--out`.
 kern/build/kern_lehrer --demo-spur --netz play_geuebt.onnx --seed 120
 ```
 
-`--demo-spur` plays the Studio's Plumo level with 60 Hz frames, the way the Studio plays it
+`--demo-spur` plays the Studio's Micro Duck level with 60 Hz frames, the way the Studio plays it
 (120 s here; for this command `--seed` is the duration in seconds), with `kern/policies/jump.onnx`
 and the given play network (otherwise `kern/policies/play.onnx`). Once per second: position, state,
 driving network, what the tracker knows about ball and sock, holding, standing still, walking time
@@ -361,7 +361,7 @@ Kern's own networks have fixed file names: `jump.onnx` and `play.onnx` (`KERN_PO
 2. **From the browser Lehrer:** the Lehrer page stores its network on the same device (IndexedDB
    "kern-lehrer"). The Studio loads it on startup and picks up every new one immediately, including
    in open tabs. This applies to the jump (the page does not train a play layer).
-3. **Check:** open Plumo level, Play, key **7** (jump), or leave the duck alone (play
+3. **Check:** open the Micro Duck level, Play, key **7** (jump), or leave the duck alone (play
    layer: Autonomous and Kern extras on, ball or sock in view). The browser console reports
    "Kern: trained network jump.onnx loaded" for a network from the Lehrer, and a warning if a file
    fails to load.

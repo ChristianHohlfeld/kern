@@ -365,7 +365,7 @@ void add_actor_nodes(logic::Library& lib) {
                  "Mesh colour (0..1 each).", "material paint tint"));
 }
 
-/// Robots (walkers, Plumo): drive them, look, read their ToF and camera. Commands are in
+/// Robots (walkers, the Micro Duck): drive them, look, read their ToF and camera. Commands are in
 /// the robot's own units (the real duck's m/s and degrees); distances are world metres.
 void add_walker_nodes(logic::Library& lib) {
   const json::Value none = json::Value(0.0);

@@ -3,9 +3,9 @@
 Kern ist eine 3D-Engine in **C++20**. Sie wird mit **wasi-sdk** nach **WebAssembly** übersetzt und
 zeichnet im Browser über **WebGL2**. Im selben WebAssembly-Modul laufen die Physik (**Box3D**), eine
 eigene **Sound-Engine**, eine **Spiel-Laufzeit** aus Levels, Actors und Komponenten, **Logik-Graphen**
-mit einem JIT, ein **Netzwerk-Stack** und der Editor **Kern Studio**. Dazu kommt **Plumo**,
-eine zweibeinige Roboter-Ente auf Basis des Open-Source-Roboters von Pollen Robotics, die in Kern mit
-dessen echten trainierten Netzen läuft, und der **Lehrer**, der neue Netze für sie in C++ trainiert – nativ und im Browser.
+mit einem JIT, ein **Netzwerk-Stack** und der Editor **Kern Studio**. Dazu kommen die **Micro Duck**,
+der zweibeinige Roboter von Pollen Robotics, der in Kern mit seinen echten trainierten Netzen läuft,
+und der **Lehrer**, der neue Netze für diesen Roboter in C++ trainiert – nativ und im Browser.
 
 Live: <https://christianhohlfeld.github.io/kern/> – Startseite mit Kern Studio (`/editor/`), dem Lehrer
 (`/lehrer/`), spielbaren Levels (`kern/web/studio/play.html?level=orbRun` bzw. `physicsLab`) und den
@@ -37,7 +37,7 @@ Kern besteht aus diesen Teilen:
 | App-Laufzeit | `kern` (`app/`) | `App`/`Engine`/`Input` für Spiele, die ganz in C++ laufen |
 | Physik | `kern::physics` | C++-Schicht über Box3D: Welt, Körper, Shapes, Gelenke, Raycast, `MouseGrab` |
 | Audio | `kern::audio` | Software-Mixer, 3D-Klang, Busse, Hall, Limiter, Synthesizer, Stimme der Ente |
-| Spiel-Laufzeit | `kern::game` | `Level` (`.klevel`), `GameWorld`, Controller, Regeln, Sound, Touch, Walker (Plumo), Mehrspieler |
+| Spiel-Laufzeit | `kern::game` | `Level` (`.klevel`), `GameWorld`, Controller, Regeln, Sound, Touch, Walker (Micro Duck), Mehrspieler |
 | Logik | `kern::logic` | Blueprint-artige Graphen; Interpreter, JIT nach WebAssembly, Export als C++ |
 | Netzwerk | `kern::net` | Serialisierung, Zuverlässigkeit, Kanäle, Client/Server, Transporte |
 | Studio | `kern::studio` | der Editor im Unreal-Stil, komplett in C++ und ohne Browser testbar |
@@ -121,10 +121,10 @@ Roboter-Log und der Simulation ist ein echter Modellfehler ([Kapitel 16](16-kali
   `__proto__`, `prototype` und `constructor` ab.
 - **Keine Allokationen im Frame auf der JS-Seite.** Die Fassade `KernRenderer` kopiert Typed Arrays
   in einen wiederverwendeten Staging-Bereich im WebAssembly-Speicher (`kern/README.md`).
-- **Die Physik nicht umgehen.** Box3D wird unverändert mitkompiliert. Plumo steht allein
+- **Die Physik nicht umgehen.** Box3D wird unverändert mitkompiliert. Die Micro Duck steht allein
   durch ihre Servos und Kontakte – keine Hilfskräfte, keine gesetzten Geschwindigkeiten; Servos
   bestehen nur aus Box3Ds eigenen Gelenkteilen (`docs/walker.md`, Abschnitt 1;
-  [Kapitel 6](06-physik.md), [Kapitel 13](13-plumo.md)).
+  [Kapitel 6](06-physik.md), [Kapitel 13](13-micro-duck.md)).
 - **Eine Implementierung für alle Orte.** Editor, exportiertes Spiel, Lehrer und native Werkzeuge
   benutzen dieselbe `GameWorld`, dieselben Servos und dieselbe Physik. Ein Netz, das im Lehrer
   lernt, läuft deshalb unverändert im Studio (`docs/lehrer.md`).
@@ -162,7 +162,7 @@ bis zu den Grundlagen unten. Ein Pfeil nach unten heißt „benutzt“.
  ├──────────────────────────────┴──────────────────────────────────────────────┤
  │ kern::game  (--game)                                                         │
  │ Level/.klevel, GameWorld, Controller, Regeln, Stadt, Sound, Touch,           │
- │ Walker (Plumo), Servo-Profile, Logik-Knoten, NetGame                     │
+ │ Walker (Micro Duck), Servo-Profile, Logik-Knoten, NetGame                     │
  ├───────────────┬───────────────┬────────────────┬────────────────────────────┤
  │ kern::physics │ kern::logic   │ kern::net      │ kern::audio                 │
  │ (--physics)   │ Graphen, JIT, │ Bitpacker,     │ Mixer, 3D, Busse,           │
@@ -282,7 +282,7 @@ spielt das Level mit denselben C++-Klassen wie der Editor ([Kapitel 8](08-spiel-
 
 ### Der Lehrer (`--lehrer` und nativ)
 
-Der Lehrer trainiert Netze für Plumo. Er läuft
+Der Lehrer trainiert Netze für die Micro Duck. Er läuft
 
 - **nativ** als Kommandozeilenprogramm `kern_lehrer` auf allen Kernen (`kern/tools/lehrer.sh`), auch
   headless auf einem Server, und
@@ -295,15 +295,15 @@ Format von Pollens Netzen; das Studio lädt es wie diese ([Kapitel 14](14-lehrer
 
 ![Die Lehrer-Seite im Browser](bilder/lehrer.png)
 
-### Plumo im Zusammenspiel
+### Die Micro Duck im Zusammenspiel
 
-Plumo zeigt, wie die Schichten ineinandergreifen: Ihr Modell stammt aus Pollens MJCF
-(`third_party/pollen`), ihre Glieder sind Box3D-Körper mit Gelenken (`kern::physics`), ihre Servos
+Die Micro Duck zeigt, wie die Schichten ineinandergreifen: Ihr Modell stammt aus Pollens MJCF
+(`third_party/microduck`), ihre Glieder sind Box3D-Körper mit Gelenken (`kern::physics`), ihre Servos
 ein Gerätemodell (`kern::game::ServoProfile`), ihre Netze ONNX-Dateien, die Kern selbst auf der CPU
 rechnet (`kern::game::WalkerPolicy`), ihre Stimme kommt aus dem Mixer (`kern::audio`), Logik-Knoten
 der Kategorie *Robots* steuern sie (`kern::logic`), und im Studio sitzt sie als Actor in einem Level.
 
-![Das Plumo-Level im Studio](bilder/duck-level.png)
+![Das Micro-Duck-Level im Studio](bilder/duck-level.png)
 
 ---
 
@@ -320,7 +320,7 @@ erzeugte Dateien.
   tools/
     build_studio.sh              Kern Studio als eine HTML-Datei -> generated/studio.html
     net_relay.mjs                WebSocket-Relay für Mehrspieler über Rechnergrenzen
-    plumo_import.py         Import von Pollens Robotermodell und Laufpolicy
+    micro_duck_import.py         Import von Pollens Micro Duck (Modell, Laufpolicy)
     mesh_simplify.py, qem_simplify.cpp   Mesh-Vereinfachung für den Import
   site/
     index.html                   Startseite von GitHub Pages (Fußzeile: Rechteinhaber, Lizenz-Links)
@@ -329,7 +329,7 @@ erzeugte Dateien.
 
   kern/                          die Engine
     README.md                    Engine-Überblick
-    LICENSES.md                  Bestandteile Dritter und ihre Lizenzen (Box3D, Earcut, musl, Plumo ...)
+    LICENSES.md                  Bestandteile Dritter und ihre Lizenzen (Box3D, Earcut, musl, Micro Duck ...)
     build.sh                     WebAssembly-Build (--app, --physics, --game, --studio, --lehrer)
     include/kern/                öffentliche Header (kern/kern.h bindet App, Grundlagen, Geometrie,
                                  Renderer, Mathematik und Szene ein)
@@ -376,13 +376,13 @@ erzeugte Dateien.
     third_party/
       box3d/                     Box3D (Erin Catto, MIT), unverändert als C17
       musl_math/                 deterministische libm aus musl (MIT)
-      pollen/                    Pollen Robotics: Robotermodell (MJCF) und Policy-Set
+      microduck/                 Pollens Micro-Duck-Modell und Policy-Set
     docs/                        Einzeldokumente (studio, physics, walker, lehrer, kalibrierung, net)
       buch/                      dieses Buch
 ```
 
 Die Einzeldokumente unter `kern/docs/` sind die Quellen, aus denen dieses Buch schöpft. Bei
-Änderungen an Physik oder Plumo sind `docs/physics.md` und `docs/walker.md` verbindlich.
+Änderungen an Physik oder Micro Duck sind `docs/physics.md` und `docs/walker.md` verbindlich.
 
 Im `kern/README.md` werden einige SpawnCity-Dateien genannt (`games/spawncity`, `sim/kern_*.mjs`,
 `tools/build_kern_wasm.sh`, `tests/kern_*_test.mjs`). Diese liegen im SpawnCity-Repository, nicht
@@ -409,7 +409,7 @@ dann Spiel, Editor und Roboter, zum Schluss die Referenz.
 | [10 Netzwerk](10-netzwerk.md) | Kern Net und Mehrspieler |
 | [11 Studio](11-studio.md) | Kern Studio: Oberfläche, Steuerung, Protokoll, Export |
 | [12 Eigene Spiele](12-eigene-spiele.md) | Spiele in C++ und im Studio bauen |
-| [13 Plumo](13-plumo.md) | der Roboter, seine Netze, Servos und Sensoren |
+| [13 Micro Duck](13-micro-duck.md) | der Roboter, seine Netze, Servos und Sensoren |
 | [14 Lehrer](14-lehrer.md) | Training: PPO, Vorbild und Nachahmung, Determinismus, Browser |
 | [15 Eigene Modelle](15-eigene-modelle.md) | eigene Netze und Modelle in Kern |
 | [16 Kalibrierung](16-kalibrierung.md) | Servoprofile, Prüfstand, Abgleich mit dem Roboter |
@@ -429,7 +429,7 @@ Drei Anhänge liefern das Grundlagenwissen, das die Kapitel voraussetzen:
   die er ändert. Vor Änderungen an Physik oder Roboter gehören Kapitel 6 und 13 dazu.
 - **Wer ein Spiel bauen will,** beginnt mit Kapitel 11 (Studio) oder Kapitel 12 (C++), mit
   Kapitel 8 und 9 als Hintergrund.
-- **Wer mit Plumo arbeitet,** liest Kapitel 13, 14 und 16 in dieser Reihenfolge.
+- **Wer mit der Micro Duck arbeitet,** liest Kapitel 13, 14 und 16 in dieser Reihenfolge.
 - **Wer Kern aus JavaScript einbettet,** liest Kapitel 4 und die C-ABI in Kapitel 17.
 
 Codebeispiele in diesem Buch stammen aus dem Repository oder entsprechen exakt dessen API. Pfade

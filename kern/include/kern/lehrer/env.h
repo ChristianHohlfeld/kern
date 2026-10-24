@@ -1,4 +1,4 @@
-// Kern's headless Lehrer: Plumo in the engine's own GameWorld (Box3D, the same servos,
+// Kern's headless Lehrer: the Micro Duck in the engine's own GameWorld (Box3D, the same servos,
 // sensors and 50 Hz controller as in Kern Studio), with a learning policy in place of its networks.
 // A Task says what is learned (reset, command, reward, end); the DuckEnv runs episodes of it.
 // See docs/lehrer.md.
@@ -67,7 +67,7 @@ class Task {
     f32 encoder_bias = 0.015f;          // per joint and episode, uniform +-
     f32 push_every_min = 3, push_every_max = 6;  // real seconds
     f32 push = 0.3f;                    // real m/s, x and y uniform +-
-    // The build, per episode (game::vary_plumo): trunk mass and inertia, the trunk's and the
+    // The build, per episode (game::vary_micro_duck): trunk mass and inertia, the trunk's and the
     // head's centre of mass (real metres, uniform +- per axis; the curricula widen them). The
     // servos vary within their device profile's spreads (DuckEnv::servo).
     f32 mass_min = 0.95f, mass_max = 1.05f;

@@ -1,6 +1,6 @@
 # 16 Kalibrierung: von der Simulation zum echten Roboter
 
-Ein Netz, das im Lehrer lernt, soll auf der echten Plumo laufen. Dafür muss die Simulation den
+Ein Netz, das im Lehrer lernt, soll auf der echten Micro Duck laufen. Dafür muss die Simulation den
 echten Roboter treffen, und das Netz darf sich auf nichts verlassen, was die Simulation nicht genau
 weiß. Kern verfolgt dafür drei Wege:
 
@@ -27,7 +27,7 @@ in den Code zu schreiben.
 ## 16.1 Das Servomodell
 
 Ein Positionsservo wie der Dynamixel XL330 wird so simuliert, mit derselben Funktion
-`game::servo_step` im Studio, im Lehrer und auf dem Prüfstand ([Kapitel 13.4](13-plumo.md#134-das-servo-modell)):
+`game::servo_step` im Studio, im Lehrer und auf dem Prüfstand ([Kapitel 13.4](13-micro-duck.md#134-das-servo-modell)):
 
 ```
 Moment = clamp(K · (Ziel − Winkel), −T, T) − D · Geschwindigkeit
@@ -54,7 +54,7 @@ als float32 in doppelter Genauigkeit, hier gerundet):
 {
   "kind": "servo",
   "name": "xl330",
-  "source": "Pollen Robotics Pollens Trainings-Repository: BAM m6 model of the XL330-M288 at 7.4 V, MJCF armature",
+  "source": "Pollen Robotics microduck_rl: BAM m6 model of the XL330-M288 at 7.4 V, MJCF armature",
   "stiffness": 0.554, "damping": 0.053, "friction": 0.0048, "torque": 0.963,
   "armature": 0.0018, "delay": 0.02,
   "spreadStiffness": 0, "spreadDamping": 0, "spreadFriction": 0.1, "spreadTorque": 0,
@@ -79,7 +79,7 @@ for (i32 link = 1; link <= kActions + 1; ++link) {        // 14 Policy-Servos un
   game::ServoProfile p = servo;
   p.stiffness = spread(servo.stiffness, servo.spread_stiffness);
   ...
-  game::set_plumo_servo(l, duck_, link, p);
+  game::set_micro_duck_servo(l, duck_, link, p);
 }
 controller->servo_delay = servo.delay_max > servo.delay_min ? rng_.uniform(servo.delay_min, servo.delay_max) : servo.delay;
 ```
@@ -132,7 +132,7 @@ time,target,angle
 `simulate_servo(profile, log)` baut den Servo mit seiner Last in Box3D, in derselben Umgebung wie die
 Ente:
 
-- **dieselbe Skalierung** (Maßstab 4, Froude-Faktoren wie in [Kapitel 13.3](13-plumo.md#133-das-modell)),
+- **dieselbe Skalierung** (Maßstab 4, Froude-Faktoren wie in [Kapitel 13.3](13-micro-duck.md#133-das-modell)),
 - **dieselbe Schrittrate** (100 Hz Welt, 16 Sub-Steps; ein Schritt = 5 ms echt),
 - **dieselbe Gelenkweichheit** wie die Servogelenke der Ente (Constraint 240 Hz, Dämpfungsgrad 2),
 - ein fester Sockel, ein Glied mit Masse und Schwerpunkt der Last, Trägheit der Last plus Armatur wie
@@ -301,7 +301,7 @@ Simulation, so wie man sie am echten Roboter messen würde:
 
 Die **Paar-Reibung** der Oberflächen (TPU-Schnabelpolster auf Baumwolle 0,8, Baumwolle auf Baumwolle
 0,5, Baumwolle auf Holzboden 0,4) ist dagegen eingetragen: Haftreibungswerte trockener Materialpaare,
-im Code mit ihren typischen Bereichen begründet ([Kapitel 13.3](13-plumo.md#133-das-modell)).
+im Code mit ihren typischen Bereichen begründet ([Kapitel 13.3](13-micro-duck.md#133-das-modell)).
 Sie sind Kandidaten für eine Messung am echten Material.
 
 ## 16.7 Grenzen und nächste Schritte
@@ -311,7 +311,7 @@ Sie sind Kandidaten für eine Messung am echten Material.
 - **Getriebespiel** fehlt im Servomodell. Der Abgleich zeigt, ob es fehlt; dann bekommt `servo_step`
   einen Spielbereich.
 - **Armatur** ist eine mitdrehende Scheibe, kein Rotor mit Übersetzung; dreht sich das Elternglied um
-  dieselbe Achse, ist die Trägheit etwas zu groß ([Kapitel 13.3](13-plumo.md#133-das-modell)).
+  dieselbe Achse, ist die Trägheit etwas zu groß ([Kapitel 13.3](13-micro-duck.md#133-das-modell)).
 - **Bekannte Lücke:** `kick_right` kippt in Kern nach dem Tritt manchmal um. Kandidaten: Spiel,
   Kontaktweichheit, Fußreibung – ein Fall für den Abgleich mit einem Roboter-Log.
 - **IMU:** Rauschen und Latenz stehen in der Variation des Trainings (`Task::Noise`). Ein eigenes

@@ -127,7 +127,7 @@ std::vector<u8> export_onnx(const Mlp& actor, const Normalizer& normalizer,
   return model.bytes;
 }
 
-std::vector<std::pair<std::string, std::string>> plumo_metadata(const std::string& task) {
+std::vector<std::pair<std::string, std::string>> micro_duck_metadata(const std::string& task) {
   // As in Pollen's networks (ball_kick_right.onnx): the robot reads the joint order and home pose.
   return {
       {"action_scale", "1.0"},

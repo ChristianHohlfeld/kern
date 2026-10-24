@@ -152,7 +152,7 @@ struct JointComponent {
 /// soldier: a first-person shooter player (Box3D character mover, crouch, sprint,
 /// aim, a weapon from its WeaponComponent, health from its HealthComponent).
 /// walker: an articulated robot that walks on its own servos, driven by its control policy (the
-/// Plumo: Pollen Robotics' trained neural network, see docs/walker.md).
+/// Micro Duck: Pollen Robotics' trained neural network, see docs/walker.md).
 enum class ControlMode : u8 { hovercar, rolling, character, flyer, vehicle, soldier, walker };
 const char* control_mode_name(ControlMode m);
 enum class CameraMode : u8 { chase, first_person, top_down };

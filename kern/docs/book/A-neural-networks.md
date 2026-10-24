@@ -1,7 +1,7 @@
 # Appendix A: Foundations – Neural Networks, Imitation and Reinforcement Learning
 
 This appendix explains the toolkit with which Kern's Lehrer ("teacher", Kern's training module)
-trains networks for Plumo. It assumes only school mathematics: derivatives, sums, a little
+trains networks for the Micro Duck. It assumes only school mathematics: derivatives, sums, a little
 probability. Each concept is first introduced in general terms and then shown at the place in Kern
 where it is implemented. The topical chapters [Chapter 14](14-lehrer.md) (the Lehrer) and
 [Chapter 15](15-your-own-models.md) (your own models) refer back here.
@@ -30,9 +30,9 @@ vector $x$ to an output vector $y$,
 
 $$y = f_\theta(x).$$
 
-- $x \in \mathbb{R}^n$: the input. For Plumo these are 61 numbers (orientation of the torso,
+- $x \in \mathbb{R}^n$: the input. For the Micro Duck these are 61 numbers (orientation of the torso,
   joint angles, joint velocities, the last action, commands) – `kObs = 61` in `env.h`.
-- $y \in \mathbb{R}^m$: the output. For Plumo, 14 servo targets – `kActions = 14`.
+- $y \in \mathbb{R}^m$: the output. For the Micro Duck, 14 servo targets – `kActions = 14`.
 - $\theta$: the **parameters** (weights and biases), often tens or hundreds of thousands of numbers.
   They are not set by hand but learned.
 
@@ -127,7 +127,7 @@ Common activations:
 ```
 
 Kern uses **ELU** with $\alpha = 1$ – like rsl_rl, the library with which Pollen Robotics trains the
-Plumo's networks. In the code (`Mlp::forward`):
+Micro Duck's networks. In the code (`Mlp::forward`):
 
 ```cpp
 y[k] = y[k] > 0 ? y[k] : kern::dm::expm1(y[k]);  // ELU

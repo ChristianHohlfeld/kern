@@ -45,7 +45,7 @@ Afterwards, `generated/studio.html` runs offline by double-click. For developmen
 repository root statically and open `kern/web/studio/index.html`; it loads
 `generated/kern_studio.wasm`. `kern/web/studio/play.html?level=orbRun` plays a built-in level without
 the editor (further values according to its header comment: `physicsLab`, `shootingRange`,
-`plumo`, `basic`).
+`microDuck`, `basic`).
 
 ---
 
@@ -231,7 +231,7 @@ described in [Chapter 14](14-lehrer.md).
 
 ```sh
 CXX=g++ CC=gcc kern/tests/run.sh            # all tests
-kern/tests/run.sh plumo                 # only tests whose name contains "plumo"
+kern/tests/run.sh micro_duck                 # only tests whose name contains "micro_duck"
 ```
 
 ### What the Script Does
@@ -278,7 +278,7 @@ The tests cover the whole engine, including (a selection; names as in the code):
 | Audio | `audio_mixer_spatial`, `audio_builtin_library`, `audio_collider_impact_sounds` |
 | Networking | `net_serialization`, `net_reliable_channel_under_bad_network`, `net_client_server`, `net_game_server_and_clients` |
 | Studio | `studio_starts_with_orb_run`, `studio_gizmo_translate_and_undo`, `studio_undo_redo_is_exact_and_deterministic`, `studio_save_load_and_textures` |
-| Plumo | `plumo_policy_matches_the_onnx_reference`, `plumo_stands_walks_and_turns_on_its_policy`, `plumo_runs_every_move_of_its_set` |
+| Micro Duck | `micro_duck_policy_matches_the_onnx_reference`, `micro_duck_stands_walks_and_turns_on_its_policy`, `micro_duck_runs_every_move_of_its_set` |
 | Lehrer | `lehrer_mlp_gradient_matches_finite_differences`, `lehrer_ppo_learns_to_reach`, `lehrer_exports_onnx_like_pollens_networks`, `lehrer_calibrates_a_servo_from_bench_logs` |
 | Determinism | `determinism_is_bit_identical_across_builds_and_platforms`, `lehrer_runs_the_same_on_any_number_of_workers` |
 
@@ -346,12 +346,12 @@ Among other things, the test checks:
   button + W), tools, Outliner and Details, editing the X position, focus (F), Content Drawer (click
   and drag), selecting and moving with the left mouse button, sound via Web Audio, context menus,
   deterministic undo, Play, Simulate with physics debug, four viewports, a new level from a template,
-  Shooting Range, the logic editor, Plumo with head camera and ToF, help, multiplayer in the
+  Shooting Range, the logic editor, the Micro Duck with head camera and ToF, help, multiplayer in the
   editor and across two tabs (BroadcastChannel), packaging a game and playing the packaged game, the
   game on a phone.
 - **Module build** (`/kern/web/studio/index.html`): startup, color picker.
 - **Restore** after a reload, **settings** (defaults, saving, resetting), **narrow window**,
-  **phone** (compact layout, menus via touch, Plumo, Play/Simulate/Pause/Stop via tap),
+  **phone** (compact layout, menus via touch, Micro Duck, Play/Simulate/Pause/Stop via tap),
   **Android file picker**.
 
 At the end the test prints `<n> checks, <m> failures (screenshots: <folder>)`; the exit code is 1 on
@@ -377,7 +377,7 @@ This produces `studio.png`, `studio-selected.png`, `studio-play.png`, `studio-si
 
 ## 2.9 The Determinism Fingerprint
 
-The fingerprint proves that every build variant simulates Plumo bit for bit identically.
+The fingerprint proves that every build variant simulates the Micro Duck bit for bit identically.
 `lehrer::determinism_fingerprint(ticks)` (`src/lehrer/fingerprint.cpp`) makes the duck walk and turn
 with Pollen's `velstand` network in the Studio physics – 150 ticks forward (command 0.15), then
 turning on the spot (0.8) – and computes, for each control tick, an FNV-1a hash over position,
@@ -491,7 +491,7 @@ x86 and WebAssembly do.
    | `editor/index.html` | `generated/studio.html`, prefixed with the comment `<!--BUILD_SHA:<sha>-->` |
    | `editor/build.json` | `{"sha":"<sha>"}` for the update check of the installable editor |
    | `editor/` | `site/editor/` (manifest, service worker, icons) |
-   | `editor/pollen/` | `kern/third_party/pollen/*.onnx` (Pollen's policy set, Apache-2.0) |
+   | `editor/microduck/` | `kern/third_party/microduck/*.onnx` (Pollen's policy set, Apache-2.0) |
    | `editor/policies/` | `kern/policies/*.onnx` (Kern's own networks) |
    | `generated/` | `kern_studio.wasm`, `kern_lehrer.wasm` |
    | `lehrer/index.html`, `kern/web/lehrer/*.mjs` | the Lehrer page and its workers |
@@ -516,7 +516,7 @@ publishing is done there by the `deploy` job.
 
 1. Downloads the `site` artifact and restores from it `generated/studio.html`,
    `generated/kern_studio.wasm` and the app files (`manifest.webmanifest`, `sw.js`, `build.json`,
-   `icons`, `pollen`) – exactly as they are published.
+   `icons`, `microduck`) – exactly as they are published.
 2. Playwright 1.56.0 from the cache or via `npm install` into `/tmp/e2e`, then
    `playwright install --with-deps chromium`.
 3. Starts `python3 -m http.server 8771 --bind 127.0.0.1` and runs
@@ -554,10 +554,10 @@ node kern/tests/e2e/studio_e2e.mjs http://127.0.0.1:8771
 ```
 
 The development pages load their files relatively: `kern/web/studio/index.html` and `play.html` load
-`../../../generated/kern_studio.wasm`; Plumo's policies come from
-`kern/third_party/pollen/` and `kern/policies/` on the development page, from
-`../kern/third_party/pollen/` and `../kern/policies/` in the single-file build under
-`/generated/`, and from `pollen/` and `policies/` next to the editor on the published site
+`../../../generated/kern_studio.wasm`; the Micro Duck's policies come from
+`kern/third_party/microduck/` and `kern/policies/` on the development page, from
+`../kern/third_party/microduck/` and `../kern/policies/` in the single-file build under
+`/generated/`, and from `microduck/` and `policies/` next to the editor on the published site
 (`loadPolicies` in `game.mjs`). The Lehrer page `kern/web/lehrer/index.html` includes
 `../kern/web/lehrer/lehrer.mjs` and is therefore laid out for the structure of the published site
 (`/lehrer/`).

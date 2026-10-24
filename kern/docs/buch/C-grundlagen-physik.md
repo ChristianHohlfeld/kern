@@ -167,7 +167,7 @@ flowchart LR
 
 **In Kern:** `GameWorld::step` (`src/game/runtime.cpp`):
 
-- $h = 1/\text{step\_hz}$, Standard 60 Hz, bei Plumo 100 Hz (`kWalkerStepHz`).
+- $h = 1/\text{step\_hz}$, Standard 60 Hz, beim Micro Duck 100 Hz (`kWalkerStepHz`).
 - Ein Frame wird auf 0,25 s begrenzt, höchstens 0,1 s Simulation pro Frame („spiral of death“:
   Ein Schritt, der länger als $h$ dauert, holt sonst nie auf). Ist man trotzdem im Rückstand, fallen
   ganze Schritte weg, die Phase bleibt.
@@ -183,7 +183,7 @@ Box3D teilt jeden festen Schritt intern in **Sub-Steps** (`World::step(dt, subst
 Schritte machen Gelenkketten steifer: Bei der Hüfte der Ente wuchs laut `docs/physics.md` die
 Gelenklücke bei 4 Sub-Steps unter Last auf 5 cm, bei 16 bleibt sie unter 1 mm.
 
-Für Plumo: 100 Hz Schritt, 16 Sub-Steps, also ein Sub-Step von
+Für den Micro Duck: 100 Hz Schritt, 16 Sub-Steps, also ein Sub-Step von
 $h = 1/1600\,\text{s} = 0{,}625$ ms.
 
 ---
@@ -269,7 +269,7 @@ Die Toleranzen sind in Metern festgelegt (`box3d:include/box3d/constants.h`):
 | Speculative Distance | 20 mm |
 | Contact Recycling | 50 mm |
 
-Deshalb sollen bewegte Körper zwischen 0,1 m und 10 m groß sein. Plumo mit 2–4 cm großen
+Deshalb sollen bewegte Körper zwischen 0,1 m und 10 m groß sein. Der Micro Duck mit 2–4 cm großen
 Gliedern wird in Kern **4-fach skaliert** simuliert (`kWalkerScale = 4`), mit Froude-Ähnlichkeit:
 Längen ×4, Massen ×64, Zeiten ×2 (`docs/physics.md`, Abschnitt 1). Nach außen (Beobachtungen der
 Netze, Logs) gehen echte Einheiten.
@@ -378,7 +378,7 @@ float pair_friction(float fa, uint64_t ma, float fb, uint64_t mb) {
 | TPU (weiche Schnabelpolster) auf Baumwolle | 0,8 | Elastomere auf Textil 0,6–1,0 |
 | Baumwolle auf Holz-/Laminatboden | 0,4 | Stoff auf Holz 0,3–0,5 |
 
-Alle anderen Paare fallen auf $\sqrt{\mu_A\mu_B}$ zurück. Wozu? Plumo hebt eine Socke mit
+Alle anderen Paare fallen auf $\sqrt{\mu_A\mu_B}$ zurück. Wozu? Der Micro Duck hebt eine Socke mit
 dem Schnabel auf (`spielen.cpp`): Ob der Biss hält, hängt genau an diesen Paaren – Polster auf Socke
 muss greifen, Socke auf Boden muss rutschen. Ein einziger Reibwert pro Form kann das nicht
 gleichzeitig darstellen.
@@ -524,7 +524,7 @@ $$\Delta\lambda = -m_\text{eff}\left(\text{massScale}\cdot v_n + \text{bias}\rig
 - $v_\text{max}$: Obergrenze dieser Ausdrückgeschwindigkeit (`contact_speed`, Kern: 3 m/s),
 - massScale + impulseScale = 1: zwischen „hart“ (massScale 1) und „gar nicht“ (impulseScale 1).
 
-**Beispiel** mit Kerns Kontaktwerten ($f = 30$ Hz, $\zeta = 10$) bei Plumo ($h = 1/1600$ s):
+**Beispiel** mit Kerns Kontaktwerten ($f = 30$ Hz, $\zeta = 10$) beim Micro Duck ($h = 1/1600$ s):
 $h\omega = 0{,}1178$, $2\zeta + h\omega = 20{,}118$, also
 biasRate $= 9{,}37\,\text{s}^{-1}$, massScale $= 0{,}703$, impulseScale $= 0{,}297$. Eine
 Durchdringung von 1 mm wird mit $0{,}703 \cdot 9{,}37 \cdot 0{,}001 \approx 6{,}6$ mm/s
@@ -562,7 +562,7 @@ begrenzt deshalb (laut `docs/physics.md`, Abschnitt 3, und im Code):
   `b3MinFloat( joint->constraintHertz, 0.25f * context->inv_h )`),
 - Kontakt-Hertz auf $0{,}125 \cdot$ Sub-Step-Rate (`box3d:src/physics_world.c`).
 
-Beim Plumo (1600 Sub-Steps/s) also höchstens 400 Hz für Gelenke und 200 Hz für Kontakte; Kerns
+Beim Micro Duck (1600 Sub-Steps/s) also höchstens 400 Hz für Gelenke und 200 Hz für Kontakte; Kerns
 Servogelenke nutzen 240 Hz Weichheit in der Welt. Steifere Gelenke bekommt man nur mit mehr
 Sub-Steps. Federn hält Kern zusätzlich unter der halben Sub-Step-Frequenz (Nyquist:
 `max_hertz = 0,5 · step_hz · substeps` in `create_joints`).
@@ -581,7 +581,7 @@ macht ein starres Teil zu **einem** Körper mit mehreren Formen, statt Körper z
 
 ### C.7.1 Was ein Positionsservo tut
 
-Ein Modellbauservo wie der Dynamixel XL330 von Plumo bekommt einen **Zielwinkel** und regelt
+Ein Modellbauservo wie der Dynamixel XL330 des Micro Duck bekommt einen **Zielwinkel** und regelt
 den Motor so, dass das Gelenk ihn erreicht. Im Inneren ist das ein **Regelkreis**: Er misst den
 Winkel, vergleicht mit dem Ziel und erzeugt ein Moment.
 
@@ -684,7 +684,7 @@ Die **Rotorträgheit** (Armature) ist eine Masseneigenschaft: eine Scheibe auf d
 (`docs/physics.md`, Abschnitt 5). Die **Totzeit** ist eine Warteschlange: Jeder Physikschritt schiebt
 die aktuellen Ziele hinten an und gibt die vorderen an die Servos (`walker.cpp`, „the servos get the
 command sent `delay` steps ago“). Die Länge ist $\text{round}(\tau_d \cdot \sqrt{S} \cdot
-\text{step\_hz})$ – bei Plumo mit 20 ms, $\sqrt{4} = 2$ (Zeitskalierung) und 100 Hz also 4
+\text{step\_hz})$ – beim Micro Duck mit 20 ms, $\sqrt{4} = 2$ (Zeitskalierung) und 100 Hz also 4
 Weltschritte.
 
 Alle Werte stehen in einem **Geräteprofil** (`ServoProfile` in `servo.h`): $K$, $D$, $F$, $T$,

@@ -4,7 +4,7 @@ Kern is a 3D engine written in **C++20**. It is compiled to **WebAssembly** with
 draws in the browser through **WebGL2**. The same WebAssembly module also runs the physics
 (**Box3D**), a custom **sound engine**, a **game runtime** made of levels, actors and components,
 **logic graphs** with a JIT, a **networking stack** and the editor **Kern Studio**. On top of that
-there is **Plumo**, a two-legged robot duck built on Pollen Robotics' open-source robot, which runs in Kern with its real
+there is the **Micro Duck**, the bipedal robot by Pollen Robotics, which runs in Kern with its real
 trained networks, and the **Lehrer** (German for "teacher"), which trains new networks for this robot
 in C++ – natively and in the browser.
 
@@ -37,7 +37,7 @@ Kern consists of these parts:
 | App runtime | `kern` (`app/`) | `App`/`Engine`/`Input` for games that run entirely in C++ |
 | Physics | `kern::physics` | C++ layer over Box3D: world, bodies, shapes, joints, raycasts, `MouseGrab` |
 | Audio | `kern::audio` | software mixer, 3D sound, buses, reverb, limiter, synthesizer, the duck's voice |
-| Game runtime | `kern::game` | `Level` (`.klevel`), `GameWorld`, controllers, rules, sound, touch, Walker (Plumo), multiplayer |
+| Game runtime | `kern::game` | `Level` (`.klevel`), `GameWorld`, controllers, rules, sound, touch, Walker (Micro Duck), multiplayer |
 | Logic | `kern::logic` | Blueprint-style graphs; interpreter, JIT to WebAssembly, export as C++ |
 | Networking | `kern::net` | serialization, reliability, channels, client/server, transports |
 | Studio | `kern::studio` | the Unreal-style editor, written entirely in C++ and testable without a browser |
@@ -121,10 +121,10 @@ simulation is a genuine modeling error ([Chapter 16](16-calibration.md)).
   `__proto__`, `prototype` and `constructor`.
 - **No per-frame allocations on the JS side.** The `KernRenderer` facade copies typed arrays into a
   reused staging area in WebAssembly memory (`kern/README.md`).
-- **Do not bypass the physics.** Box3D is compiled in unmodified. Plumo stands solely by
+- **Do not bypass the physics.** Box3D is compiled in unmodified. The Micro Duck stands solely by
   means of its servos and contacts – no helper forces, no prescribed velocities; servos are built
   only from Box3D's own joint parts (`docs/walker.md`, section 1;
-  [Chapter 6](06-physics.md), [Chapter 13](13-plumo.md)).
+  [Chapter 6](06-physics.md), [Chapter 13](13-micro-duck.md)).
 - **One implementation for every place.** The editor, the exported game, the Lehrer and the native
   tools all use the same `GameWorld`, the same servos and the same physics. A network that learns in
   the Lehrer therefore runs unchanged in the Studio (`docs/lehrer.md`).
@@ -162,7 +162,7 @@ the top down to the foundations at the bottom. A downward arrow means "uses".
  ├──────────────────────────────┴──────────────────────────────────────────────┤
  │ kern::game  (--game)                                                         │
  │ Level/.klevel, GameWorld, controllers, rules, city, sound, touch,            │
- │ Walker (Plumo), servo profiles, logic nodes, NetGame                    │
+ │ Walker (Micro Duck), servo profiles, logic nodes, NetGame                    │
  ├───────────────┬───────────────┬────────────────┬────────────────────────────┤
  │ kern::physics │ kern::logic   │ kern::net      │ kern::audio                 │
  │ (--physics)   │ graphs, JIT,  │ bit packer,    │ mixer, 3D, buses,           │
@@ -281,7 +281,7 @@ C++ classes as the editor ([Chapter 8](08-game-runtime.md), [Chapter 11](11-stud
 
 ### The Lehrer (`--lehrer` and Native)
 
-The Lehrer trains networks for Plumo. It runs
+The Lehrer trains networks for the Micro Duck. It runs
 
 - **natively** as the command-line program `kern_lehrer` on all cores (`kern/tools/lehrer.sh`), also
   headless on a server, and
@@ -295,15 +295,15 @@ the format of Pollen's networks; the Studio loads it just like those ([Chapter 1
 
 ![The Lehrer page in the browser](../buch/bilder/lehrer.png)
 
-### Plumo: Everything Working Together
+### The Micro Duck: Everything Working Together
 
-Plumo shows how the layers interlock: its model comes from Pollen's MJCF
-(`third_party/pollen`), its limbs are Box3D bodies with joints (`kern::physics`), its servos a
+The Micro Duck shows how the layers interlock: its model comes from Pollen's MJCF
+(`third_party/microduck`), its limbs are Box3D bodies with joints (`kern::physics`), its servos a
 device model (`kern::game::ServoProfile`), its networks ONNX files that Kern evaluates itself on the
 CPU (`kern::game::WalkerPolicy`), its voice comes from the mixer (`kern::audio`), logic nodes of the
 *Robots* category control it (`kern::logic`), and in the Studio it sits as an actor in a level.
 
-![Plumo level in the Studio](../buch/bilder/duck-level.png)
+![The Micro Duck level in the Studio](../buch/bilder/duck-level.png)
 
 ---
 
@@ -320,7 +320,7 @@ generated files.
   tools/
     build_studio.sh              Kern Studio as a single HTML file -> generated/studio.html
     net_relay.mjs                WebSocket relay for multiplayer across machines
-    plumo_import.py         import of Pollen's robot model and walking policy
+    micro_duck_import.py         import of Pollen's Micro Duck (model, walking policy)
     mesh_simplify.py, qem_simplify.cpp   mesh simplification for the import
   site/
     index.html                   GitHub Pages start page (footer: owner, license links)
@@ -329,7 +329,7 @@ generated files.
 
   kern/                          the engine
     README.md                    engine overview
-    LICENSES.md                  third-party components and their licenses (Box3D, Earcut, musl, Plumo ...)
+    LICENSES.md                  third-party components and their licenses (Box3D, Earcut, musl, Micro Duck ...)
     build.sh                     WebAssembly build (--app, --physics, --game, --studio, --lehrer)
     include/kern/                public headers (kern/kern.h includes app, foundations, geometry,
                                  renderer, math and scene)
@@ -376,14 +376,14 @@ generated files.
     third_party/
       box3d/                     Box3D (Erin Catto, MIT), unmodified, as C17
       musl_math/                 deterministic libm from musl (MIT)
-      pollen/                    Pollen Robotics: robot model (MJCF) and policy set
+      microduck/                 Pollen's Micro Duck model and policy set
     docs/                        standalone documents (studio, physics, walker, lehrer, kalibrierung, net)
       buch/                      this book (German original)
       book/                      this book (English translation)
 ```
 
 The standalone documents under `kern/docs/` are the sources this book draws on. For changes to the
-physics or Plumo, `docs/physics.md` and `docs/walker.md` are authoritative.
+physics or the Micro Duck, `docs/physics.md` and `docs/walker.md` are authoritative.
 
 `kern/README.md` mentions some SpawnCity files (`games/spawncity`, `sim/kern_*.mjs`,
 `tools/build_kern_wasm.sh`, `tests/kern_*_test.mjs`). These live in the SpawnCity repository, not in
@@ -410,7 +410,7 @@ game, editor and robot, and finally the reference.
 | [10 Networking](10-networking.md) | Kern Net and multiplayer |
 | [11 Studio](11-studio.md) | Kern Studio: interface, controls, protocol, export |
 | [12 Your Own Games](12-your-own-games.md) | building games in C++ and in the Studio |
-| [13 Plumo](13-plumo.md) | the robot, its networks, servos and sensors |
+| [13 Micro Duck](13-micro-duck.md) | the robot, its networks, servos and sensors |
 | [14 Lehrer](14-lehrer.md) | training: PPO, demonstration and imitation, determinism, browser |
 | [15 Your Own Models](15-your-own-models.md) | your own networks and models in Kern |
 | [16 Calibration](16-calibration.md) | servo profiles, test bench, matching against the robot |
@@ -430,7 +430,7 @@ Three appendices provide the background knowledge the chapters assume:
   are changing. Before changing the physics or the robot, also read Chapters 6 and 13.
 - **If you want to build a game,** start with Chapter 11 (Studio) or Chapter 12 (C++), with
   Chapters 8 and 9 as background.
-- **If you work with Plumo,** read Chapters 13, 14 and 16 in that order.
+- **If you work with the Micro Duck,** read Chapters 13, 14 and 16 in that order.
 - **If you embed Kern from JavaScript,** read Chapter 4 and the C ABI in Chapter 17.
 
 Code examples in this book are taken from the repository or match its API exactly. Paths are given

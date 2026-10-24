@@ -1,4 +1,4 @@
-// Plumo's voice synthesiser, ported from the `sounds` crate of
+// The Micro Duck's voice synthesiser, ported from the `sounds` crate of
 // pollen-robotics/microduck (Rust, Apache-2.0, Copyright Pollen Robotics):
 // sounds/src/rng.rs, personality.rs, synth.rs, voices.rs and seed_from_id /
 // variant_count / render from lib.rs.

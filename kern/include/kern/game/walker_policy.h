@@ -55,7 +55,7 @@ void register_walker_policy(std::shared_ptr<const WalkerPolicy> policy);
 std::shared_ptr<const WalkerPolicy> walker_policy(std::string_view file);
 std::vector<std::string> walker_policy_files();
 
-/// Plumo's policy set manifest (manifest.json of microduck-policies, built in).
-const char* plumo_manifest();
+/// The Micro Duck's policy set manifest (manifest.json of microduck-policies, built in).
+const char* micro_duck_manifest();
 
 }  // namespace kern::game
