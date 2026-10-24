@@ -263,9 +263,6 @@ zufällig initialisierten Gewichten. Einen Warmstart von einer Datei gibt es nur
 
 ## 15.7 Die Spielschicht trainieren
 
-> **Arbeitsstand:** Die Spielschicht wird gerade überarbeitet; Ergebnisse folgen nach dem laufenden
-> Training. Die Befehle unten sind die des Codes im Arbeitsverzeichnis.
-
 ### 1. Messen, was das Vorbild braucht
 
 ```

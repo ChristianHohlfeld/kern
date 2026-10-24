@@ -689,9 +689,6 @@ Gleitkomma-Reihenfolge, die von der Zahl der Threads abhängt (Summen in fester 
 
 ## 14.8 Die Spielschicht lernen
 
-> **Arbeitsstand:** Die Spielschicht wird gerade überarbeitet. Beschrieben ist der Code im
-> Arbeitsverzeichnis.
-
 Die Spielschicht (`play.onnx`, [Kapitel 13](13-micro-duck.md#1311-die-spielschicht-walker_playcpp))
 lernt wie der Sprung: Ein Vorbild zeigt den Weg, das Netz ahmt es aus seinen eigenen Sensoren nach
 (DAgger), dann übt es (PPO).
@@ -820,13 +817,21 @@ sauber, zur Hälfte variiert.
 
 ### Ergebnisse der Spielschicht
 
-> Stand wird nach dem laufenden Training aktualisiert.
+`kern/policies/play.onnx`: 12 Runden Nachahmen mit je 32 Episoden zu 60 s, halb sauberer Roboter, halb
+volle Variation; ausgewählt ist Runde 8 nach Prüfung über 32 Episoden je Zeile (`docs/lehrer.md`,
+Abschnitt 8):
 
-Die zuletzt veröffentlichte Messung (vor der laufenden Überarbeitung, `docs/lehrer.md`, Abschnitt 8)
-war: Ball auf dem sauberen Roboter gelernt (13 von 14 weggekickt), Socke gelernt, aber mit niedriger
-Erfolgsquote (3 von 18 aufgehoben, weggetragen und ausgespuckt); Engpass war der Griff selbst. Mit
-voller Variation setzte Pollens Gang bei kleinen Befehlen öfter nicht an; das war der Anlass für die
-Übungsphase mit PPO.
+| | Ball weggekickt | Socke aufgehoben | aufgehoben, weggetragen, ausgespuckt | Griffe, die hielten | Stürze |
+|---|---|---|---|---|---|
+| Netz, sauberer Roboter | 9 von 11 (im Mittel nach 17 s) | 4 von 21 | 1 von 21 | 2 von 14 | 2 von 32 |
+| Netz, volle Variation | 7 von 11 | 13 von 21 | 0 von 21 | 1 von 15 | 10 von 32 |
+
+Der Ball ist gelernt: Das Netz geht zum näheren Objekt, stellt den linken Fuß hinter den Ball und
+startet Pollens Kick; passt es nicht, geht es zurück und kommt neu, statt stehen zu bleiben. Die
+Socke steuert es genauso an und beißt – aber mit der gemessenen Reibung der TPU-Polster auf
+Baumwolle hält der Biss selten, und beim Hochheben rutscht die Socke oft heraus. Der Engpass ist der
+Griff in dieser Physik, nicht die Entscheidung; nächste Schritte sind ein Sockenmodell, das sich als
+Stoff in den Schnabel legt, und die Übungsphase mit Belohnung.
 
 ## 14.9 Ergebnisse des Sprungs
 

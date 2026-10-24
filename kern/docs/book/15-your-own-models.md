@@ -260,9 +260,6 @@ with randomly initialised weights. A warm start from a file exists only for the 
 
 ## 15.7 Training the play layer
 
-> **Work in progress:** the play layer is currently being reworked; results will follow after the
-> current training run. The commands below are those of the code in the working tree.
-
 ### 1. Measure what the demonstration needs
 
 ```

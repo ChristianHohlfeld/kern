@@ -690,9 +690,6 @@ floating-point ordering that depends on the number of threads (sums in a fixed o
 
 ## 14.8 Learning the play layer
 
-> **Work in progress:** the play layer is currently being reworked. What is described here is the
-> code in the working tree.
-
 The play layer (`play.onnx`, [Chapter 13](13-micro-duck.md#1311-the-play-layer-walker_playcpp))
 learns like the jump: a demonstration shows the way, the network imitates it from its own sensors
 (DAgger), and then it practises (PPO).
@@ -818,13 +815,21 @@ to stand, it finds out for itself. Half the environments are clean, half are var
 
 ### Play-layer results
 
-> Results will be updated after the current training run.
+`kern/policies/play.onnx`: 12 rounds of imitation with 32 episodes of 60 s each, half on a clean robot,
+half with full variation; round 8 was chosen after checking over 32 episodes per row (`docs/lehrer.md`,
+section 8):
 
-The last published measurement (before the current rework, `docs/lehrer.md`, section 8) was: ball
-learned on the clean robot (13 of 14 kicked away), sock learned but with a low success rate (3 of 18
-picked up, carried off and spat out); the bottleneck was the grip itself. With full variation,
-Pollen's gait more often failed to start on small commands; that was the reason for the practice
-phase with PPO.
+| | ball kicked away | sock picked up | picked up, carried off, spat out | grips that held | falls |
+|---|---|---|---|---|---|
+| network, clean robot | 9 of 11 (17 s on average) | 4 of 21 | 1 of 21 | 2 of 14 | 2 of 32 |
+| network, full variation | 7 of 11 | 13 of 21 | 0 of 21 | 1 of 15 | 10 of 32 |
+
+The ball is learned: the network goes for the nearer object, places the left foot behind the ball and
+starts Pollen's kick; if the position is off, it backs off and comes in again instead of standing
+still. It approaches the sock the same way and bites – but with the measured friction of the TPU
+pads on cotton the bite rarely holds, and the sock often slips out on the way up. The bottleneck is
+the grip in this physics, not the decision; the next steps are a sock model that settles into the
+beak like fabric, and the practice phase with rewards.
 
 ## 14.9 Jump results
 

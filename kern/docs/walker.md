@@ -287,7 +287,7 @@ das Netz. Das Beispiel-Level schaltet es ein.
 
 *[gemessen]* Tests `micro_duck_roams_on_its_own_with_its_tof`, `micro_duck_plays_ball_as_pollens_brain_does`
 (nur Pollens Software: sieht, läuft an, richtet aus, kickt; der Ball rollt weg),
-`micro_duck_plays_with_a_ball_on_its_own` und `micro_duck_fetches_a_sock_on_its_own` (Spielnetz).
+`micro_duck_plays_with_a_ball_on_its_own` und `micro_duck_goes_for_a_sock_and_bites` (Spielnetz).
 
 ### Blick in die Runde (Idle-Look-around)
 

@@ -579,11 +579,6 @@ over instead of Pollen's BallPlay (Section 13.10); Kern's former hand-written co
 Carry has been removed. The play layer itself contains no hand-written play logic; around the
 network there is only perception.
 
-> **Work in progress:** the play layer is currently being reworked. This section describes the code
-> in the working tree: standing still defined as "both soles on the ground", bite position measured
-> by the Lehrer, pair friction of surfaces, training scenes with ball and socks close together,
-> stepping back as in `autod`, practice phase with PPO.
-
 ![The duck at play](../buch/bilder/duck-play.png)
 
 ### Where it sits
@@ -737,13 +732,17 @@ demonstration of the blueprint, not behaviour of the duck.
 
 ### Results
 
-> Results will be updated after the current training run.
+Measured over 32 episodes per row (`docs/lehrer.md`, section 8; details in
+[Chapter 14](14-lehrer.md)):
 
-The last published measurements of `play.onnx` (before the current rework) are in
-`docs/lehrer.md`, section 8. The runtime tests `micro_duck_plays_with_a_ball_on_its_own` (ball 30 cm
-in front of the duck: kicked, rolls more than 25 cm away, no fall) and
-`micro_duck_fetches_a_sock_on_its_own` (sock 30 cm in front of the duck: picked up, carried more than
-20 cm, put down) check in Studio physics that only the network makes the decisions.
+| | ball kicked away | sock picked up | picked up, carried off, spat out | grips that held | falls |
+|---|---|---|---|---|---|
+| network, clean robot | 9 of 11 (17 s on average) | 4 of 21 | 1 of 21 | 2 of 14 | 2 of 32 |
+| network, full variation | 7 of 11 | 13 of 21 | 0 of 21 | 1 of 15 | 10 of 32 |
+
+The runtime tests `micro_duck_plays_with_a_ball_on_its_own` (ball 30 cm in front of the duck: kicked,
+rolls more than 25 cm away, no fall) and `micro_duck_goes_for_a_sock_and_bites` (sock 30 cm in front:
+walk up, stand, pick, bite) check in Studio physics that only the network makes the decisions.
 
 ## 13.12 Controls in the Studio
 

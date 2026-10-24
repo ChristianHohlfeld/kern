@@ -580,11 +580,6 @@ Pollens BallPlay (Abschnitt 13.10); Kerns früherer handgeschriebener Code für 
 entfernt. Die Spielschicht selbst enthält keine handgeschriebene Spiellogik; um das Netz herum gibt
 es nur Wahrnehmung.
 
-> **Arbeitsstand:** Die Spielschicht wird gerade überarbeitet. Dieser Abschnitt beschreibt den Code
-> im Arbeitsverzeichnis: Stillstand über „beide Sohlen auf dem Boden“, Bissposition vom Lehrer
-> gemessen, Paar-Reibung der Oberflächen, Trainingsszenen mit Ball und Socken dicht beieinander,
-> Rückwärtsgang wie bei `autod`, Übungsphase mit PPO.
-
 ![Die Ente spielt](bilder/duck-play.png)
 
 ### Wo sie sitzt
@@ -736,13 +731,17 @@ Blueprints, nicht Verhalten der Ente.
 
 ### Ergebnisse
 
-> Stand wird nach dem laufenden Training aktualisiert.
+Gemessen über 32 Episoden je Zeile (`docs/lehrer.md`, Abschnitt 8; Einzelheiten in
+[Kapitel 14](14-lehrer.md)):
 
-Die letzten veröffentlichten Messungen von `play.onnx` (vor der laufenden Überarbeitung) stehen in
-`docs/lehrer.md`, Abschnitt 8. Die Laufzeittests `micro_duck_plays_with_a_ball_on_its_own` (Ball
-30 cm vor der Ente: gekickt, rollt mehr als 25 cm weg, kein Sturz) und
-`micro_duck_fetches_a_sock_on_its_own` (Socke 30 cm vor der Ente: aufgehoben, mehr als 20 cm
-getragen, abgelegt) prüfen in Studio-Physik, dass nur das Netz entscheidet.
+| | Ball weggekickt | Socke aufgehoben | aufgehoben, weggetragen, ausgespuckt | Griffe, die hielten | Stürze |
+|---|---|---|---|---|---|
+| Netz, sauberer Roboter | 9 von 11 (im Mittel nach 17 s) | 4 von 21 | 1 von 21 | 2 von 14 | 2 von 32 |
+| Netz, volle Variation | 7 von 11 | 13 von 21 | 0 von 21 | 1 von 15 | 10 von 32 |
+
+Die Laufzeittests `micro_duck_plays_with_a_ball_on_its_own` (Ball 30 cm vor der Ente: gekickt, rollt
+mehr als 25 cm weg, kein Sturz) und `micro_duck_goes_for_a_sock_and_bites` (Socke 30 cm vor der Ente:
+hingehen, stehen, aufheben, zubeißen) prüfen in Studio-Physik, dass nur das Netz entscheidet.
 
 ## 13.12 Steuerung im Studio
 
