@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kern game</title>
+<style id="style"></style>
+</head>
+<body>
+<script type="module">
+// Plays a built-in level with the Studio runtime: ?level=orbRun (default), physicsLab, shootingRange, microDuck or basic.
+import {startGame, PLAYER_STYLE, PLAYER_BODY} from "./game.mjs";
+document.getElementById("style").textContent = PLAYER_STYLE;
+document.body.insertAdjacentHTML("afterbegin", PLAYER_BODY);
+const level = new URLSearchParams(location.search).get("level") || "orbRun";
+document.title = {orbRun: "Orb Run", physicsLab: "Physics Lab", shootingRange: "Shooting Range", microDuck: "Micro Duck", basic: "Kern"}[level] || "Kern game";
+startGame({template: level, url: new URL("../../../generated/kern_studio.wasm", import.meta.url)}).catch(e => {
+  const b = document.getElementById("error");
+  b.style.display = "block";
+  b.textContent = "Game failed to start: " + e.message;
+  console.error(e);
+});
+</script>
+</body>
+</html>

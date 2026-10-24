@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Datenschutz · Kern Engine</title>
+<meta name="description" content="Datenschutzerklärung der Website der Kern Engine.">
+<style>
+/* Same tokens as index.html; no web fonts from third-party hosts. */
+:root {
+  --bg: #f3f4f1; --surface: #ffffff; --ink: #161a1d; --muted: #5b646b; --line: #d7dbd6;
+  --accent: #1f6f5c; --accent-ink: #ffffff;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #101315; --surface: #171b1e; --ink: #e8ecea; --muted: #97a19c; --line: #2a3033; --accent: #4fbf9f; --accent-ink: #0d1412; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #101315; --surface: #171b1e; --ink: #e8ecea; --muted: #97a19c; --line: #2a3033; --accent: #4fbf9f; --accent-ink: #0d1412; color-scheme: dark; }
+* { box-sizing: border-box; }
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+.wrap { max-width: 760px; margin: 0 auto; padding-block: 56px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 36px; }
+header { display: grid; gap: 14px; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.eyebrow a { color: inherit; text-decoration: none; }
+.eyebrow a:hover { color: var(--accent); }
+h1 { margin: 0; font: 800 clamp(40px, 8vw, 72px)/.95 var(--display); font-stretch: 112%; letter-spacing: -.02em; }
+h2 { margin: 0 0 10px; font: 600 20px/1.25 var(--display); font-stretch: 112%; }
+section { border-top: 1px solid var(--line); padding-top: 20px; }
+p, address { margin: 0 0 12px; max-width: 68ch; font-style: normal; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+footer { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+footer a { color: var(--muted); }
+ul { margin: 0 0 12px; padding-left: 22px; max-width: 68ch; }
+li { margin-bottom: 6px; }
+code { font: 14px var(--mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow"><a href="./">Kern Engine</a> · Datenschutzerklärung</div>
+    <h1>Datenschutz</h1>
+  </header>
+
+  <section aria-labelledby="verantwortlich">
+    <h2 id="verantwortlich">Verantwortlicher</h2>
+    <p>Verantwortlich für die Verarbeitung personenbezogener Daten auf dieser Website (Art. 4 Nr. 7 DSGVO):</p>
+    <address>
+      Christian Heinrich Hohlfeld<br>
+      Gerhart-Hauptmann-Weg 5<br>
+      78464 Konstanz<br>
+      Deutschland
+    </address>
+    <!-- Kontakt (vor der Veröffentlichung zu ergänzen, wie im Impressum):
+    <p>E-Mail: kontakt@… (vom Inhaber einzutragen)</p>
+    -->
+    <p>Weitere Angaben im <a href="impressum.html">Impressum</a>.</p>
+  </section>
+
+  <section aria-labelledby="kurz">
+    <h2 id="kurz">Das Wichtigste in Kürze</h2>
+    <ul>
+      <li>Diese Website ist eine statische Website. Es gibt keine Benutzerkonten, kein Kontaktformular und keinen Newsletter.</li>
+      <li>Es werden keine Cookies gesetzt, keine Analyse- oder Tracking-Werkzeuge eingesetzt und keine Werbung ausgeliefert.</li>
+      <li>Es werden keine Inhalte von Servern Dritter nachgeladen, auch keine Schriftarten (keine Google Fonts) und keine Skripte aus Content-Delivery-Netzen.</li>
+      <li>Kern Studio, Kern Lehrer und die Spiele laufen vollständig in Ihrem Browser. Ihre Projekte und Einstellungen werden nur auf Ihrem Gerät gespeichert und nicht an mich übermittelt.</li>
+      <li>Beim Aufruf der Website verarbeitet der Hosting-Anbieter GitHub technisch notwendige Verbindungsdaten (siehe unten).</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="hosting">
+    <h2 id="hosting">Hosting bei GitHub Pages</h2>
+    <p>Diese Website wird über GitHub Pages bereitgestellt, einen Dienst der GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, USA, einer Tochtergesellschaft der Microsoft Corporation. Wenn Sie eine Seite, eine Datei (zum Beispiel das WebAssembly-Modul der Engine oder ein Netz für den Micro Duck) oder die Versionsdatei des Editors abrufen, verarbeitet GitHub die dafür technisch notwendigen Daten, insbesondere:</p>
+    <ul>
+      <li>Ihre IP-Adresse,</li>
+      <li>Datum und Uhrzeit des Abrufs,</li>
+      <li>die abgerufene Adresse (URL) und die übertragene Datenmenge,</li>
+      <li>die zuvor besuchte Seite (Referrer), sofern Ihr Browser sie übermittelt,</li>
+      <li>Browsertyp, Browserversion und Betriebssystem (User-Agent).</li>
+    </ul>
+    <p>GitHub verarbeitet diese Daten, um die Website auszuliefern und ihre Sicherheit und Stabilität zu gewährleisten, und speichert dazu Server-Logdateien. Ich selbst habe keinen Zugriff auf diese Logdateien und erhalte keine Besucherstatistiken. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; mein berechtigtes Interesse liegt in der sicheren und zuverlässigen Bereitstellung dieser Website. Einzelheiten zur Verarbeitung und Speicherdauer finden Sie in der <a href="https://docs.github.com/de/site-policy/privacy-policies/github-general-privacy-statement">Datenschutzerklärung von GitHub</a>.</p>
+    <p><b>Übermittlung in die USA:</b> Dabei können Daten auf Servern in den USA verarbeitet werden. Für die USA besteht ein Angemessenheitsbeschluss der Europäischen Kommission (EU-US Data Privacy Framework, Beschluss vom 10. Juli 2023) für Unternehmen, die nach diesem Rahmen zertifiziert sind; GitHub ist darunter zertifiziert (Art. 45 DSGVO). Die Zertifizierung können Sie auf <a href="https://www.dataprivacyframework.gov/">dataprivacyframework.gov</a> nachprüfen.</p>
+  </section>
+
+  <section aria-labelledby="lokal">
+    <h2 id="lokal">Speicherung im Browser (Kern Studio, Kern Lehrer)</h2>
+    <p>Die Anwendungen dieser Website speichern Daten ausschließlich lokal in Ihrem Browser, damit die von Ihnen genutzten Funktionen arbeiten können. Diese Daten verlassen Ihr Gerät nicht und werden nicht an mich übermittelt:</p>
+    <ul>
+      <li><b>Local Storage</b> (Kern Studio): die automatische Sicherung des geöffneten Levels, das zuletzt gespeicherte Level, Ihre Einstellungen und die Anordnung der Fenster (Schlüssel <code>kern-studio.*</code>).</li>
+      <li><b>Session Storage</b> (Kern Studio): ein Zähler für Aktualisierungsversuche, der beim Schließen des Tabs gelöscht wird.</li>
+      <li><b>IndexedDB</b> (Kern Lehrer und Kern Studio): im Lehrer trainierte Netze, damit Kern Studio sie auf demselben Gerät verwenden kann (Datenbank <code>kern-lehrer</code>).</li>
+      <li><b>Service Worker und Cache Storage</b> (Kern Studio): eine Kopie der Editor-Seite, der Symbole und des Manifests, damit der Editor als App installiert und offline genutzt werden kann.</li>
+    </ul>
+    <p>Der Editor fragt beim Start und, solange er geöffnet ist, etwa einmal pro Minute die Datei <code>build.json</code> vom Server ab, um eine neuere Version zu erkennen. Dieser Abruf geht wie jeder Seitenabruf an GitHub Pages (siehe oben) und enthält keine Daten aus Ihren Projekten. Dateien, die Sie im Editor öffnen (Levels, Texturen, Klänge), werden nur in Ihrem Browser verarbeitet; Speichern und „Package Game“ legen Dateien auf Ihrem Gerät ab. Die Zwischenablage wird nur genutzt, wenn Sie selbst kopieren oder einfügen.</p>
+    <p>Die Speicherung ist unbedingt erforderlich, damit ich die von Ihnen ausdrücklich gewünschte Funktion (Bearbeiten, Speichern und Offline-Nutzung des Editors) bereitstellen kann; eine Einwilligung ist dafür nach § 25 Abs. 2 Nr. 2 TDDDG nicht erforderlich. Soweit dabei personenbezogene Daten betroffen sein sollten, ist Rechtsgrundlage Art. 6 Abs. 1 lit. b und f DSGVO. Sie können diese Daten jederzeit löschen, indem Sie in Ihrem Browser die Websitedaten für diese Website löschen; dabei gehen nicht exportierte Projekte verloren.</p>
+  </section>
+
+  <section aria-labelledby="mehrspieler">
+    <h2 id="mehrspieler">Mehrspieler</h2>
+    <p>Mehrere Spieler im selben Browser (verschiedene Tabs) werden lokal über den Browser verbunden; dabei werden keine Daten über das Netz übertragen. Eine Verbindung zu einem Mehrspieler-Server (Relay) wird nur aufgebaut, wenn Sie selbst die Adresse eines solchen Servers angeben (Parameter <code>relay=</code> in der Adresse des Spiels). Dann übermittelt Ihr Browser über eine WebSocket-Verbindung Ihre IP-Adresse, den Namen des Spielraums und die Spieldaten (zum Beispiel Eingaben und Positionen) an diesen Server. Verantwortlich für die Verarbeitung dort ist der Betreiber des von Ihnen angegebenen Servers. Ohne eine solche Angabe findet keine Verbindung statt.</p>
+  </section>
+
+  <section aria-labelledby="extern">
+    <h2 id="extern">Links zu anderen Websites</h2>
+    <p>Diese Website verlinkt auf andere Websites, insbesondere auf den Quellcode bei GitHub. Erst wenn Sie einem solchen Link folgen, werden Daten an den Betreiber der verlinkten Website übertragen; dort gilt dessen Datenschutzerklärung.</p>
+  </section>
+
+  <section aria-labelledby="rechte">
+    <h2 id="rechte">Ihre Rechte</h2>
+    <p>Soweit personenbezogene Daten von Ihnen verarbeitet werden, haben Sie nach der DSGVO folgende Rechte:</p>
+    <ul>
+      <li>Auskunft über die verarbeiteten Daten (Art. 15 DSGVO),</li>
+      <li>Berichtigung unrichtiger Daten (Art. 16 DSGVO),</li>
+      <li>Löschung (Art. 17 DSGVO),</li>
+      <li>Einschränkung der Verarbeitung (Art. 18 DSGVO),</li>
+      <li>Datenübertragbarkeit (Art. 20 DSGVO),</li>
+      <li>Widerspruch gegen eine Verarbeitung, die auf Art. 6 Abs. 1 lit. f DSGVO beruht, aus Gründen, die sich aus Ihrer besonderen Situation ergeben (Art. 21 DSGVO).</li>
+    </ul>
+    <p>Bitte beachten Sie, dass ich selbst keine personenbezogenen Daten der Besucher erhalte oder speichere; die Server-Logdateien liegen bei GitHub, die Daten der Anwendungen nur in Ihrem Browser.</p>
+    <p>Sie haben außerdem das Recht, sich bei einer Datenschutz-Aufsichtsbehörde zu beschweren (Art. 77 DSGVO). Zuständig für mich ist der Landesbeauftragte für den Datenschutz und die Informationsfreiheit Baden-Württemberg, Lautenschlagerstraße 20, 70173 Stuttgart, <a href="https://www.baden-wuerttemberg.datenschutz.de/">www.baden-wuerttemberg.datenschutz.de</a>.</p>
+  </section>
+
+  <section aria-labelledby="sonst">
+    <h2 id="sonst">Sonstiges</h2>
+    <p>Sie sind nicht verpflichtet, personenbezogene Daten bereitzustellen; ohne die Verbindungsdaten kann die Website allerdings nicht ausgeliefert werden. Eine automatisierte Entscheidungsfindung einschließlich Profiling (Art. 22 DSGVO) findet nicht statt.</p>
+    <p>Stand: Oktober 2026</p>
+  </section>
+
+  <footer>
+    <span>© 2026 Christian Heinrich Hohlfeld</span>
+    <a href="./">Startseite</a>
+    <a href="impressum.html">Impressum</a>
+    <a href="datenschutz.html" aria-current="page">Datenschutz</a>
+  </footer>
+</div>
+</body>
+</html>

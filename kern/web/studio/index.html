@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#151516">
+<meta name="description" content="Kern Studio: a game engine editor in the browser. Build, play and share games, offline too.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kern">
+<title>Kern Studio</title>
+<link rel="stylesheet" href="./studio.css">
+</head>
+<body>
+<div id="app" class="booting">
+  <header id="titlebar">
+    <div class="brand" title="Kern Studio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h3.2v7.4L14.7 3h4L11.9 10.6 19.2 21h-4.1l-5.4-7.9-1.5 1.6V21H5z"/></svg></div>
+    <nav id="menubar" role="menubar"></nav>
+    <div class="doc-tab"><span id="levelName">Untitled</span><i id="dirtyDot" title="Unsaved changes"></i></div>
+    <div class="spacer"></div>
+    <button id="installBtn" type="button" hidden title="Install Kern Studio as an app (works offline, full screen)">⤓ Install</button>
+    <div id="installHint" hidden role="note">In Safari tap <b>Share</b> ↑ and then <b>Add to Home Screen</b>: Kern Studio then starts full screen like an app and works offline.</div>
+    <div id="fps" class="mono dim"></div>
+  </header>
+
+  <div id="toolbar" role="toolbar">
+    <div class="group">
+      <button class="tb icon" data-ui="save" title="Save (Ctrl+S)" data-icon="save"></button>
+      <button class="tb icon" data-cmd='{"cmd":"undo"}' id="undoBtn" title="Undo (Ctrl+Z)" data-icon="undo"></button>
+      <button class="tb icon" data-cmd='{"cmd":"redo"}' id="redoBtn" title="Redo (Ctrl+Y)" data-icon="redo"></button>
+    </div>
+    <div class="group">
+      <button class="tb add" id="addBtn" title="Place an actor"><span data-icon="plus"></span>Add<span data-icon="caret"></span></button>
+    </div>
+    <div class="group seg" id="tools">
+      <button class="tb icon" data-tool="select" title="Select (Q)" data-icon="cursor"></button>
+      <button class="tb icon" data-tool="translate" title="Move (W)" data-icon="move"></button>
+      <button class="tb icon" data-tool="rotate" title="Rotate (E)" data-icon="rotate"></button>
+      <button class="tb icon" data-tool="scale" title="Scale (R)" data-icon="scale"></button>
+    </div>
+    <div class="group">
+      <button class="tb icon" id="spaceBtn" title="World / local coordinates (Ctrl+`)" data-icon="globe"></button>
+      <div class="snap" title="Grid snap ([ and ])"><button class="tb icon toggle" id="snapGrid" data-icon="grid"></button><select id="gridSize"></select></div>
+      <div class="snap" title="Rotation snap"><button class="tb icon toggle" id="snapRot" data-icon="angle"></button><select id="rotStep"></select></div>
+      <div class="snap" title="Scale snap"><button class="tb icon toggle" id="snapScale" data-icon="scaleSnap"></button><select id="scaleStep"></select></div>
+      <div class="snap" title="Camera speed (wheel while flying)"><span class="tb icon static" data-icon="camera"></span><select id="camSpeed"></select></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="group play" id="playGroup">
+      <button class="tb playbtn" id="playBtn" title="Play in the viewport (Alt+P)"><span data-icon="play"></span></button>
+      <button class="tb icon" id="simBtn" title="Simulate physics (Alt+S)" data-icon="simulate"></button>
+      <button class="tb icon" id="pauseBtn" title="Pause (Pause)" data-icon="pause"></button>
+      <button class="tb icon" id="stepBtn" title="Advance one frame (.)" data-icon="step"></button>
+      <button class="tb icon" id="stopBtn" title="Stop (Esc)" data-icon="stop"></button>
+      <button class="tb icon" id="ejectBtn" title="Eject / possess (F8)" data-icon="eject"></button>
+    </div>
+    <div class="spacer"></div>
+    <div class="group">
+      <button class="tb icon" id="layoutBtn" title="Viewport layout" data-icon="layout"></button>
+      <button class="tb logic" id="logicBtn" data-cmd='{"cmd":"logicOpen","owner":0}' title="Logic: the level's Blueprint-style graph (actors have their own: Details > Logic)"><span data-icon="logic"></span>Logic</button>
+      <button class="tb icon" data-ui="packageGame" title="Package the game as one HTML file" data-icon="package"></button>
+      <button class="tb icon" id="panelsBtn" title="Outliner and Details" data-icon="panels"></button>
+    </div>
+  </div>
+
+  <main id="main">
+    <section id="viewArea">
+      <button id="touchExit" type="button" aria-label="Stop playing">⟵ EXIT</button>
+      <button id="touchPause" type="button" aria-label="Pause">❚❚ PAUSE</button>
+      <canvas id="gl" tabindex="-1"></canvas>
+      <div id="viewports"></div>
+    </section>
+    <div class="splitter v" id="sideSplit"></div>
+    <aside id="side" data-pane="details">
+      <div id="sideTabs" class="tabs" role="tablist">
+        <button class="tab" data-pane="outliner">Outliner</button>
+        <button class="tab active" data-pane="details">Details</button>
+        <button class="tab" data-pane="world">World</button>
+        <div class="spacer"></div>
+        <button class="ph icon" id="sideClose" title="Close" data-icon="close"></button>
+      </div>
+      <section id="outlinerPanel" class="panel">
+        <div class="panel-head"><span>Outliner</span><div class="spacer"></div>
+          <button class="ph icon" id="newFolderBtn" title="New folder for the selection" data-icon="folderPlus"></button>
+        </div>
+        <div class="search"><span data-icon="search"></span><input id="outlinerFilter" placeholder="Search actors" spellcheck="false"></div>
+        <div class="outliner-cols"><span class="c-eye" data-icon="eye"></span><span class="c-name">Label</span><span class="c-type">Type</span></div>
+        <div id="outliner" tabindex="0"></div>
+        <div class="panel-foot" id="outlinerFoot"></div>
+      </section>
+      <div class="splitter h" id="panelSplit"></div>
+      <section id="detailsPanel" class="panel">
+        <div class="panel-head tabs">
+          <button class="tab active" data-tab="details">Details</button>
+          <button class="tab" data-tab="world">World Settings</button>
+        </div>
+        <div id="details" class="props"></div>
+        <div id="worldSettings" class="props" hidden></div>
+      </section>
+    </aside>
+  </main>
+
+  <section id="drawer" hidden>
+    <div class="drawer-head tabs">
+      <button class="tab active" data-dtab="place">Place Actors</button>
+      <button class="tab" data-dtab="textures">Textures</button>
+      <button class="tab" data-dtab="sounds">Sounds</button>
+      <button class="tab" data-dtab="log">Output Log</button>
+      <div class="spacer"></div>
+      <div class="search small"><span data-icon="search"></span><input id="drawerFilter" placeholder="Search" spellcheck="false"></div>
+      <button class="ph icon" id="drawerClose" title="Close (Ctrl+Space)" data-icon="close"></button>
+    </div>
+    <div class="drawer-body">
+      <div id="placePane" class="dpane"></div>
+      <div id="texturePane" class="dpane" hidden></div>
+      <div id="soundPane" class="dpane" hidden></div>
+      <div id="logPane" class="dpane" hidden><div id="log" class="mono"></div></div>
+    </div>
+  </section>
+
+  <footer id="statusbar">
+    <button class="sb" id="drawerBtn" title="Content drawer (Ctrl+Space)"><span data-icon="drawer"></span>Content Drawer</button>
+    <button class="sb" id="logBtn"><span data-icon="log"></span>Output Log</button>
+    <div class="cmdline"><span>Cmd</span><input id="console" placeholder="Enter console command (help)" spellcheck="false" autocomplete="off"></div>
+    <div id="statusText" class="dim"></div>
+    <div class="spacer"></div>
+    <div id="simStats" class="mono dim"></div>
+    <button class="sb icon" id="muteBtn" title="Sound on / off" data-icon="speaker"></button>
+    <div id="meter" title="Output level"><i></i><i></i></div>
+    <div id="selInfo" class="dim"></div>
+    <div id="buildTag" class="mono dim" title="Version"></div>
+    <div id="legalLinks" class="dim" hidden><a href="../impressum.html" target="_blank" rel="noopener">Impressum</a> · <a href="../datenschutz.html" target="_blank" rel="noopener">Datenschutz</a></div>
+  </footer>
+
+  <div id="menuLayer"></div>
+  <div id="dialogLayer"></div>
+  <div id="toast" hidden></div>
+  <div id="engineNotice" role="alert"></div>
+  <div id="splash"><div class="brand big"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h3.2v7.4L14.7 3h4L11.9 10.6 19.2 21h-4.1l-5.4-7.9-1.5 1.6V21H5z"/></svg></div><div>Kern Studio</div><small>Starting the engine</small></div>
+  <input type="file" id="fileOpen" accept=".klevel,.json,application/json" hidden>
+  <input type="file" id="fileTexture" accept="image/png,image/jpeg,image/webp" hidden>
+  <input type="file" id="fileSound" accept="audio/*,.wav,.mp3,.ogg,.oga,.m4a,.aac,.flac,.webm,.opus" hidden>
+</div>
+<script>
+// Kern Studio as an app (Android, iOS, desktop): offline through the service worker, and never an
+// old version. The deployed page carries its build SHA (first comment of the document); every
+// deploy also publishes ./build.json. The page asks for build.json (no-store, unique query: no CDN,
+// HTTP cache or worker can answer) on start, whenever you come back to it, when the network returns
+// and every 60 s. A newer build reloads at once while nothing would be lost (editing, no unsaved
+// changes); otherwise an UPDATE button waits for you (the level is autosaved and offered again).
+(function () {
+  var first = document.firstChild, m = first && first.nodeType === 8 && /BUILD_SHA:([0-9a-f]{7,40})/.exec(first.nodeValue || "");
+  var mine = m && m[1];
+  var online = location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if (online && "serviceWorker" in navigator && mine)
+    navigator.serviceWorker.register("./sw.js", {scope: "./", updateViaCache: "none"}).catch(function () {});
+  // The deployed editor (site/editor/) links the site's Impressum and Datenschutz one level up.
+  if (mine) { var legal = document.getElementById("legalLinks"); if (legal) legal.hidden = false; }
+  if (!mine) return;  // a local or development build: no version checks
+  var pending = null, reloading = false, lastCheck = 0, pill = null;
+  function studio() { return window.KernStudio; }
+  function safe() {
+    var k = studio();
+    if (!k) return true;  // still loading
+    try { return k.status && k.status.play === "editing" && !k.engine.dirty(); } catch (e) { return false; }
+  }
+  function tag(sha) {
+    var el = document.getElementById("buildTag");
+    if (!el) return;
+    el.textContent = "v " + mine.slice(0, 7) + (sha && sha !== mine ? " · new " + sha.slice(0, 7) : "");
+    el.title = sha && sha !== mine ? "A newer version is online" : "Up to date";
+    el.classList.toggle("newer", !!(sha && sha !== mine));
+  }
+  function fresh(sha) {
+    if (reloading) return;
+    // Loop guard: if the CDN still serves the old page after two reloads, wait for a click.
+    var key = "kernUpdateTries:" + sha, tries = 0;
+    try { tries = +sessionStorage.getItem(key) || 0; sessionStorage.setItem(key, String(tries + 1)); } catch (e) {}
+    if (tries >= 2) { showPill(); return; }
+    reloading = true;
+    window.__kernReloadForUpdate = true;
+    var jobs = [];
+    try { if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations)
+      jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.update().catch(function () {}); })); })); } catch (e) {}
+    Promise.race([Promise.all(jobs), new Promise(function (r) { setTimeout(r, 1500); })]).then(function () {
+      var u = new URL(location.href);
+      u.searchParams.set("v", sha.slice(0, 12));
+      location.replace(u.toString());
+    });
+  }
+  function showPill() {
+    if (pill && pill.isConnected) { if (Date.now() - (+pill.dataset.later || 0) > 600000) pill.hidden = false; return; }
+    pill = document.createElement("div");
+    pill.id = "updatePill";
+    pill.setAttribute("role", "status");
+    pill.innerHTML = '<span>New version available</span><button type="button" data-u="go">Update</button><button type="button" data-u="later" class="ghost">Later</button>';
+    pill.addEventListener("pointerdown", function (e) { e.stopPropagation(); }, true);
+    pill.addEventListener("click", function (e) {
+      var b = e.target.closest && e.target.closest("[data-u]");
+      if (!b) return;
+      e.preventDefault();
+      if (b.dataset.u === "later") { pill.hidden = true; pill.dataset.later = String(Date.now()); return; }
+      if (!pending) return;
+      try { sessionStorage.removeItem("kernUpdateTries:" + pending); } catch (_) {}
+      fresh(pending);
+    });
+    document.body.appendChild(pill);
+  }
+  function seen(sha, reason) {
+    tag(sha);
+    if (!sha || sha === mine) return;
+    pending = sha;
+    if (safe() && (reason === "load" || reason === "resume" || reason === "interval")) fresh(sha);
+    else showPill();
+  }
+  function check(reason) {
+    var now = Date.now();
+    if (reason !== "load" && reason !== "resume" && now - lastCheck < 10000) return;
+    lastCheck = now;
+    fetch("./build.json?t=" + now, {cache: "no-store", credentials: "same-origin"})
+      .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+      .then(function (j) { seen(String((j && j.sha) || ""), reason); })
+      .catch(function () {});
+  }
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") check("resume"); });
+  window.addEventListener("pageshow", function (e) { if (e.persisted) check("resume"); });
+  window.addEventListener("focus", function () { check("focus"); });
+  window.addEventListener("online", function () { check("resume"); });
+  setInterval(function () { check("interval"); }, 60000);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { tag(null); check("load"); });
+  else { tag(null); check("load"); }
+})();
+
+// Install as an app: Chrome / Edge / Android get the browser's own prompt; iOS has no API, so the
+// button explains the two taps (Share, Add to Home Screen). Hidden when already installed.
+(function () {
+  var standalone = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone === true;
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (/macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  var deferred = null;
+  function button() { return document.getElementById("installBtn"); }
+  function sync() { var b = button(); if (b) b.hidden = standalone || !(deferred || ios); }
+  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); deferred = e; sync(); });
+  window.addEventListener("appinstalled", function () { standalone = true; deferred = null; sync(); });
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("#installBtn");
+    var hint = document.getElementById("installHint");
+    if (!b) { if (hint) hint.hidden = true; return; }
+    e.preventDefault();
+    if (deferred) { deferred.prompt(); deferred.userChoice.finally(function () { deferred = null; sync(); }); return; }
+    if (ios && hint) hint.hidden = !hint.hidden;
+  });
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", sync); else sync();
+})();
+</script>
+<script type="module">
+import {startStudio} from "./studio.mjs";
+startStudio({url: new URL("../../../generated/kern_studio.wasm", import.meta.url)}).catch(error => {
+  const n = document.getElementById("engineNotice");
+  n.style.display = "block";
+  n.textContent = "Kern Studio failed to start: " + error.message;
+  console.error(error);
+});
+</script>
+</body>
+</html>
